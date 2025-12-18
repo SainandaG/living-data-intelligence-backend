@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Transform database schemas into interactive 3D visualizations with real-time transaction flow monitoring">
+    <meta name="keywords" content="data visualization, database, 3D graph, real-time analytics">
+    <title>Living Data Intelligence Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+
+<body>
+    <!-- Connection Modal -->
+    <div id="connectionModal" class="modal">
+        <div class="modal-content">
+            <h2>Connect to Database</h2>
+            <form id="connectionForm">
+                <div class="form-group">
+                    <label for="dbType">Database Type</label>
+                    <select id="dbType" required>
+                        <option value="postgresql">PostgreSQL</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="mongodb">MongoDB</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="host">Host</label>
+                    <input type="text" id="host" value="localhost" required>
+                </div>
+                <div class="form-group">
+                    <label for="port">Port</label>
+                    <input type="number" id="port" value="5432" required>
+                </div>
+                <div class="form-group">
+                    <label for="database">Database</label>
+                    <input type="text" id="database" required>
+                </div>
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Connect</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <h1>🏦 Living Data Intelligence</h1>
+            </div>
+            <div class="header-actions">
+                <button id="demoBtn" class="btn-primary">🎨 Try Demo</button>
+                <button id="connectBtn" class="btn-secondary">Connect Database</button>
+                <div id="connectionStatus" class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Not Connected</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- 3D Visualization Canvas -->
+            <div id="canvasContainer" class="canvas-container">
+                <canvas id="threejs-canvas"></canvas>
+
+                <!-- Loading Overlay -->
+                <div id="loadingOverlay" class="loading-overlay">
+                    <div class="loader"></div>
+                    <p>Analyzing database schema...</p>
+                </div>
+
+                <!-- Controls Hint -->
+                <div class="controls-hint">
+                    <p>🖱️ Left Click + Drag: Rotate</p>
+                    <p>🖱️ Right Click + Drag: Pan</p>
+                    <p>🖱️ Scroll: Zoom</p>
+                </div>
+            </div>
+
+            <!-- Metrics Panel -->
+            <aside id="metricsPanel" class="metrics-panel">
+                <h3>Real-Time Metrics</h3>
+
+                <div class="metric-card">
+                    <div class="metric-label">Transactions/Min</div>
+                    <div class="metric-value" id="transactionRate">0</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Total Transactions</div>
+                    <div class="metric-value" id="totalTransactions">0</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Fraud Alerts</div>
+                    <div class="metric-value alert" id="fraudAlerts">0</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Average Amount</div>
+                    <div class="metric-value" id="averageAmount">$0</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Failed Transactions</div>
+                    <div class="metric-value warning" id="failedTransactions">0</div>
+                </div>
+
+                <div id="selectedNodeInfo" class="node-info hidden">
+                    <h4>Selected Node</h4>
+                    <div id="nodeDetails"></div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Application Scripts -->
+    <script src="/static/js/app.js" type="module"></script>
+    <script src="/static/js/visualization.js" type="module"></script>
+    <script src="/static/js/particle-system.js" type="module"></script>
+</body>
+
+</html>
