@@ -21,6 +21,8 @@ class Column(BaseModel):
     nullable: bool
     default: Optional[str] = None
     max_length: Optional[int] = None
+    is_pk: bool = False
+    is_fk: bool = False
 
 class ForeignKey(BaseModel):
     column: str
@@ -29,7 +31,7 @@ class ForeignKey(BaseModel):
 
 class Table(BaseModel):
     name: str
-    schema: Optional[str] = None
+    schema_name: Optional[str] = None
     columns: List[Column]
     primary_keys: List[str]
     foreign_keys: List[ForeignKey]
@@ -59,6 +61,7 @@ class GraphNode(BaseModel):
     color: str
     row_count: int
     metrics: List[str]
+    columns: Optional[List[Column]] = None
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None

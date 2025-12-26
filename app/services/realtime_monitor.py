@@ -1,5 +1,4 @@
 from app.services.db_connector import db_connector
-from app.services.graph_intelligence import graph_intelligence
 from app.services.anomaly_detector import anomaly_detector
 from datetime import datetime
 import random
@@ -22,8 +21,8 @@ class RealtimeMonitor:
                 'active_connections': 1
             }
             
-            # Analyze graph health
-            health_status = graph_intelligence.analyze_graph_health(connection_id, metrics)
+            # Analyze graph health (Internal Logic)
+            health_status = self._analyze_graph_health(metrics)
             
             # Detect anomalies
             anomalies = anomaly_detector.detect_anomalies(connection_id, metrics)
@@ -60,6 +59,53 @@ class RealtimeMonitor:
                 'message': str(e),
                 'timestamp': datetime.now().isoformat()
             }
+
+    def _analyze_graph_health(self, metrics: dict) -> dict:
+        """Internal logic to analyze system health based on metrics"""
+        health_score = 100
+        issues = []
+        
+        # Check transaction rate
+        tx_rate = metrics.get('transaction_rate', 0)
+        if tx_rate > 1200:
+            health_score -= 20
+            issues.append("High transaction load")
+        elif tx_rate < 100:
+            health_score -= 10
+            issues.append("Low activity")
+        
+        # Check fraud alerts
+        fraud_alerts = metrics.get('fraud_alerts', 0)
+        if fraud_alerts > 5:
+            health_score -= 30
+            issues.append(f"Critical: {fraud_alerts} fraud alerts")
+        elif fraud_alerts > 0:
+            health_score -= 10
+            issues.append(f"Warning: {fraud_alerts} fraud alerts")
+        
+        # Check failed transactions
+        failed_tx = metrics.get('failed_transactions', 0)
+        if failed_tx > 30:
+            health_score -= 25
+            issues.append("High failure rate")
+        
+        # Determine state
+        if health_score >= 80:
+            state = "healthy"
+            color = "#00ff88"
+        elif health_score >= 50:
+            state = "stressed"
+            color = "#ffd60a"
+        else:
+            state = "anomalous"
+            color = "#ff4757"
+            
+        return {
+            'state': state,
+            'score': max(0, health_score),
+            'color': color,
+            'issues': issues
+        }
 
 # Global instance
 realtime_monitor = RealtimeMonitor()

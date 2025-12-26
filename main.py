@@ -8,7 +8,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-from app.api import database, schema, graph, metrics, demo
+from app.api import database, schema, graph, metrics, drilldown, hierarchy, ai, data_explorer, data_flow, chat
 from app.services.connection_manager import ConnectionManager
 
 load_dotenv()
@@ -33,10 +33,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    print(f"🔥 GLOBAL ERROR: {exc}")
+    traceback.print_exc()
+    return HTTPException(status_code=500, detail=str(exc))
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,7 +59,12 @@ app.include_router(database.router, prefix="/api", tags=["database"])
 app.include_router(schema.router, prefix="/api", tags=["schema"])
 app.include_router(graph.router, prefix="/api", tags=["graph"])
 app.include_router(metrics.router, prefix="/api", tags=["metrics"])
-app.include_router(demo.router, prefix="/api", tags=["demo"])
+app.include_router(drilldown.router, prefix="/api", tags=["drilldown"])
+app.include_router(hierarchy.router, prefix="/api", tags=["hierarchy"])
+app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
+app.include_router(data_explorer.router, prefix="/api", tags=["data"])
+app.include_router(data_flow.router, prefix="/api", tags=["data-flow"])
+app.include_router(chat.router, prefix="/api", tags=["chat"])
 
 # WebSocket endpoint for real-time updates
 @app.websocket("/ws/{connection_id}")
@@ -78,7 +95,7 @@ async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8001))
     host = os.getenv("HOST", "0.0.0.0")
     
     print(f"🌐 Server starting on http://{host}:{port}")

@@ -52,20 +52,28 @@ copy .env.example .env
 
 ## 🚀 Running the Application
 
-### Start the server
+For the **High Fidelity** experience (React + 3D Visuals), you need to run both the backend and frontend.
 
+### 1. Start the Backend Server (Terminal 1)
 ```bash
 python main.py
 ```
+Backend will be available on `http://localhost:8000`.
 
-The application will start on `http://localhost:8000`
+### 2. Start the Frontend (Terminal 2)
+```bash
+cd frontend
+npm run dev
+```
+The **High Fidelity UI** will be available on **`http://localhost:5173`**.
 
-### Access the platform
+---
 
-1. Open your browser to `http://localhost:8000`
-2. Click "Connect Database"
-3. Enter your database credentials
-4. Watch as your database schema transforms into a living 3D visualization!
+### 📊 Quick Start Guide
+1. Open **`http://localhost:5173`** in your browser.
+2. Click **"Connect DB"** in the header.
+3. Use your database credentials to initiate the AI analysis.
+4. Explore the 3D Network and use the **Drill Down** feature to see table internals.
 
 ## 🎨 Technology Stack
 

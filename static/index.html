@@ -4,137 +4,286 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description"
-        content="Transform database schemas into interactive 3D visualizations with real-time transaction flow monitoring">
-    <meta name="keywords" content="data visualization, database, 3D graph, real-time analytics">
-    <title>Living Data Intelligence Platform</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    <title>Living Data Intelligence - 3D Network</title>
+    <!-- Fonts and Three.js -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Styles -->
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 
 <body>
-    <!-- Connection Modal -->
-    <div id="connectionModal" class="modal">
-        <div class="modal-content">
-            <h2>Connect to Database</h2>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar glass-card">
+            <div class="logo-area">
+                <div class="logo-icon">🧬</div>
+            </div>
+
+            <div class="nav-items">
+                <div class="sidebar-item active" data-view="dashboard" title="Overview">
+                    <div class="icon">📊</div>
+                </div>
+                <div class="sidebar-item" data-view="graph" title="3D Graph Explorer">
+                    <div class="icon">🕸️</div>
+                </div>
+                <div class="sidebar-item" data-view="ai" title="AI Analyst">
+                    <div class="icon">🤖</div>
+                </div>
+                <div class="sidebar-item" data-view="settings" title="System Settings">
+                    <div class="icon">⚙️</div>
+                </div>
+            </div>
+
+            <div class="user-profile">
+                <div class="avatar">👤</div>
+            </div>
+        </nav>
+
+        <!-- Main Content Slider -->
+        <main class="content-viewport">
+            <div id="main-content-slider" class="content-slider">
+
+                <!-- View 1: Dashboard (Bubbles) -->
+                <section id="dashboard-view" class="view-panel">
+                    <div class="view-header glass-card">
+                        <div class="brand-info">
+                            <span class="view-tag">SYSTEM OVERVIEW</span>
+                            <h2>Living Intelligence Network</h2>
+                        </div>
+                        <div id="breadcrumb" class="breadcrumb" style="display:none;"></div>
+                        <button class="modern-btn btn-gradient" id="connectBtn">
+                            <span>🔌</span> Connect Intelligence
+                        </button>
+                    </div>
+
+                    <div id="circlePacking" class="viz-container"></div>
+
+                    <!-- Floating Overlays -->
+                    <div class="dashboard-overlays">
+                        <div class="glass-card hero-stat">
+                            <div class="stat-badge">
+                                <div class="pulse-indicator"></div> LIVE DATA
+                            </div>
+                            <div class="mega-number" id="totalRows">5.01B</div>
+                            <div class="stat-label">Total Records Analyzed</div>
+                        </div>
+
+                        <div class="glass-card metrics-grid">
+                            <div class="metric-item">
+                                <span class="metric-name">TPS</span>
+                                <div class="metric-value" id="tps">342</div>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-name">Fraud</span>
+                                <div class="metric-value" id="fraudAlerts">8</div>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-name">Avg Amount</span>
+                                <div class="metric-value" id="avgAmount">$1.2K</div>
+                            </div>
+                            <div class="metric-item">
+                                <span class="metric-name">Failed</span>
+                                <div class="metric-value" id="failedTx">2</div>
+                            </div>
+                        </div>
+
+                        <div class="glass-card legend-panel" id="dashboardLegend">
+                            <div class="legend-title">Entities</div>
+                            <div class="legend-items" id="legendItems">
+                                <!-- Populated via JS -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- View 2: 3D Graph -->
+                <section id="graph-view" class="view-panel">
+                    <div class="view-header glass-card">
+                        <div class="brand-info">
+                            <span class="view-tag">3D ANALYSIS</span>
+                            <h2>Relational Deep-Dive</h2>
+                        </div>
+                        <button class="modern-btn btn-glass" id="backBtn">
+                            <span>⬅</span> Back to Overview
+                        </button>
+                    </div>
+
+                    <div id="graphView" class="viz-container">
+                        <div id="threejs-canvas"></div>
+                    </div>
+
+                    <!-- Node Details Panel (Reference Style) -->
+                    <div class="node-details glass-card" id="selectedNodeInfo" style="display:none;">
+                        <div class="node-header">
+                            <div class="node-title" id="nodeTitleDisplay">Table Name</div>
+                            <button class="close-button"
+                                onclick="this.closest('.node-details').style.display='none'">×</button>
+                        </div>
+
+                        <div class="detail-section">
+                            <div class="detail-label">Entity Type</div>
+                            <div class="detail-value" id="nodeEntityType">dimension</div>
+                        </div>
+
+                        <div class="detail-section">
+                            <div class="detail-label">Record Count</div>
+                            <div class="detail-value" id="nodeRecordCount">50K</div>
+                        </div>
+
+                        <div class="detail-section">
+                            <div class="detail-label">Schema Columns</div>
+                            <div class="tags-container" id="nodeTagsDisplay">
+                                <!-- Tags here -->
+                            </div>
+                        </div>
+
+                        <div class="detail-section" style="margin-top: 30px;">
+                            <button class="modern-btn btn-gradient" style="width:100%; justify-content:center;"
+                                id="drilldownBtn">
+                                <span>🔍</span> Explore Internal Structure
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- View 3: AI Analyst -->
+                <section id="ai-view" class="view-panel">
+                    <div class="ai-container glass-card" style="height: 80vh; margin: 40px auto; max-width: 900px;">
+                        <div class="chat-header" style="padding: 20px; border-bottom: 1px solid var(--glass-border);">
+                            <h2 style="font-weight: 800;">🤖 Agentic Analyst</h2>
+                        </div>
+                        <div class="chat-history" id="aiChatHistory" style="padding: 30px;">
+                            <div class="msg ai">Database connection established. I am ready to analyze relationships and
+                                anomalies.</div>
+                        </div>
+                        <div class="chat-input-area" style="padding: 20px; margin: 20px;">
+                            <input type="text" placeholder="Query the graph AI..." id="aiInput">
+                            <button class="modern-btn btn-gradient">Deep Analysis</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- View 4: Settings -->
+                <section id="settings-view" class="view-panel">
+                    <div class="settings-container glass-card" style="margin: 40px auto;">
+                        <h2 style="font-weight: 900; margin-bottom: 30px;">⚙️ Intelligence Settings</h2>
+                        <div class="setting-group">
+                            <label>Neural Link Sensitivity</label>
+                            <input type="range" min="0" max="100" value="75" style="width:100%;">
+                        </div>
+                        <div class="setting-group">
+                            <label>RL Layout Optimization</label>
+                            <button class="modern-btn btn-glass" style="width:100%; justify-content:center;">Retrain
+                                Layout Engine</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Circle Pack Overlay (Drilldown) -->
+    <div id="circle-pack-overlay">
+        <div class="circle-pack-header glass-card">
+            <div class="view-tag">STRUCTURE EXPLORER</div>
+            <h1 id="drilldownTitle" style="font-size: 32px; font-weight: 900; margin-bottom: 10px;">Table</h1>
+            <p id="drilldownSubtitle" style="opacity: 0.7; font-weight: 600; margin-bottom: 25px;">Internal
+                Relationships</p>
+
+            <div class="info-grid" style="display:grid; gap:12px;">
+                <div class="glass-card" style="padding: 15px; background: rgba(102,126,234,0.1);">
+                    <div class="detail-label">Columns</div>
+                    <div class="detail-value" id="drilldownColCount">0</div>
+                </div>
+                <div class="glass-card" style="padding: 15px; background: rgba(34,211,238,0.1);">
+                    <div class="detail-label">Primary Keys</div>
+                    <div class="detail-value" id="drilldownPKCount">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="drilldownContainer"></div>
+
+        <button class="circle-pack-close" id="closeDrilldown">×</button>
+    </div>
+
+    <!-- View 3: AI Analyst -->
+    <section id="ai-view" class="view-panel">
+        <div class="ai-container glass-card">
+            <div class="chat-header">
+                <h2>🤖 Agentic Analyst</h2>
+                <span class="status-badge">Online</span>
+            </div>
+            <div class="chat-history" id="aiChatHistory">
+                <div class="msg ai">Hello. I am analyzing the live graph data. Ask me anything.</div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" placeholder="Ask about anomalies..." id="aiInput">
+                <button class="modern-btn btn-gradient">Send</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- View 4: Settings -->
+    <section id="settings-view" class="view-panel">
+        <div class="settings-container glass-card">
+            <h2>⚙️ System Intelligence</h2>
+            <div class="setting-group">
+                <label>Anomaly Detection Sensitivity (RL Optimized)</label>
+                <input type="range" min="0" max="100" value="75">
+            </div>
+            <div class="setting-group">
+                <label>Agent Scan Interval</label>
+                <select class="modern-select">
+                    <option>Real-time (Aggressive)</option>
+                    <option selected>Standard (5s)</option>
+                    <option>Passive (1min)</option>
+                </select>
+            </div>
+        </div>
+    </section>
+
+    </div>
+    </main>
+    </div>
+
+    <!-- Global Modals -->
+    <div id="connectionModal" class="modal hidden">
+        <div class="glass-card modal-content" style="padding: 40px; width: 400px;">
+            <h2 style="color:white;">Connect Database</h2>
             <form id="connectionForm">
-                <div class="form-group">
-                    <label for="dbType">Database Type</label>
-                    <select id="dbType" required>
+                <div class="form-group"><label>DB Type</label><select id="dbType">
                         <option value="postgresql">PostgreSQL</option>
                         <option value="mysql">MySQL</option>
                         <option value="mongodb">MongoDB</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="host">Host</label>
-                    <input type="text" id="host" value="localhost" required>
-                </div>
-                <div class="form-group">
-                    <label for="port">Port</label>
-                    <input type="number" id="port" value="5432" required>
-                </div>
-                <div class="form-group">
-                    <label for="database">Database</label>
-                    <input type="text" id="database" required>
-                </div>
-                <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" required>
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary">Connect</button>
+                    </select></div>
+                <div class="form-group"><label>Host</label><input type="text" id="host" value="localhost"></div>
+                <div class="form-group"><label>Port</label><input type="text" id="port" value="5432"></div>
+                <div class="form-group"><label>Database</label><input type="text" id="database" value="postgres"></div>
+                <div class="form-group"><label>Username</label><input type="text" id="username" value="postgres"></div>
+                <div class="form-group"><label>Password</label><input type="password" id="password"></div>
+                <div class="btn-group" style="display:flex; gap:10px; margin-top:20px;">
+                    <button type="button" id="cancelBtn" class="modern-btn btn-glass" style="flex:1;">Cancel</button>
+                    <button type="submit" class="modern-btn btn-gradient" style="flex:1;">Connect</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Main Container -->
-    <div id="app">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo">
-                <h1>🏦 Living Data Intelligence</h1>
-            </div>
-            <div class="header-actions">
-                <button id="demoBtn" class="btn-primary">🎨 Try Demo</button>
-                <button id="connectBtn" class="btn-secondary">Connect Database</button>
-                <div id="connectionStatus" class="status-indicator">
-                    <span class="status-dot"></span>
-                    <span class="status-text">Not Connected</span>
-                </div>
-            </div>
-        </header>
+    <script type="module">
+        import { App } from '/static/js/app.js?v=2';
+        import { UIManager } from '/static/js/ui-manager.js?v=2';
 
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- 3D Visualization Canvas -->
-            <div id="canvasContainer" class="canvas-container">
-                <canvas id="threejs-canvas"></canvas>
+        // Init UI
+        window.ui = new UIManager();
 
-                <!-- Loading Overlay -->
-                <div id="loadingOverlay" class="loading-overlay">
-                    <div class="loader"></div>
-                    <p>Analyzing database schema...</p>
-                </div>
-
-                <!-- Controls Hint -->
-                <div class="controls-hint">
-                    <p>🖱️ Left Click + Drag: Rotate</p>
-                    <p>🖱️ Right Click + Drag: Pan</p>
-                    <p>🖱️ Scroll: Zoom</p>
-                </div>
-            </div>
-
-            <!-- Metrics Panel -->
-            <aside id="metricsPanel" class="metrics-panel">
-                <h3>Real-Time Metrics</h3>
-
-                <div class="metric-card">
-                    <div class="metric-label">Transactions/Min</div>
-                    <div class="metric-value" id="transactionRate">0</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-label">Total Transactions</div>
-                    <div class="metric-value" id="totalTransactions">0</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-label">Fraud Alerts</div>
-                    <div class="metric-value alert" id="fraudAlerts">0</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-label">Average Amount</div>
-                    <div class="metric-value" id="averageAmount">$0</div>
-                </div>
-
-                <div class="metric-card">
-                    <div class="metric-label">Failed Transactions</div>
-                    <div class="metric-value warning" id="failedTransactions">0</div>
-                </div>
-
-                <div id="selectedNodeInfo" class="node-info hidden">
-                    <h4>Selected Node</h4>
-                    <div id="nodeDetails"></div>
-                </div>
-            </aside>
-        </div>
-    </div>
-
-    <!-- Three.js Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-    <!-- Application Scripts -->
-    <script src="/static/js/app.js" type="module"></script>
-    <script src="/static/js/visualization.js" type="module"></script>
-    <script src="/static/js/particle-system.js" type="module"></script>
+        // Init App (Logic)
+        const app = new App();
+        window.app = app; // For debugging
+    </script>
 </body>
 
 </html>
