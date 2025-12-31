@@ -1,0 +1,240 @@
+/* Drill-Down Panel Styles */
+.drill-down-panel {
+    position: fixed;
+    right: 370px;
+    top: 90px;
+    bottom: 20px;
+    width: 600px;
+    background: rgba(21, 27, 46, 0.95);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 212, 255, 0.2);
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease;
+}
+
+.drill-down-panel.hidden {
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.drill-down-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.drill-down-header h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    margin: 0;
+}
+
+.close-drill-down {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 28px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.close-drill-down:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.drill-down-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.drill-down-controls {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    gap: 10px;
+}
+
+.drill-down-controls input,
+.drill-down-controls select {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.drill-down-controls button {
+    padding: 8px 20px;
+    font-size: 14px;
+}
+
+.drill-down-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.records-table-container {
+    overflow-x: auto;
+    margin-bottom: 15px;
+}
+
+.records-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.records-table thead {
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    z-index: 10;
+}
+
+.records-table th {
+    padding: 12px 10px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    border-bottom: 2px solid var(--glass-border);
+    white-space: nowrap;
+}
+
+.records-table td {
+    padding: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.records-table tbody tr:hover {
+    background: rgba(0, 212, 255, 0.05);
+}
+
+.record-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    margin: 10px 0;
+}
+
+.placeholder {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 20px;
+    font-size: 14px;
+}
+
+.error {
+    color: var(--accent-red);
+    text-align: center;
+    padding: 20px;
+}
+
+/* Legend Panel for Fact/Dimension */
+.legend-panel {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 15px 20px;
+    z-index: 900;
+}
+
+.legend-panel h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    margin: 0 0 10px 0;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.legend-dot.fact {
+    background: linear-gradient(135deg, #00ff88, #00d4ff);
+}
+
+.legend-dot.dimension {
+    background: linear-gradient(135deg, #9d4edd, #ff6b9d);
+}
+
+.legend-dot.hub {
+    background: #ffffff;
+}
+
+/* Entity Color Legend */
+.entity-legend {
+    position: fixed;
+    top: 90px;
+    left: 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 900;
+}
+
+.entity-legend h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    margin: 0 0 12px 0;
+}
+
+.entity-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.entity-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
