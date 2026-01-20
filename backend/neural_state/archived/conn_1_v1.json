@@ -1,0 +1,15 @@
+{
+  "connection_id": "conn_1",
+  "database_type": "unknown",
+  "schema_name": "unknown",
+  "nodes": {},
+  "edges": {},
+  "current_time_window": "last_1h",
+  "active_anomalies": [],
+  "session": null,
+  "total_interactions": 40,
+  "total_rewards": 0.0,
+  "learning_epoch": 0,
+  "last_updated": "2025-12-29T13:08:29.214912",
+  "state_version": 1
+}

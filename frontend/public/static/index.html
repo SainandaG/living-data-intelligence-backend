@@ -1,0 +1,4517 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Living Data Intelligence - 3D Network + Drilldown</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // API Configuration - Configure backend endpoint
+        // By default, use the same host that serves this page
+        window.API_BASE = window.location.protocol + '//' + window.location.host;
+
+        // For development: If backend runs on a different port, uncomment and configure:
+        // window.API_BASE = 'http://localhost:8001';
+
+        // Feature Flags
+        window.ENABLE_DEMO_MODE = false;  // Set to true to enable demo mode
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Circle Pack Overlay (Drilldown) */
+        #circle-pack-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 32, 39, 0.95);
+            backdrop-filter: blur(30px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        #circle-pack-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #circle-pack-container {
+            position: relative;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            background: rgba(255, 255, 255, 0.12);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 15px 30px;
+            max-width: 95%;
+        }
+
+        .header:hover {
+            transform: translateX(-50%) translateY(0) !important;
+        }
+
+        .logo-modern {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+            flex-shrink: 0;
+        }
+
+        .brand-info {
+            flex: 1;
+        }
+
+        .brand-info h1 {
+            font-size: 20px;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 3px;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-info p {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        /* Search Bar Styles - Modern & Glassmorphic */
+        .search-container {
+            position: relative;
+            margin-right: 15px;
+        }
+
+        .search-input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 10px 16px 10px 40px;
+            color: white;
+            font-size: 13px;
+            width: 200px;
+            transition: all 0.3s ease;
+            outline: none;
+            backdrop-filter: blur(10px);
+        }
+
+        .search-input:focus {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.4);
+            width: 240px;
+            box-shadow: 0 0 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255, 255, 255, 0.5);
+            pointer-events: none;
+        }
+
+        /* Health & Anomaly Styles */
+        .health-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-right: 10px;
+        }
+
+        .health-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #22d399;
+            /* Default to Healthy */
+            box-shadow: 0 0 10px #22d399;
+            transition: all 0.3s ease;
+        }
+
+        .health-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mode-indicator {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mode-indicator.demo {
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid rgba(251, 191, 36, 0.4);
+            color: #fbbf24;
+        }
+
+        .mode-indicator.live {
+            background: rgba(34, 211, 153, 0.2);
+            border: 1px solid rgba(34, 211, 153, 0.4);
+            color: #22d399;
+        }
+
+        .modern-btn {
+            padding: 10px 22px;
+            border-radius: 12px;
+            border: none;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .modern-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Active State (Cyan Glow) - For Enabled Toggle */
+        .btn-glass.btn-active {
+            background: rgba(34, 211, 238, 0.15);
+            border: 1px solid #22d3ee;
+            color: #22d3ee;
+            box-shadow: 0 0 15px rgba(34, 211, 238, 0.2);
+        }
+
+        /* Dim State (Gray) - For Disabled Toggle */
+        .btn-glass.btn-dim {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid #475569;
+            color: #94a3b8;
+        }
+
+        /* Action Button (Purple) - For Re-Calc */
+        .btn-glass.btn-action {
+            border-color: rgba(167, 139, 250, 0.5);
+            color: #e2e8f0;
+        }
+
+        .btn-glass.btn-action:hover {
+            border-color: #a78bfa;
+            color: #a78bfa;
+            background: rgba(167, 139, 250, 0.1);
+        }
+
+        .btn-gradient {
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+            color: white;
+        }
+
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-glass {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-glass:hover {
+            background: rgba(255, 255, 255, 0.22);
+            transform: translateY(-2px);
+        }
+
+        /* Stats Dashboard */
+        .stats-dashboard {
+            position: fixed;
+            top: 90px;
+            right: 20px;
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .hero-stat {
+            padding: 20px;
+        }
+
+        .stat-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 15px;
+            background: rgba(34, 211, 238, 0.15);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 25px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #22d3ee;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 18px;
+        }
+
+        .pulse-indicator {
+            width: 7px;
+            height: 7px;
+            background: #22d3ee;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #22d3ee;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .mega-number {
+            font-size: 36px;
+            font-weight: 900;
+            color: #fff;
+            line-height: 1;
+            margin-bottom: 8px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.65);
+            font-weight: 600;
+        }
+
+        .stat-trend {
+            margin-top: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #22d3ee;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            padding: 16px;
+        }
+
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metric-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-icon {
+            font-size: 18px;
+            opacity: 0.8;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 900;
+            line-height: 1;
+            color: #fff;
+        }
+
+        .metric-change {
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .positive {
+            color: #22d3ee;
+        }
+
+        .negative {
+            color: #f87171;
+        }
+
+        .warning {
+            color: #fbbf24;
+        }
+
+        .health-card {
+            padding: 16px;
+        }
+
+        .health-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.85);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .health-items {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .health-item {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .health-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .health-name {
+            color: rgba(255, 255, 255, 0.75);
+            font-weight: 600;
+        }
+
+        .health-value {
+            font-weight: 700;
+            color: #22d3ee;
+        }
+
+        .progress-track {
+            height: 8px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-fill.cyan {
+            background: linear-gradient(90deg, #06b6d4 0%, #22d3ee 100%);
+        }
+
+        .progress-fill.yellow {
+            background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);
+        }
+
+        /* Legend Panel */
+        .legend-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            margin: 0 auto;
+            padding: 12px 20px;
+            width: fit-content;
+            max-width: 90%;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            will-change: auto;
+        }
+
+        .legend-title {
+            font-size: 11px;
+            font-weight: 800;
+            margin-bottom: 0;
+            margin-right: 16px;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .legend-items {
+            display: flex;
+            flex-direction: row;
+            gap: 16px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: default;
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: none !important;
+        }
+
+        .legend-item:hover {
+            background: transparent !important;
+            transform: none !important;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            box-shadow: 0 0 12px currentColor;
+            flex-shrink: 0;
+        }
+
+        .legend-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Node Details Panel */
+        .node-details {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.95);
+            width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 38px;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .node-details.visible {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 28px;
+        }
+
+        .node-title {
+            font-size: 30px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .close-button {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            color: white;
+            font-size: 22px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: rotate(90deg);
+        }
+
+        .detail-section {
+            margin-bottom: 24px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: rgba(255, 255, 255, 0.55);
+            margin-bottom: 10px;
+        }
+
+        .detail-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .tag {
+            padding: 10px 18px;
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            border-radius: 25px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #a5b4fc;
+        }
+
+        .connection-section {
+            margin-top: 15px;
+        }
+
+        .connection-item {
+            margin-bottom: 18px;
+        }
+
+        .connection-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /* Controls Hint */
+        .controls-hint {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 16px 32px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 40px;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.85);
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Circle Pack Specific Styles */
+        #circle-pack-svg {
+            border-radius: 20px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+            cursor: pointer;
+        }
+
+        .circle-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 2500;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Circle Pack Header */
+        .circle-pack-header {
+            position: fixed;
+            top: 50%;
+            left: 50px;
+            transform: translateY(-50%);
+            z-index: 2100;
+            padding: 30px;
+            max-width: 350px;
+        }
+
+        .circle-pack-title {
+            font-size: 36px;
+            font-weight: 900;
+            color: #fff;
+            margin-bottom: 12px;
+            line-height: 1.1;
+        }
+
+        .circle-pack-subtitle {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 600;
+            margin-bottom: 25px;
+        }
+
+        .circle-pack-info {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 18px;
+            background: rgba(102, 126, 234, 0.15);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            border-radius: 12px;
+        }
+
+        .info-icon {
+            font-size: 24px;
+        }
+
+        .info-text {
+            flex: 1;
+        }
+
+        .info-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 700;
+        }
+
+        .info-value {
+            font-size: 20px;
+            font-weight: 900;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        /* Close Button for Circle Pack */
+        .circle-pack-close {
+            position: fixed;
+            top: 50%;
+            right: 50px;
+            transform: translateY(-50%);
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 36px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.6);
+            z-index: 2100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .circle-pack-close:hover {
+            transform: translateY(-50%) scale(1.1) rotate(90deg);
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.8);
+        }
+
+        @media (max-width: 1400px) {
+            .stats-dashboard {
+                width: 350px;
+                right: 20px;
+            }
+
+            .node-details {
+                width: 440px;
+            }
+
+            .circle-pack-header {
+                left: 30px;
+                max-width: 280px;
+            }
+
+            .circle-pack-close {
+                right: 30px;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.6);
+            border-radius: 10px;
+        }
+
+        /* Database Connection Side Panel */
+        .db-panel {
+            position: fixed;
+            top: 0;
+            left: -455px;
+            width: 425px;
+            height: 100vh;
+            background: rgba(15, 32, 39, 0.98);
+            backdrop-filter: blur(30px);
+            border-right: 1px solid rgba(34, 211, 238, 0.3);
+            box-shadow: 4px 0 40px rgba(0, 0, 0, 0.5);
+            z-index: 20000;
+            /* Higher than toggle buttons (10001) */
+            transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            padding: 30px 25px;
+        }
+
+        .db-panel.open {
+            left: 0;
+        }
+
+        .db-panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 19999;
+            /* Higher than toggle buttons */
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .db-panel-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .db-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 35px;
+        }
+
+        .db-panel-title {
+            font-size: 28px;
+            font-weight: 900;
+            color: #22d3ee;
+            letter-spacing: -0.5px;
+        }
+
+        .db-panel-close {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .db-panel-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: rotate(90deg);
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input,
+        .form-select {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 10px;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .form-input:focus,
+        .form-select:focus {
+            outline: none;
+            border-color: #22d3ee;
+            background: rgba(0, 0, 0, 0.6);
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .form-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2322d3ee' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 18px center;
+            padding-right: 45px;
+        }
+
+        .form-select option {
+            background: #0f2027;
+            color: white;
+        }
+
+        .connect-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 30px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 20px rgba(34, 211, 238, 0.4);
+        }
+
+        .connect-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 30px rgba(34, 211, 238, 0.6);
+        }
+
+        .connect-btn:active {
+            transform: translateY(0);
+        }
+
+        .db-type-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            background: rgba(34, 211, 238, 0.15);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #22d3ee;
+            margin-top: 8px;
+        }
+
+        .connection-status {
+            margin-top: 25px;
+            padding: 16px;
+            background: rgba(34, 211, 238, 0.1);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 12px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            display: none;
+        }
+
+        .connection-status.visible {
+            display: block;
+        }
+
+        .connection-status.success {
+            background: rgba(52, 211, 153, 0.1);
+            border-color: rgba(52, 211, 153, 0.3);
+            color: #34d399;
+        }
+
+        .connection-status.error {
+            background: rgba(248, 113, 113, 0.1);
+            border-color: rgba(248, 113, 113, 0.3);
+            color: #f87171;
+        }
+
+        .neural-panel {
+            position: fixed;
+            top: 110px;
+            left: 20px;
+            width: 300px;
+            max-height: calc(100vh - 140px);
+            overflow-y: auto;
+            /* Transparent Container */
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+
+            z-index: 9999 !important;
+            display: flex !important;
+            flex-direction: column;
+            gap: 20px;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+        }
+
+        .neural-card {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(0, 212, 255, 0.4);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+            flex-shrink: 0;
+        }
+
+        .neural-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .neural-icon {
+            width: 48px;
+            height: 48px;
+            background: rgba(0, 212, 255, 0.1);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .neural-pulse {
+            width: 12px;
+            height: 12px;
+            background: #00d4ff;
+            border-radius: 50%;
+            box-shadow: 0 0 15px #00d4ff;
+            animation: neural-heartbeat 2s infinite;
+        }
+
+        @keyframes neural-heartbeat {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 10px rgba(0, 212, 255, 0);
+            }
+
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(0, 212, 255, 0);
+            }
+        }
+
+        .neural-title h3 {
+            font-size: 18px;
+            font-weight: 800;
+            color: white;
+            margin-bottom: 4px;
+            letter-spacing: -0.5px;
+        }
+
+        .neural-badge {
+            font-size: 10px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            padding: 3px 8px;
+            border-radius: 10px;
+            text-transform: uppercase;
+        }
+
+        .neural-section {
+            margin-bottom: 24px;
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 12px;
+        }
+
+        .neural-stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .stat-name {
+            color: #94a3b8;
+        }
+
+        .stat-val {
+            font-weight: 600;
+            color: white;
+        }
+
+        .stat-val.good {
+            color: #22d3ee;
+            text-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+        }
+
+        .stat-val.warn {
+            color: #fbbf24;
+            text-shadow: 0 0 10px rgba(251, 191, 36, 0.4);
+        }
+
+        .stat-val.crit {
+            color: #f87171;
+            text-shadow: 0 0 10px rgba(248, 113, 113, 0.4);
+        }
+
+        /* Recommendations List */
+        .recommendation-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .recommendation-item {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            border-left: 2px solid #22d3ee;
+            transition: all 0.3s ease;
+        }
+
+        .recommendation-item:hover {
+            background: rgba(255, 255, 255, 0.07);
+            transform: translateX(4px);
+        }
+
+        .rec-bullet {
+            color: #22d3ee;
+            font-weight: 900;
+        }
+
+        .rec-text {
+            font-size: 11px;
+            line-height: 1.4;
+            color: rgba(255, 255, 255, 0.85);
+            font-weight: 500;
+        }
+
+        .neural-badge.tiny {
+            padding: 2px 6px;
+            font-size: 9px;
+            border-radius: 4px;
+        }
+
+        .insight-value.normal {
+            color: #22d3ee;
+        }
+
+        .insight-value.high {
+            color: #fbbf24;
+        }
+
+        .insight-value.critical {
+            color: #f87171;
+        }
+
+        .insight-value.active {
+            color: #22d3ee;
+        }
+
+        .insight-value.idle {
+            color: #64748b;
+        }
+
+        .insight-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .insight-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 10px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .insight-item.full {
+            grid-column: span 2;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .insight-label {
+            display: block;
+            font-size: 10px;
+            color: #64748b;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .insight-item.full .insight-label {
+            margin-bottom: 0;
+        }
+
+        .insight-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .insight-value.active {
+            color: #a855f7;
+        }
+
+        .neural-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .neural-actions .btn-glass {
+            flex: 1;
+            padding: 10px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .panel-toggle-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 20px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: auto;
+        }
+
+        .panel-toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        .panel-close-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .panel-close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        .neural-panel.minimized {
+            /* Fully hide off-screen (width + left margin) */
+            transform: translateX(calc(-100% - 20px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .neural-panel.minimized .panel-toggle-btn {
+            position: absolute;
+            top: 50%;
+            right: 5px;
+            left: auto;
+            transform: translateY(-50%);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            background: rgba(0, 255, 255, 0.2);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            display: block !important;
+            visibility: visible !important;
+            z-index: 10;
+        }
+
+        /* Removed display:none rules for minimized content to allow smooth transition */
+
+        /* Hide toggles when DB panel is open */
+        body.db-panel-active .neural-standalone-toggle,
+        body.db-panel-active .stats-standalone-toggle {
+            display: none !important;
+        }
+
+        /* Standalone Neural Toggle Button */
+        .neural-standalone-toggle {
+            position: fixed;
+            left: 320px;
+            /* Position at right edge of open panel */
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 60px;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            border-left: none;
+            border-radius: 0 12px 12px 0;
+            color: #00ffff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 10001;
+            transition: all 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .neural-standalone-toggle:hover {
+            background: rgba(0, 255, 255, 0.25);
+            width: 45px;
+        }
+
+        /* Standalone Stats Toggle Button (Right Side) */
+        .stats-standalone-toggle {
+            position: fixed;
+            right: 0px;
+            /* Default to edge */
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 60px;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            border-right: none;
+            border-radius: 12px 0 0 12px;
+            color: #00ffff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 10001;
+            transition: all 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stats-standalone-toggle:hover {
+            background: rgba(0, 255, 255, 0.25);
+            width: 45px;
+        }
+
+        /* When panel is minimized, move button to left edge */
+        /* Positioning is handled by JavaScript, but this provides default styles */
+
+        /* Stats Dashboard Panel */
+        .stats-dashboard {
+            position: fixed;
+            right: 20px;
+            top: 90px;
+            width: 350px;
+            max-height: calc(100vh - 110px);
+            overflow-y: auto;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            transition: all 0.5s ease;
+        }
+
+        .stats-dashboard.minimized {
+            transform: translateX(calc(100% + 20px));
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .stats-card {
+            padding: 20px;
+        }
+
+        .stats-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .stat-big {
+            text-align: left;
+        }
+
+        .stat-big .stat-value {
+            font-size: 48px;
+            font-weight: 800;
+            color: white;
+            line-height: 1;
+            margin-bottom: 8px;
+        }
+
+        .stat-big .stat-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .stat-big .stat-change {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .stat-change.positive {
+            color: var(--accent-green);
+        }
+
+        .stat-change.stable {
+            color: var(--accent-yellow);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .stat-item {
+            display: flex;
+            gap: 10px;
+        }
+
+        .stat-icon {
+            font-size: 24px;
+        }
+
+        .stat-content {
+            flex: 1;
+        }
+
+        .stat-content .stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .stat-content .stat-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: white;
+            line-height: 1;
+            margin-bottom: 4px;
+        }
+
+        .stat-content .stat-change {
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .stat-change.positive {
+            color: var(--accent-green);
+        }
+
+        .stat-change.stable {
+            color: var(--accent-yellow);
+        }
+
+        .stats-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+            letter-spacing: 0.5px;
+        }
+
+        .health-items {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .health-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .health-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        .health-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .health-value.good {
+            color: var(--accent-cyan);
+        }
+
+        .health-value.warning {
+            color: var(--accent-yellow);
+        }
+
+        .health-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .health-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        /* Standalone Stats Toggle Button */
+        .stats-standalone-toggle {
+            position: fixed;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px;
+            height: 60px;
+            background: rgba(0, 255, 255, 0.15);
+            border: 1px solid rgba(0, 255, 255, 0.4);
+            border-right: none;
+            border-radius: 12px 0 0 12px;
+            color: #00ffff;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 10001;
+            transition: all 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stats-standalone-toggle:hover {
+            background: rgba(0, 255, 255, 0.25);
+            width: 45px;
+        }
+
+        /* When stats panel is open, move button to left edge of panel */
+        /* Sibling selectors removed - Positioning is now handled by JavaScript in toggle functions */
+
+        /* Relational Flows Panel */
+        /* Relational Flows Panel Container - now inside neural-panel */
+        .relational-flows-panel {
+            /* Reset positioning to allow flex flow */
+            position: static;
+            width: 100%;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            /* Force gap */
+            margin-top: 20px;
+            box-shadow: none;
+            transition: none;
+            /* Transition handled by parent container */
+        }
+
+        /* Styled inner card to look like a separate box */
+        .flows-card {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(0, 212, 255, 0.4);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+        }
+
+        .flows-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            color: #00d4ff;
+            font-weight: 800;
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .flows-content {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            text-align: center;
+            padding: 20px 0;
+            font-weight: 500;
+        }
+
+        .relational-flows-panel.minimized {
+            transform: translateX(-120%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid var(--accent-cyan);
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            opacity: 0;
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .toast.visible {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast-icon {
+            font-size: 18px;
+        }
+    </style>
+    <!-- Removed redundant link to styles.css to prioritize inline -->
+</head>
+
+<body>
+    <div id="container"></div>
+
+    <!-- Header -->
+    <div class="header glass-card">
+        <div class="logo-modern">🧬</div>
+        <div class="brand-info">
+            <h1>Living Data Network</h1>
+            <p>Real-time Banking Intelligence Visualization</p>
+        </div>
+        <div class="btn-container">
+            <span class="mode-indicator demo" id="modeIndicator">Demo Mode</span>
+            <button class="modern-btn btn-gradient" onclick="switchToDemoMode()">
+                <span>🎮</span> Demo
+            </button>
+            <button class="modern-btn btn-glass" onclick="toggleDbPanel()">
+                <span>🔌</span> Connect Database
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Dashboard -->
+    <div class="stats-dashboard" id="stats-dashboard">
+        <button class="panel-toggle-btn" onclick="toggleStatsPanel()" title="Minimize"
+            style="position: absolute; top: 10px; right: 10px; z-index: 10;">−</button>
+        <div class="glass-card hero-stat">
+            <div class="stat-badge">
+                <div class="pulse-indicator"></div>
+                LIVE DATA
+            </div>
+            <div class="mega-number" id="totalTransactions">5.01B</div>
+            <div class="stat-label">Total Transactions Processed</div>
+            <div class="stat-trend positive">
+                <span>↗️</span> +<span id="tps">342</span> tx/sec
+            </div>
+        </div>
+
+        <div class="glass-card metrics-grid">
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Fraud Alerts</span>
+                    <span class="metric-icon">⚠️</span>
+                </div>
+                <div class="metric-value" id="fraudAlerts">8</div>
+                <div class="metric-change negative">
+                    <span>↑</span> +2 today
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Avg Amount</span>
+                    <span class="metric-icon">💰</span>
+                </div>
+                <div class="metric-value">$<span id="avgAmount">1.2K</span></div>
+                <div class="metric-change positive">
+                    <span>↗️</span> +5.2%
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Failed</span>
+                    <span class="metric-icon">❌</span>
+                </div>
+                <div class="metric-value" id="failedTx">2</div>
+                <div class="metric-change warning">
+                    <span>→</span> Stable
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Active Nodes</span>
+                    <span class="metric-icon">🔗</span>
+                </div>
+                <div class="metric-value" id="activeNodes">847</div>
+                <div class="metric-change positive">
+                    <span>↗️</span> +12
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card health-card">
+            <div class="health-title">System Health</div>
+            <div class="health-items">
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">API Response</span>
+                        <span class="health-value">18ms</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill cyan" style="width: 95%;"></div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">Database Load</span>
+                        <span class="health-value" style="color: #fbbf24;">67%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill yellow" style="width: 67%;"></div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">Throughput</span>
+                        <span class="health-value">92%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill cyan" style="width: 92%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Neural Core Panel -->
+    <div class="neural-panel" id="neural-panel" style="display: flex;">
+        <!-- Neural Core Card -->
+        <div class="neural-card">
+            <div class="neural-header">
+                <div class="neural-icon">
+                    <div class="neural-pulse"></div>
+                </div>
+                <div class="neural-title">
+                    <h3>Neural Core</h3>
+                    <span class="neural-badge">AI ACTIVE</span>
+                </div>
+            </div>
+
+            <!-- Target Entity -->
+            <div class="neural-section">
+                <div class="section-label">TARGET ENTITY</div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Type</span>
+                    <span class="stat-val" id="neural-type">Hub</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Target</span>
+                    <span class="stat-val" id="neural-target-name">Neural Core</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Records</span>
+                    <span class="stat-val" id="neural-records">0</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Vitality</span>
+                    <span class="stat-val good" id="neural-vitality">98%</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Data Quality</span>
+                    <span class="stat-val good" id="neural-quality">100%</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Last Update</span>
+                    <span class="stat-val" id="neural-last-update">Just now</span>
+                </div>
+            </div>
+
+            <!-- AI Insights -->
+            <div class="neural-section">
+                <div class="section-label">AI INSIGHTS</div>
+                <div class="insight-grid">
+                    <div class="insight-item">
+                        <span class="insight-label">Anomaly Score</span>
+                        <span class="insight-value" id="neural-anomaly">0%</span>
+                    </div>
+                    <div class="insight-item">
+                        <span class="insight-label">Gravity Pull</span>
+                        <span class="insight-value" id="neural-gravity">Normal</span>
+                    </div>
+                    <div class="insight-item full">
+                        <span class="insight-label">Optimization</span>
+                        <span class="insight-value active" id="neural-opt">Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI STATUS (NEW) -->
+            <div class="neural-section">
+                <div class="section-label">AI STATUS</div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">TensorFlow</span>
+                    <span class="stat-val good" id="neural-tensorflow-status">⚡ Q-Learning</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">AI Mode</span>
+                    <span class="stat-val" id="neural-ai-mode">Monitoring</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Confidence</span>
+                    <span class="stat-val" id="neural-ai-confidence">85%</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Training Episodes</span>
+                    <span class="stat-val" id="neural-training-episodes">0</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Decisions Made</span>
+                    <span class="stat-val" id="neural-decisions">0</span>
+                </div>
+            </div>
+
+            <!-- RL METRICS (NEW) -->
+            <div class="neural-section">
+                <div class="section-label">RL METRICS</div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Exploration Rate</span>
+                    <span class="stat-val" id="neural-exploration">20%</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Avg Reward</span>
+                    <span class="stat-val" id="neural-avg-reward">0.00</span>
+                </div>
+                <div class="neural-stat-row">
+                    <span class="stat-name">Avg Loss</span>
+                    <span class="stat-val" id="neural-avg-loss">N/A</span>
+                </div>
+            </div>
+
+            <!-- OPTIMIZED PARAMETERS (NEW) -->
+            <div class="neural-section" id="neural-optimized-params">
+                <div class="section-label">OPTIMIZED PARAMS</div>
+                <div id="optimized-params-container">
+                    <p style="font-size: 11px; color: #64748b;">Waiting for optimization...</p>
+                </div>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="neural-actions">
+                <!-- Added initial classes for styling -->
+                <button class="btn-glass btn-active" id="btn-rl" onclick="toggleRL()"
+                    title="Toggle Reinforcement Learning">
+                    <span class="icon">⚡</span> Disable RL
+                </button>
+                <button class="btn-glass btn-action" id="btn-recalc" onclick="recalcGravity()"
+                    title="Recalculate Gravity">
+                    <span class="icon" id="recalc-icon">⟳</span> Re-Calc
+                </button>
+            </div>
+        </div>
+
+        <!-- Toast Notification Container -->
+        <div id="toast" class="toast">
+            <span class="toast-icon">✅</span>
+            <span id="toast-message">Operation successful</span>
+        </div>
+
+        <!-- Relational Flows Card -->
+        <div class="neural-card" id="relational-flows-card">
+            <div class="neural-header" style="border-bottom: none; padding-bottom: 0;">
+                <div class="neural-title">
+                    <h3 style="font-size: 16px;">∿ Relational Flows</h3>
+                </div>
+            </div>
+            <div class="neural-section" id="relational-flows-container">
+                <div class="section-label">NO ACTIVE FLOWS</div>
+                <p style="font-size: 11px; color: #64748b; margin-top: 8px;">Connect to a database to see data flows</p>
+            </div>
+        </div>
+
+        <!-- Clusters & Recommendations -->
+        <div class="neural-card">
+            <div class="neural-section">
+                <div class="section-label">CLUSTERS</div>
+                <div id="clusters-container">
+                    <p style="font-size: 11px; color: #64748b;">Waiting for training...</p>
+                </div>
+            </div>
+            <div class="neural-section"
+                style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px;">
+                <div class="section-label">AI RECOMMENDATIONS</div>
+                <div id="recommendations-container" class="recommendation-list">
+                    <div class="recommendation-item">
+                        <span class="rec-bullet">•</span>
+                        <span class="rec-text">Initializing AI engine...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend-panel glass-card">
+        <div class="legend-title">
+            <span>🎨</span> Node Types
+        </div>
+        <div class="legend-items">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #22d3ee; color: #22d3ee;"></div>
+                <span class="legend-text">Database Core</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #fbbf24; color: #fbbf24;"></div>
+                <span class="legend-text">Fact Tables</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #34d399; color: #34d399;"></div>
+                <span class="legend-text">Dimensions</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #f87171; color: #f87171;"></div>
+                <span class="legend-text">Fraud Alerts</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #a78bfa; color: #a78bfa;"></div>
+                <span class="legend-text">Analytics</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Details -->
+    <div class="node-details glass-card" id="nodeDetails">
+        <div class="node-header">
+            <div class="node-title" id="nodeTitle">Transactions</div>
+            <button class="close-button" onclick="hideNodeDetails()">×</button>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Entity Type</div>
+            <div class="detail-value" id="nodeEntity">transaction</div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Total Records</div>
+            <div class="detail-value" id="nodeRows">50,000,000</div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Key Metrics</div>
+            <div class="tags-container" id="nodeTags">
+                <span class="tag">transaction_id</span>
+                <span class="tag">amount</span>
+                <span class="tag">timestamp</span>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Actions</div>
+            <button class="modern-btn btn-gradient" style="width: 100%; justify-content: center;"
+                onclick="showNodeCirclePack()">
+                <span>🔍</span> Explore Internal Structure
+            </button>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Connections</div>
+            <div class="connection-section">
+                <div class="connection-item">
+                    <div class="connection-label">
+                        <span style="color: rgba(255,255,255,0.7);">To Accounts</span>
+                        <span class="positive">89%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: 89%;"></div>
+                    </div>
+                </div>
+                <div class="connection-item">
+                    <div class="connection-label">
+                        <span style="color: rgba(255,255,255,0.7);">To Customers</span>
+                        <span class="positive">67%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: 67%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Database Connection Side Panel -->
+    <div class="db-panel-overlay" id="dbPanelOverlay" onclick="toggleDbPanel()"></div>
+
+    <div class="db-panel" id="dbPanel">
+        <div class="db-panel-header">
+            <h2 class="db-panel-title">Connect to Database</h2>
+            <button class="db-panel-close" onclick="toggleDbPanel()">×</button>
+        </div>
+
+        <form id="dbConnectionForm" onsubmit="handleDbConnect(event)">
+            <div class="form-group">
+                <label class="form-label">Database Type</label>
+                <select id="dbType" class="form-select" onchange="toggleDbFields()">
+                    <option value="mysql">MySQL</option>
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="mongodb">MongoDB</option>
+                    <option value="neo4j">Neo4j (Graph)</option>
+                    <option value="csv">Upload CSV</option>
+                </select>
+            </div>
+
+            <!-- Database Fields -->
+            <div id="db-fields">
+                <div class="stat-badge" id="dbTypeBadge"
+                    style="width: 100%; justify-content: center; margin-bottom: 24px;">
+                    MySQL Database
+                </div>
+
+                <div class="metric-grid"
+                    style="grid-template-columns: 2fr 1fr; gap: 15px; display: grid; margin-bottom: 24px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">Host</label>
+                        <input type="text" class="form-input" id="dbHost" placeholder="localhost" value="localhost"
+                            required>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label class="form-label">Port</label>
+                        <input type="number" class="form-input" id="dbPort" placeholder="3306" value="3306" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Database</label>
+                    <input type="text" class="form-input" id="dbName" placeholder="living_data_demo" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-input" id="dbUsername" placeholder="root" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <input type="password" class="form-input" id="dbPassword" placeholder="••••••••" required>
+                </div>
+            </div>
+
+            <!-- CSV Upload Field -->
+            <div id="csv-field" style="display: none;">
+                <div class="stat-badge"
+                    style="width: 100%; justify-content: center; margin-bottom: 24px; background: rgba(50, 200, 100, 0.2); border-color: #32d74b;">
+                    Local File Upload
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Select CSV File</label>
+                    <div class="file-upload-wrapper"
+                        style="position: relative; overflow: hidden; display: inline-block; width: 100%;">
+                        <input type="file" id="csvFile" accept=".csv" class="form-input"
+                            style="padding: 12px; cursor: pointer;">
+                    </div>
+                    <p style="font-size: 11px; color: #64748b; margin-top: 8px;">
+                        File will be processed locally in browser. No data leaves your device.
+                    </p>
+                </div>
+            </div>
+
+            <button type="submit" class="connect-btn" id="connectBtnSubmit">Connect</button>
+        </form>
+
+        <div class="connection-status" id="connectionStatus">
+            <strong>Status:</strong> <span id="statusMessage"></span>
+        </div>
+    </div>
+
+    <!-- Circle Pack Overlay (Drilldown) -->
+    <div id="circle-pack-overlay">
+        <div class="circle-pack-header glass-card">
+            <div class="circle-pack-title" id="circlePackTitle">Transactions</div>
+            <div class="circle-pack-subtitle" id="circlePackSubtitle">Internal Structure & Relationships</div>
+            <div class="circle-pack-info">
+                <div class="info-item">
+                    <div class="info-icon">📊</div>
+                    <div class="info-text">
+                        <div class="info-label">Columns</div>
+                        <div class="info-value" id="columnCount">12</div>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">🔑</div>
+                    <div class="info-text">
+                        <div class="info-label">Primary Keys</div>
+                        <div class="info-value" id="pkCount">1</div>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">🔗</div>
+                    <div class="info-text">
+                        <div class="info-label">Foreign Keys</div>
+                        <div class="info-value" id="fkCount">3</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="circle-pack-container"></div>
+
+        <button class="circle-pack-close" onclick="hideCirclePack()">×</button>
+    </div>
+
+    <div class="circle-tooltip" id="tooltip"></div>
+
+    <script>
+        let scene, camera, renderer, nodes = [], connections = [], particles = [];
+        let selectedNode = null;
+        let animationId = null;
+
+        let stats = {
+            totalTransactions: 5010119349,
+            fraudAlerts: 8,
+            avgAmount: 1.2,
+            failedTx: 2,
+            tps: 342,
+            activeNodes: 847
+        };
+
+        // Node data with hierarchical structure for circle pack
+        const nodeDataWithStructure = [
+            {
+                name: 'Core Banking',
+                color: 0x22d3ee,
+                size: 50,
+                pos: [0, 0, 0],
+                entity: 'database',
+                rows: '8.5M',
+                metrics: ['tables: 8', 'connections: 234', 'uptime: 99.9%'],
+                structure: {
+                    name: "Core Banking",
+                    children: [
+                        {
+                            name: "System Tables",
+                            children: [
+                                { name: "sys_config", value: 150 },
+                                { name: "sys_users", value: 320 },
+                                { name: "sys_roles", value: 180 }
+                            ]
+                        },
+                        {
+                            name: "Audit",
+                            children: [
+                                { name: "audit_log", value: 8500 },
+                                { name: "change_history", value: 4200 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Accounts',
+                color: 0x34d399,
+                size: 40,
+                pos: [250, 120, -120],
+                entity: 'account',
+                rows: '5.0M',
+                metrics: ['checking', 'savings', 'credit', 'investment'],
+                structure: {
+                    name: "Accounts",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "account_id", value: 1000, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "customer_id → Customers", value: 800, type: "FK" },
+                                { name: "branch_id → Branches", value: 600, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Data Columns",
+                            children: [
+                                { name: "account_type", value: 500 },
+                                { name: "balance", value: 700 },
+                                { name: "currency", value: 400 },
+                                { name: "status", value: 350 },
+                                { name: "created_date", value: 450 },
+                                { name: "last_modified", value: 380 }
+                            ]
+                        },
+                        {
+                            name: "Indexes",
+                            children: [
+                                { name: "idx_customer", value: 300 },
+                                { name: "idx_status", value: 250 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Transactions',
+                color: 0xfbbf24,
+                size: 45,
+                pos: [-180, 180, 80],
+                entity: 'transaction',
+                rows: '50.0M',
+                metrics: ['amount', 'timestamp', 'status', 'merchant'],
+                structure: {
+                    name: "Transactions",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "transaction_id", value: 1200, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "account_id → Accounts", value: 900, type: "FK" },
+                                { name: "merchant_id → Merchants", value: 700, type: "FK" },
+                                { name: "card_id → Cards", value: 650, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Transaction Data",
+                            children: [
+                                { name: "amount", value: 850 },
+                                { name: "currency", value: 450 },
+                                { name: "timestamp", value: 600 },
+                                { name: "status", value: 550 },
+                                { name: "type", value: 500 },
+                                { name: "description", value: 420 }
+                            ]
+                        },
+                        {
+                            name: "Metadata",
+                            children: [
+                                { name: "ip_address", value: 300 },
+                                { name: "device_info", value: 280 },
+                                { name: "location", value: 320 },
+                                { name: "risk_score", value: 400 }
+                            ]
+                        },
+                        {
+                            name: "Indexes",
+                            children: [
+                                { name: "idx_account_date", value: 380 },
+                                { name: "idx_merchant", value: 320 },
+                                { name: "idx_status", value: 290 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Customers',
+                color: 0x34d399,
+                size: 38,
+                pos: [220, -150, 120],
+                entity: 'customer',
+                rows: '3.0M',
+                metrics: ['name', 'segment', 'location', 'tier'],
+                structure: {
+                    name: "Customers",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "customer_id", value: 1100, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Personal Info",
+                            children: [
+                                { name: "first_name", value: 600 },
+                                { name: "last_name", value: 600 },
+                                { name: "email", value: 750 },
+                                { name: "phone", value: 550 },
+                                { name: "date_of_birth", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Address",
+                            children: [
+                                { name: "street", value: 400 },
+                                { name: "city", value: 450 },
+                                { name: "state", value: 420 },
+                                { name: "zip_code", value: 380 },
+                                { name: "country", value: 500 }
+                            ]
+                        },
+                        {
+                            name: "Segmentation",
+                            children: [
+                                { name: "tier", value: 520 },
+                                { name: "segment", value: 580 },
+                                { name: "credit_score", value: 650 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Fraud Alerts',
+                color: 0xf87171,
+                size: 35,
+                pos: [-220, -100, -100],
+                entity: 'alert',
+                rows: '25K',
+                metrics: ['risk_score', 'status', 'priority'],
+                structure: {
+                    name: "Fraud Alerts",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "alert_id", value: 800, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "transaction_id → Transactions", value: 900, type: "FK" },
+                                { name: "account_id → Accounts", value: 700, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Alert Data",
+                            children: [
+                                { name: "risk_score", value: 750 },
+                                { name: "alert_type", value: 600 },
+                                { name: "severity", value: 550 },
+                                { name: "status", value: 500 },
+                                { name: "detected_at", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Investigation",
+                            children: [
+                                { name: "reviewed_by", value: 400 },
+                                { name: "resolution", value: 380 },
+                                { name: "notes", value: 350 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Cards',
+                color: 0xa78bfa,
+                size: 36,
+                pos: [80, -180, -150],
+                entity: 'card',
+                rows: '4.0M',
+                metrics: ['credit_limit', 'balance', 'rewards'],
+                structure: {
+                    name: "Cards",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "card_id", value: 900, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "account_id → Accounts", value: 850, type: "FK" },
+                                { name: "customer_id → Customers", value: 750, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Card Details",
+                            children: [
+                                { name: "card_number", value: 600 },
+                                { name: "card_type", value: 550 },
+                                { name: "expiry_date", value: 500 },
+                                { name: "cvv", value: 450 },
+                                { name: "status", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Limits & Balance",
+                            children: [
+                                { name: "credit_limit", value: 700 },
+                                { name: "available_credit", value: 650 },
+                                { name: "balance", value: 680 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Loans',
+                color: 0x34d399,
+                size: 32,
+                pos: [-240, 100, 180],
+                entity: 'loan',
+                rows: '800K',
+                metrics: ['amount', 'interest', 'term', 'status'],
+                structure: {
+                    name: "Loans",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "loan_id", value: 850, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "customer_id → Customers", value: 800, type: "FK" },
+                                { name: "account_id → Accounts", value: 700, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Loan Details",
+                            children: [
+                                { name: "amount", value: 750 },
+                                { name: "interest_rate", value: 600 },
+                                { name: "term_months", value: 550 },
+                                { name: "loan_type", value: 500 },
+                                { name: "status", value: 520 }
+                            ]
+                        },
+                        {
+                            name: "Payment Info",
+                            children: [
+                                { name: "monthly_payment", value: 480 },
+                                { name: "outstanding_balance", value: 650 },
+                                { name: "next_payment_date", value: 420 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Branches',
+                color: 0x34d399,
+                size: 28,
+                pos: [150, 200, 100],
+                entity: 'branch',
+                rows: '450',
+                metrics: ['location', 'region', 'staff'],
+                structure: {
+                    name: "Branches",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "branch_id", value: 700, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Branch Info",
+                            children: [
+                                { name: "branch_name", value: 550 },
+                                { name: "branch_code", value: 500 },
+                                { name: "region", value: 480 },
+                                { name: "manager", value: 450 }
+                            ]
+                        },
+                        {
+                            name: "Location",
+                            children: [
+                                { name: "address", value: 420 },
+                                { name: "city", value: 480 },
+                                { name: "state", value: 450 },
+                                { name: "country", value: 500 }
+                            ]
+                        },
+                        {
+                            name: "Contact",
+                            children: [
+                                { name: "phone", value: 400 },
+                                { name: "email", value: 380 }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ];
+
+        function init() {
+            try {
+                scene = new THREE.Scene();
+                scene.fog = new THREE.FogExp2(0x0f2027, 0.0006);
+
+                camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 5000);
+                camera.position.z = 650;
+
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.setClearColor(0x0f2027, 1);
+                document.getElementById('container').appendChild(renderer.domElement);
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+                scene.add(ambientLight);
+
+                const light1 = new THREE.PointLight(0x22d3ee, 2, 1500);
+                light1.position.set(400, 400, 400);
+                scene.add(light1);
+
+                const light2 = new THREE.PointLight(0x667eea, 2, 1500);
+                light2.position.set(-400, -400, 400);
+                scene.add(light2);
+
+                createStarfield();
+                createNetwork();
+                setupInteractions();
+                animate();
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        }
+
+        function createStarfield() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+
+            for (let i = 0; i < 2000; i++) {
+                vertices.push(
+                    (Math.random() - 0.5) * 4000,
+                    (Math.random() - 0.5) * 4000,
+                    (Math.random() - 0.5) * 4000
+                );
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 2,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            const stars = new THREE.Points(geometry, material);
+            scene.add(stars);
+        }
+
+        function createNetwork() {
+            nodeDataWithStructure.forEach((data, i) => {
+                const geometry = new THREE.SphereGeometry(data.size, 64, 64);
+
+                const material = new THREE.MeshPhongMaterial({
+                    color: data.color,
+                    emissive: data.color,
+                    emissiveIntensity: 0.5,
+                    shininess: 80,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(...data.pos);
+
+                const glowGeo = new THREE.SphereGeometry(data.size * 1.35, 32, 32);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.12,
+                    side: THREE.BackSide
+                });
+                const glow = new THREE.Mesh(glowGeo, glowMat);
+                mesh.add(glow);
+
+                // Store initial position for animation
+                const initialPos = new THREE.Vector3(...data.pos);
+
+                scene.add(mesh);
+                nodes.push({ ...data, mesh, index: i, initialPos });
+            });
+
+            const pairs = [
+                [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [0, 6], [0, 7],
+                [1, 2], [1, 3], [2, 4], [2, 5], [3, 5], [3, 6], [6, 7], [1, 7]
+            ];
+
+            pairs.forEach(pair => {
+                const start = nodes[pair[0]].mesh.position;
+                const end = nodes[pair[1]].mesh.position;
+
+                const curve = new THREE.QuadraticBezierCurve3(
+                    start.clone(),
+                    new THREE.Vector3(
+                        (start.x + end.x) / 2 + (Math.random() - 0.5) * 120,
+                        (start.y + end.y) / 2 + (Math.random() - 0.5) * 120,
+                        (start.z + end.z) / 2 + (Math.random() - 0.5) * 120
+                    ),
+                    end.clone()
+                );
+
+                const points = curve.getPoints(80);
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                const material = new THREE.LineBasicMaterial({
+                    color: nodes[pair[0]].color,
+                    transparent: true,
+                    opacity: 0.35
+                });
+
+                const line = new THREE.Line(geometry, material);
+                scene.add(line);
+                // Store node references to update lines in animation loop
+                connections.push({
+                    line,
+                    curve,
+                    source: nodes[pair[0]],
+                    target: nodes[pair[1]]
+                });
+
+                if (Math.random() > 0.5) {
+                    const particleGeo = new THREE.SphereGeometry(3, 12, 12);
+                    const particleMat = new THREE.MeshBasicMaterial({
+                        color: nodes[pair[0]].color,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    const particle = new THREE.Mesh(particleGeo, particleMat);
+                    scene.add(particle);
+
+                    particles.push({
+                        mesh: particle,
+                        curve,
+                        progress: Math.random(),
+                        speed: 0.008 + Math.random() * 0.012
+                    });
+                }
+            });
+        }
+
+        function setupInteractions() {
+            let isDragging = false;
+            let previousMouse = { x: 0, y: 0 };
+            let rotation = { x: 0, y: 0 };
+
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMouse = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.clientX - previousMouse.x;
+                    const deltaY = e.clientY - previousMouse.y;
+
+                    rotation.y += deltaX * 0.005;
+                    rotation.x += deltaY * 0.005;
+                    rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rotation.x));
+
+                    previousMouse = { x: e.clientX, y: e.clientY };
+                }
+            });
+
+            renderer.domElement.addEventListener('mouseup', () => isDragging = false);
+            renderer.domElement.addEventListener('mouseleave', () => isDragging = false);
+
+            renderer.domElement.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                camera.position.z += e.deltaY * 0.7;
+                camera.position.z = Math.max(250, Math.min(1200, camera.position.z));
+            }, { passive: false });
+
+            renderer.domElement.addEventListener('click', (e) => {
+                if (isDragging) return;
+
+                const mouse = new THREE.Vector2(
+                    (e.clientX / window.innerWidth) * 2 - 1,
+                    -(e.clientY / window.innerHeight) * 2 + 1
+                );
+
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+
+                const intersects = raycaster.intersectObjects(nodes.map(n => n.mesh));
+                if (intersects.length > 0) {
+                    const node = nodes.find(n => n.mesh === intersects[0].object);
+                    showNodeDetails(node);
+                }
+            });
+
+            renderer.domElement.rotation = rotation;
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.0008;
+            const rot = renderer.domElement.rotation;
+
+            scene.rotation.y += (rot.y - scene.rotation.y) * 0.1;
+            scene.rotation.x += (rot.x - scene.rotation.x) * 0.1;
+
+            // 1. Animate Nodes (Float in place, don't drift)
+            nodes.forEach((node, i) => {
+                node.mesh.rotation.y += 0.004;
+
+                // Use initialPos to prevent drifting away!
+                if (node.initialPos) {
+                    node.mesh.position.y = node.initialPos.y + Math.sin(time + i * 0.5) * 5; // Float range +/- 5
+                }
+
+                const scale = selectedNode === node ? 1.3 : 1;
+                node.mesh.scale.set(scale, scale, scale);
+            });
+
+            // 2. Update Connections (Sticky Lines)
+            connections.forEach(conn => {
+                const start = conn.source.mesh.position;
+                const end = conn.target.mesh.position;
+
+                // Update Bezier Curve control points
+                conn.curve.v0.copy(start);
+                // Keep the middle control point somewhat stable but moving with nodes
+                conn.curve.v1.set(
+                    (start.x + end.x) / 2,
+                    (start.y + end.y) / 2 + Math.sin(time) * 5, // Slight ripple in the line
+                    (start.z + end.z) / 2
+                );
+                conn.curve.v2.copy(end);
+
+                // Update line geometry
+                const points = conn.curve.getPoints(80);
+                conn.line.geometry.setFromPoints(points);
+            });
+
+            // 3. Update Particles
+            particles.forEach(particle => {
+                particle.progress += particle.speed;
+                if (particle.progress >= 1) particle.progress = 0;
+
+                const pos = particle.curve.getPoint(particle.progress);
+                particle.mesh.position.copy(pos);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        function showNodeDetails(node) {
+            selectedNode = node;
+            document.getElementById('nodeTitle').textContent = node.name;
+            document.getElementById('nodeEntity').textContent = node.entity;
+            document.getElementById('nodeRows').textContent = node.rows;
+            document.getElementById('nodeTags').innerHTML = node.metrics.map(m =>
+                `<span class="tag">${m}</span>`
+            ).join('');
+            document.getElementById('nodeDetails').classList.add('visible');
+        }
+
+        function hideNodeDetails() {
+            selectedNode = null;
+            document.getElementById('nodeDetails').classList.remove('visible');
+        }
+
+        function showNodeCirclePack() {
+            if (!selectedNode) return;
+
+            // Update circle pack info
+            document.getElementById('circlePackTitle').textContent = selectedNode.name;
+            document.getElementById('circlePackSubtitle').textContent = `${selectedNode.entity} • ${selectedNode.rows} records`;
+
+            // Count structure elements
+            const structure = selectedNode.structure;
+            let columnCount = 0;
+            let pkCount = 0;
+            let fkCount = 0;
+
+            if (structure && structure.children) {
+                structure.children.forEach(category => {
+                    if (category.children) {
+                        category.children.forEach(item => {
+                            if (item.type === 'PK') pkCount++;
+                            else if (item.type === 'FK') fkCount++;
+                            else columnCount++;
+                        });
+                    }
+                });
+            }
+
+            document.getElementById('columnCount').textContent = columnCount;
+            document.getElementById('pkCount').textContent = pkCount;
+            document.getElementById('fkCount').textContent = fkCount;
+
+            // Clear previous circle pack
+            const container = document.getElementById('circle-pack-container');
+            container.innerHTML = '';
+
+            // Create circle pack
+            createCirclePack(selectedNode.structure, selectedNode.color);
+
+            // Show overlay
+            document.getElementById('circle-pack-overlay').classList.add('visible');
+            hideNodeDetails();
+        }
+
+        function createCirclePack(data, nodeColor) {
+            const width = 800;
+            const height = 800;
+
+            const color = d3.scaleOrdinal()
+                .domain(["PK", "FK", "data", "index"])
+                .range(["#22d3ee", "#fbbf24", "#34d399", "#a78bfa"]);
+
+            const pack = data => d3.pack()
+                .size([width, height])
+                .padding(4)
+                (d3.hierarchy(data)
+                    .sum(d => d.value)
+                    .sort((a, b) => b.value - a.value));
+
+            const root = pack(data);
+
+            const svg = d3.create("svg")
+                .attr("viewBox", `-${width / 2} -${height / 2} ${width} ${height}`)
+                .attr("width", width)
+                .attr("height", height)
+                .attr("id", "circle-pack-svg")
+                .style("background", `#${nodeColor.toString(16).padStart(6, '0')}15`)
+                .style("cursor", "pointer");
+
+            const node = svg.append("g")
+                .selectAll("circle")
+                .data(root.descendants().slice(1))
+                .join("circle")
+                .attr("fill", d => {
+                    if (d.data.type === 'PK') return color('PK');
+                    if (d.data.type === 'FK') return color('FK');
+                    return d.children ? `#${nodeColor.toString(16).padStart(6, '0')}` : "white";
+                })
+                .attr("fill-opacity", d => d.children ? 0.4 : 0.8)
+                .attr("pointer-events", d => !d.children ? "none" : null)
+                .on("mouseover", function (event, d) {
+                    d3.select(this).attr("stroke", "#fff").attr("stroke-width", 3);
+                    const tooltip = document.getElementById('tooltip');
+                    let tooltipText = `<strong>${d.data.name}</strong>`;
+                    if (d.data.type) tooltipText += `<br><em>${d.data.type}</em>`;
+                    if (d.data.value) tooltipText += `<br>Weight: ${d.data.value}`;
+                    tooltip.innerHTML = tooltipText;
+                    tooltip.style.opacity = 1;
+                    tooltip.style.left = event.pageX + 15 + 'px';
+                    tooltip.style.top = event.pageY - 40 + 'px';
+                })
+                .on("mouseout", function () {
+                    d3.select(this).attr("stroke", null);
+                    document.getElementById('tooltip').style.opacity = 0;
+                })
+                .on("click", (event, d) => {
+                    if (focus !== d) {
+                        zoom(event, d);
+                        event.stopPropagation();
+                    }
+                });
+
+            const label = svg.append("g")
+                .style("font", "12px Inter, sans-serif")
+                .style("font-weight", "700")
+                .attr("pointer-events", "none")
+                .attr("text-anchor", "middle")
+                .selectAll("text")
+                .data(root.descendants())
+                .join("text")
+                .style("fill-opacity", d => d.parent === root ? 1 : 0)
+                .style("display", d => d.parent === root ? "inline" : "none")
+                .style("fill", d => {
+                    if (d.data.type === 'PK') return '#22d3ee';
+                    if (d.data.type === 'FK') return '#fbbf24';
+                    return d.children ? "#fff" : "#000";
+                })
+                .text(d => d.data.name);
+
+            svg.on("click", (event) => zoom(event, root));
+
+            let focus = root;
+            let view;
+            zoomTo([focus.x, focus.y, focus.r * 2]);
+
+            function zoomTo(v) {
+                const k = width / v[2];
+                view = v;
+                label.attr("transform", d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+                node.attr("transform", d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+                node.attr("r", d => d.r * k);
+            }
+
+            function zoom(event, d) {
+                focus = d;
+                const transition = svg.transition()
+                    .duration(750)
+                    .tween("zoom", d => {
+                        const i = d3.interpolateZoom(view, [focus.x, focus.y, focus.r * 2]);
+                        return t => zoomTo(i(t));
+                    });
+
+                label
+                    .filter(function (d) { return d.parent === focus || this.style.display === "inline"; })
+                    .transition(transition)
+                    .style("fill-opacity", d => d.parent === focus ? 1 : 0)
+                    .on("start", function (d) { if (d.parent === focus) this.style.display = "inline"; })
+                    .on("end", function (d) { if (d.parent !== focus) this.style.display = "none"; });
+            }
+
+            document.getElementById('circle-pack-container').appendChild(svg.node());
+        }
+
+        function hideCirclePack() {
+            document.getElementById('circle-pack-overlay').classList.remove('visible');
+        }
+
+        // Real stats update function - fetches from API when connected to database
+        let statsInterval = null;
+
+        async function updateRealStats() {
+            console.log('updateRealStats called, connectionId:', currentConnectionId);
+
+            if (!currentConnectionId) {
+                console.log('No connection ID, showing demo values');
+                // Demo mode - show placeholder values
+                document.getElementById('totalTransactions').textContent = 'Demo';
+                document.getElementById('tps').textContent = '--';
+                document.getElementById('fraudAlerts').textContent = '--';
+                document.getElementById('avgAmount').textContent = '--';
+                document.getElementById('failedTx').textContent = '--';
+                document.getElementById('activeNodes').textContent = nodes.length;
+                return;
+            }
+
+            try {
+                const isCSV = currentConnectionId.startsWith('csv_');
+                const metricsEndpoint = isCSV ? `/api/csv/metrics/${currentConnectionId}` : `/api/metrics/${currentConnectionId}`;
+                console.log('Fetching metrics from:', metricsEndpoint);
+                const response = await fetch(metricsEndpoint);
+                const result = await response.json();
+                console.log('Metrics response:', result);
+
+                if (result.data) {
+                    const metrics = result.data;
+                    console.log('Updating stats with metrics:', metrics);
+
+                    // Update with REAL database values
+                    document.getElementById('totalTransactions').textContent =
+                        metrics.total_rows ? formatNumber(metrics.total_rows) : '0';
+                    document.getElementById('tps').textContent = metrics.active_connections || '1';
+                    document.getElementById('fraudAlerts').textContent = metrics.fraud_alerts || '0';
+                    document.getElementById('avgAmount').textContent =
+                        metrics.database_size_mb ? metrics.database_size_mb + ' MB' : '0';
+                    document.getElementById('failedTx').textContent = metrics.failed_transactions || '0';
+                    document.getElementById('activeNodes').textContent =
+                        metrics.total_tables || nodes.length;
+
+                    console.log('Stats updated successfully');
+                } else {
+                    console.warn('No data in metrics response');
+                }
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+            }
+        }
+
+        // Format large numbers (e.g., 1234567 -> 1.23M)
+        function formatNumber(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+            return num.toString();
+        }
+
+        // ===== NEURAL CORE PANEL UPDATE =====
+        async function updateNeuralCore() {
+            if (!currentConnectionId) return;
+
+            try {
+                // Fetch status which now includes training stats
+                const response = await fetch(`/api/status/${currentConnectionId}`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                console.log('🧠 Neural Core data received:', data);
+
+                // Update Training Episodes
+                if (data.ai_status && data.ai_status.training_episodes !== undefined) {
+                    const episodesEl = document.getElementById('neural-training-episodes');
+                    if (episodesEl) {
+                        episodesEl.textContent = data.ai_status.training_episodes;
+                        console.log('✅ Updated training_episodes to:', data.ai_status.training_episodes);
+                    }
+                }
+
+                // Update Decisions Made
+                if (data.ai_status && data.ai_status.decisions_made !== undefined) {
+                    const decisionsEl = document.getElementById('neural-decisions');
+                    if (decisionsEl) {
+                        decisionsEl.textContent = data.ai_status.decisions_made;
+                        console.log('✅ Updated decisions_made to:', data.ai_status.decisions_made);
+                    }
+                }
+
+                // Update other Neural Core stats
+                if (data.core_status) {
+                    // Vitality
+                    const vitalityEl = document.getElementById('neural-vitality');
+                    if (vitalityEl && data.core_status.vitality !== undefined) {
+                        const vitality = typeof data.core_status.vitality === 'string'
+                            ? data.core_status.vitality
+                            : Math.round(data.core_status.vitality) + '%';
+                        vitalityEl.textContent = vitality;
+                    }
+
+                    // Data Quality
+                    const qualityEl = document.getElementById('neural-quality');
+                    if (qualityEl && data.core_status.data_quality !== undefined) {
+                        const quality = typeof data.core_status.data_quality === 'string'
+                            ? data.core_status.data_quality
+                            : Math.round(data.core_status.data_quality) + '%';
+                        qualityEl.textContent = quality;
+                    }
+
+                    // Records
+                    const recordsEl = document.getElementById('neural-records');
+                    if (recordsEl && data.core_status.records !== undefined) {
+                        recordsEl.textContent = data.core_status.records;
+                    }
+                }
+
+                // Update AI Insights
+                if (data.ai_insights) {
+                    // Anomaly Score
+                    const anomalyEl = document.getElementById('neural-anomaly');
+                    if (anomalyEl && data.ai_insights.anomaly_score !== undefined) {
+                        anomalyEl.textContent = Math.round(data.ai_insights.anomaly_score) + '%';
+                    }
+
+                    // Confidence
+                    const confidenceEl = document.getElementById('neural-ai-confidence');
+                    if (confidenceEl && data.ai_status && data.ai_status.confidence_level !== undefined) {
+                        confidenceEl.textContent = Math.round(data.ai_status.confidence_level) + '%';
+                    }
+                }
+
+                // Update RL Metrics
+                if (data.rl_status) {
+                    // Exploration Rate
+                    const explorationEl = document.getElementById('neural-exploration');
+                    if (explorationEl && data.rl_status.exploration_rate !== undefined) {
+                        // Backend sends formatted string like "1.00%", just display it
+                        explorationEl.textContent = data.rl_status.exploration_rate;
+                    }
+
+                    // Avg Reward
+                    const rewardEl = document.getElementById('neural-avg-reward');
+                    if (rewardEl && data.rl_status.avg_reward !== undefined) {
+                        const reward = typeof data.rl_status.avg_reward === 'number'
+                            ? data.rl_status.avg_reward.toFixed(2)
+                            : data.rl_status.avg_reward;
+                        rewardEl.textContent = reward;
+                    }
+
+                    // Avg Loss
+                    const lossEl = document.getElementById('neural-avg-loss');
+                    if (lossEl && data.rl_status.avg_loss !== undefined) {
+                        if (data.rl_status.avg_loss === null) {
+                            lossEl.textContent = 'N/A';
+                        } else if (typeof data.rl_status.avg_loss === 'number') {
+                            lossEl.textContent = data.rl_status.avg_loss.toFixed(2);
+                        } else {
+                            lossEl.textContent = data.rl_status.avg_loss;
+                        }
+                    }
+                }
+
+                // Update Anomaly Score
+                if (data.ai_insights && data.ai_insights.anomaly_score !== undefined) {
+                    const anomalyEl = document.getElementById('neural-anomaly');
+                    if (anomalyEl) {
+                        anomalyEl.textContent = data.ai_insights.anomaly_score;
+                    }
+                }
+
+                // Update Relational Flows
+                if (data.relational_flows) {
+                    console.log('🔄 Updating Relational Flows:', data.relational_flows);
+                    const flowsContainer = document.getElementById('relational-flows-container');
+                    if (flowsContainer && data.relational_flows.length > 0) {
+                        flowsContainer.innerHTML = `
+                            <div class="neural-section" style="padding: 0;">
+                                ${data.relational_flows.map(flow => `
+                                    <div class="neural-stat-row" style="margin-bottom: 8px;">
+                                        <span class="stat-name">${flow.source}</span>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <span class="stat-val ${flow.status === 'Active' ? 'good' : ''}">${flow.strength}</span>
+                                            <div class="pulse-indicator" style="background: ${flow.status === 'Active' ? '#22d3ee' : '#64748b'}; width: 6px; height: 6px;"></div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                        console.log('✅ Relational Flows updated');
+                    } else {
+                        console.warn('⚠️ Flows container not found or no flows');
+                    }
+                }
+
+                // Update Clusters
+                if (data.clusters) {
+                    const clusterContainer = document.getElementById('clusters-container');
+                    if (clusterContainer && data.clusters.length > 0) {
+                        clusterContainer.innerHTML = data.clusters.map(c => `
+                            <div class="insight-grid" style="margin-top: 5px; grid-template-columns: 1fr auto;">
+                                <div class="insight-label">${c.name}</div>
+                                <div class="insight-value ${c.status === 'Warning' ? 'warning' : 'good'}" style="font-size: 11px;">
+                                    ${c.count} items
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // Update AI Recommendations
+                if (data.recommendations) {
+                    const recContainer = document.getElementById('recommendations-container');
+                    if (recContainer && data.recommendations.length > 0) {
+                        recContainer.innerHTML = data.recommendations.map(r => `
+                            <div class="recommendation-item">
+                                <span class="rec-bullet">•</span>
+                                <span class="rec-text">${r}</span>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // Update Optimized Params
+                if (data.optimized_params) {
+                    const paramsContainer = document.getElementById('optimized-params-container');
+                    if (paramsContainer) {
+                        const params = data.optimized_params;
+                        paramsContainer.innerHTML = `
+                            <div style="font-size: 10px; color: #94a3b8; line-height: 1.6;">
+                                Pool: ${params.connection_pool_size} | Timeout: ${params.query_timeout}s<br>
+                                Cache: ${params.cache_size} | Batch: ${params.batch_size}<br>
+                                Refresh: ${params.refresh_rate}s | Threshold: ${params.relationship_threshold}
+                            </div>
+                        `;
+                        console.log('✅ Optimized Params updated');
+                    }
+                }
+
+            } catch (error) {
+                console.error('❌ Error updating Neural Core:', error);
+            }
+        }
+
+        let neuralInterval = null;
+
+        // Start Neural Core updates
+        function startNeuralUpdates() {
+            if (neuralInterval) clearInterval(neuralInterval);
+            updateNeuralCore(); // Initial fetch
+            neuralInterval = setInterval(updateNeuralCore, 2000); // Update every 2 seconds
+        }
+
+        // Stop Neural Core updates
+        function stopNeuralUpdates() {
+            if (neuralInterval) {
+                clearInterval(neuralInterval);
+                neuralInterval = null;
+            }
+        }
+
+
+        // Start stats fetching when connected
+        function startStatsUpdate() {
+            if (statsInterval) clearInterval(statsInterval);
+            updateRealStats(); // Initial fetch
+            statsInterval = setInterval(updateRealStats, 5000); // Update every 5 seconds
+
+            // Start Neural Core updates as well
+            startNeuralUpdates();
+        }
+
+        // Stop stats fetching
+        function stopStatsUpdate() {
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            // Stop Neural Core updates
+            stopNeuralUpdates();
+        }
+
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (animationId) cancelAnimationFrame(animationId);
+            if (renderer) renderer.dispose();
+        });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // Database Panel Functions
+        function toggleDbPanel() {
+            const panel = document.getElementById('dbPanel');
+            const overlay = document.getElementById('dbPanelOverlay');
+
+            panel.classList.toggle('open');
+            overlay.classList.toggle('visible');
+
+            // Toggle body class to control other UI elements (like hiding toggle buttons)
+            if (panel.classList.contains('open')) {
+                document.body.classList.add('db-panel-active');
+            } else {
+                document.body.classList.remove('db-panel-active');
+            }
+        }
+
+        function toggleDbFields() {
+            updatePortForDbType();
+        }
+
+        function updatePortForDbType() {
+            const dbType = document.getElementById('dbType').value;
+            const portInput = document.getElementById('dbPort');
+            const badge = document.getElementById('dbTypeBadge');
+
+            const portMap = {
+                'mysql': { port: '3306', label: 'MySQL Database' },
+                'postgresql': { port: '5432', label: 'PostgreSQL Database' },
+                'mongodb': { port: '27017', label: 'MongoDB Database' }
+            };
+
+            if (portMap[dbType]) {
+                portInput.value = portMap[dbType].port;
+                badge.textContent = portMap[dbType].label;
+            }
+        }
+
+        async function handleDbConnect(event) {
+            event.preventDefault();
+
+            const dbType = document.getElementById('dbType').value;
+
+            // ========== CSV HANDLING ==========
+            if (dbType === 'csv' || dbType.trim() === 'csv') {
+                console.log('CSV upload started');
+                const fileInput = document.getElementById('csvFile');
+                const file = fileInput.files[0];
+
+                if (!file) {
+                    alert('Please select a CSV file.');
+                    return;
+                }
+
+
+                console.log('Uploading CSV to backend:', file.name);
+
+                try {
+                    // Upload CSV to backend
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const uploadResponse = await fetch('/api/csv/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const uploadResult = await uploadResponse.json();
+                    console.log('Upload response:', uploadResult);
+
+                    if (uploadResult.success) {
+                        const connectionId = uploadResult.connection_id;
+                        currentConnectionId = connectionId;
+                        currentMode = 'live';
+
+                        // Close the connection panel
+                        toggleDbPanel();
+
+                        // Show success status
+                        const statusDiv = document.getElementById('connectionStatus');
+                        const statusMsg = document.getElementById('statusMessage');
+                        if (statusDiv && statusMsg) {
+                            statusDiv.className = 'connection-status visible success';
+                            statusMsg.textContent = `✓ ${uploadResult.message}`;
+                        }
+
+                        // Load graph from backend (same as database connection)
+                        await loadGraphFromBackend(connectionId);
+
+                        console.log('CSV processed successfully through backend');
+                    } else {
+                        throw new Error(uploadResult.message || 'Upload failed');
+                    }
+
+                } catch (err) {
+                    console.error('CSV upload error:', err);
+                    alert("Failed to upload CSV: " + err.message);
+                }
+
+                return;
+            }
+
+            // ========== DATABASE HANDLING (MySQL, PostgreSQL, MongoDB, Neo4j) ==========
+            const statusDiv = document.getElementById('connectionStatus');
+            const statusMsg = document.getElementById('statusMessage');
+
+            statusDiv.className = 'connection-status visible';
+            statusMsg.textContent = 'Connecting to database...';
+
+            const formData = {
+                db_type: dbType,
+                host: document.getElementById('dbHost').value,
+                port: parseInt(document.getElementById('dbPort').value),
+                database: document.getElementById('dbName').value,
+                username: document.getElementById('dbUsername').value,
+                password: document.getElementById('dbPassword').value
+            };
+
+            try {
+                const response = await fetch('/api/connect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    statusDiv.className = 'connection-status visible success';
+                    statusMsg.textContent = `✓ ${result.message} (ID: ${result.connection_id})`;
+
+                    setTimeout(() => {
+                        toggleDbPanel();
+                        loadGraphFromBackend(result.connection_id);
+                    }, 2000);
+                } else {
+                    throw new Error(result.detail || 'Connection failed');
+                }
+            } catch (error) {
+                statusDiv.className = 'connection-status visible error';
+                statusMsg.textContent = `✗ Error: ${error.message}`;
+            }
+        }
+
+        // ========== BACKEND INTEGRATION ==========
+
+        // Mode management
+        let currentMode = 'demo'; // 'demo' or 'live'
+        let currentConnectionId = null;
+        let websocket = null;
+
+        // Load graph data from backend
+        async function loadGraphFromBackend(connectionId) {
+            try {
+                console.log(`Loading graph from backend for connection: ${connectionId} `);
+
+                // Show loading state (you can add a loading overlay here)
+                currentConnectionId = connectionId;
+                currentMode = 'live';
+
+                // Determine API endpoint based on connection type
+                const isCSV = connectionId.startsWith('csv_');
+                const apiEndpoint = isCSV ? `/api/csv/graph/${connectionId}` : `/api/graph/${connectionId}`;
+                console.log(`Fetching from: ${apiEndpoint}`);
+
+                // Fetch graph data from backend
+                const response = await fetch(apiEndpoint);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch graph: ${response.statusText} `);
+                }
+
+                const backendGraph = await response.json();
+                console.log('Received graph data:', backendGraph);
+
+                // Transform backend data to frontend format
+                const frontendData = transformBackendData(backendGraph);
+                console.log('Transformed data:', frontendData);
+
+                // Clear existing demo network
+                clearNetwork();
+
+                // Create new network with backend data
+                createNetworkFromData(frontendData);
+
+                // Connect WebSocket for real-time updates
+                connectWebSocket(connectionId);
+
+                // Update mode indicator
+                updateModeIndicator('live');
+
+                // Start fetching real database stats
+                startStatsUpdate();
+
+                // Start fetching Neural Core stats
+                startNeuralUpdates();
+
+                console.log('Successfully loaded backend graph');
+
+            } catch (error) {
+                console.error('Error loading graph from backend:', error);
+                alert(`Failed to load database visualization: ${error.message} `);
+                // Fall back to demo mode
+                switchToDemoMode();
+            }
+        }
+
+        // ========== NEURAL CORE INTEGRATION ==========
+        // (neuralInterval and functions defined above)
+
+
+        function updateNeuralUI(data) {
+            // Update Core Status
+            if (data.core_status) {
+                setText('neural-vitality', data.core_status.vitality);
+                setText('neural-quality', data.core_status.data_quality);
+                setText('neural-records', data.core_status.records);
+                setText('neural-last-update', data.core_status.last_update);
+            }
+
+            // Update AI Insights
+            if (data.ai_insights) {
+                setText('neural-anomaly', data.ai_insights.anomaly_score);
+                setText('neural-gravity', data.ai_insights.gravity_pull);
+
+                const optEl = document.getElementById('neural-opt');
+                if (optEl) {
+                    optEl.textContent = data.ai_insights.optimization;
+                    optEl.className = data.ai_insights.optimization === 'Active' ? 'insight-value active' : 'insight-value';
+                }
+            }
+
+            // Update Clusters
+            if (data.clusters) {
+                const clusterContainer = document.getElementById('clusters-container');
+                if (clusterContainer) {
+                    clusterContainer.innerHTML = data.clusters.map(c => `
+                <div class="insight-grid" style="margin-top: 5px; grid-template-columns: 1fr auto;">
+                            <div class="insight-label">${c.name}</div>
+                            <div class="insight-value ${c.status === 'Warning' ? 'warning' : 'good'}" style="font-size: 11px;">
+                                ${c.count} items
+                            </div>
+                        </div>
+                `).join('');
+                }
+            }
+
+            // Update Relational Flows
+            if (data.relational_flows) {
+                const flowsContainer = document.getElementById('relational-flows-container');
+                if (flowsContainer) {
+                    if (data.relational_flows.length > 0) {
+                        flowsContainer.innerHTML = `
+                <div class="neural-section" style="padding: 0;">
+                    ${data.relational_flows.map(flow => `
+                                    <div class="neural-stat-row" style="margin-bottom: 8px;">
+                                        <span class="stat-name">${flow.source}</span>
+                                        <div style="display: flex; gap: 8px; align-items: center;">
+                                            <span class="stat-val ${flow.status === 'Active' ? 'good' : ''}">${flow.strength}</span>
+                                            <div class="pulse-indicator" style="background: ${flow.status === 'Active' ? '#22d3ee' : '#64748b'}; width: 6px; height: 6px;"></div>
+                                        </div>
+                                    </div>
+                                `).join('')
+                            }
+                            </div>
+                `;
+                    } else {
+                        flowsContainer.innerHTML = `
+                <div class="section-label">NO ACTIVE FLOWS</div>
+                    <p style="font-size: 11px; color: #64748b; margin-top: 8px;">Waiting for traffic...</p>
+            `;
+                    }
+                }
+            }
+
+            // Update Recommendations
+            if (data.recommendations) {
+                const recContainer = document.getElementById('recommendations-container');
+                if (recContainer) {
+                    recContainer.innerHTML = data.recommendations.map(r => `
+                <div class="recommendation-item">
+                            <span class="rec-bullet">•</span>
+                            <span class="rec-text">${r}</span>
+                        </div>
+                `).join('');
+                }
+            }
+
+            // Update RL Button State
+            if (data.rl_status) {
+                const btn = document.getElementById('btn-rl');
+                if (btn) {
+                    const isEnabled = data.rl_status.enabled;
+
+                    // Update Content
+                    btn.innerHTML = isEnabled ?
+                        '<span class="icon">⚡</span> Disable RL' :
+                        '<span class="icon">⚡</span> Enable RL';
+
+                    // Update Visual Styling (Colors)
+                    if (isEnabled) {
+                        btn.classList.add('btn-active');
+                        btn.classList.remove('btn-dim');
+                    } else {
+                        btn.classList.add('btn-dim');
+                        btn.classList.remove('btn-active');
+                    }
+                }
+            }
+        }
+
+        function setText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
+        }
+
+        // (startNeuralUpdates and stopNeuralUpdates defined above)
+
+
+        // Visual Feedback: Toast Notification
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = toast.querySelector('.toast-icon');
+
+            if (!toast) return;
+
+            msgEl.textContent = message;
+            iconEl.textContent = type === 'success' ? '✅' : 'ℹ️';
+
+            if (type === 'processing') iconEl.textContent = '⏳';
+            if (type === 'error') iconEl.textContent = '❌';
+
+            toast.classList.add('visible');
+
+            // Auto hide after 3 seconds
+            setTimeout(() => {
+                toast.classList.remove('visible');
+            }, 3000);
+        }
+
+        // Control Functions - Make them global for onclick handlers
+        window.toggleRL = async function () {
+            if (!currentConnectionId) return alert("Connect to a database first.");
+
+            const btn = document.getElementById('btn-rl');
+            const isCurrentlyEnabled = btn.textContent.includes('Disable');
+            const newState = !isCurrentlyEnabled;
+
+            // Optimistic UI Update - Instant Color Switch
+            if (newState) {
+                // Turning ON
+                btn.innerHTML = '<span class="icon">⚡</span> Disable RL';
+                btn.classList.add('btn-active');
+                btn.classList.remove('btn-dim');
+                showToast("Reinforcement Learning Enabled", "success");
+            } else {
+                // Turning OFF
+                btn.innerHTML = '<span class="icon">⚡</span> Enable RL';
+                btn.classList.add('btn-dim');
+                btn.classList.remove('btn-active');
+                showToast("Reinforcement Learning Paused", "success");
+            }
+
+            try {
+                const response = await fetch(`/api/toggle-rl/${currentConnectionId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: newState })
+                });
+                const result = await response.json();
+
+                // Force immediate update to verify
+                updateNeuralCore();
+            } catch (error) {
+                console.error("Error toggling RL:", error);
+                showToast("Failed to toggle RL", "error");
+                // Revert UI on error
+                btn.innerHTML = isCurrentlyEnabled ?
+                    '<span class="icon">⚡</span> Disable RL' :
+                    '<span class="icon" style="color:#64748b">⚡</span> Enable RL';
+            }
+        }
+
+        window.recalcGravity = async function () {
+            if (!currentConnectionId) return alert("Connect to a database first.");
+
+            const btn = document.getElementById('btn-recalc');
+            const icon = document.getElementById('recalc-icon');
+            const originalText = btn.innerHTML;
+
+            // Visual feedback
+            btn.innerHTML = '<span class="icon">⏳</span> Calibrating...';
+            showToast("Recalibrating Neural Weights...", "processing");
+
+            if (icon) icon.style.animation = "spin 1s linear infinite";
+
+            try {
+                const response = await fetch(`/api/recalculate-gravity/${currentConnectionId}`, { method: 'POST' });
+                const result = await response.json();
+
+                // Success feedback
+                showToast("Gravity Recalculation Complete!", "success");
+
+                // Force update
+                updateNeuralCore();
+
+                setTimeout(() => {
+                    btn.innerHTML = '<span class="icon">⟳</span> Re-Calc';
+                }, 1000);
+            } catch (error) {
+                console.error("Error recalculating gravity:", error);
+                showToast("Recalculation Failed", "error");
+                btn.innerHTML = '<span class="icon">⟳</span> Re-Calc';
+            }
+        }
+
+        // Transform backend graph format to frontend format
+        function transformBackendData(backendGraph) {
+            // Color mapping matching visualizer.html demo
+            const typeColorMap = {
+                'fact': 0xfbbf24,        // Yellow - Fact Tables
+                'dimension': 0x34d399,   // Green - Dimensions
+                'core': 0x22d3ee,        // Cyan - Database Core
+                'database': 0x22d3ee,    // Cyan - Database Core
+                'alert': 0xf87171,       // Red - Fraud Alerts
+                'analytics': 0xa78bfa,   // Purple - Analytics
+                'unknown': 0x707888      // Gray - Other
+            };
+
+            // Check if backend provided positions
+            const useBackendPositions = backendGraph.nodes.length > 0 &&
+                backendGraph.nodes[0].x !== undefined &&
+                backendGraph.nodes[0].x !== null;
+
+            // Calculate positions only if needed
+            const positions = useBackendPositions ? null : calculateNodePositions(backendGraph.nodes, backendGraph.edges);
+
+            // Transform nodes
+            const transformedNodes = backendGraph.nodes.map((node, index) => {
+                // Use backend color if type mapping fails
+                let color = typeColorMap[node.type];
+                if (!color) {
+                    // Try to use node.color from backend
+                    if (node.color && node.color.startsWith('#')) {
+                        color = parseInt(node.color.replace('#', '0x'));
+                    } else {
+                        color = 0x22d3ee; // Default Fallback
+                    }
+                }
+
+                // Use backend positions if available, otherwise calculated one
+                const pos = useBackendPositions ? [node.x, node.y, node.z] : positions[index];
+
+                // Format row count
+                let rowsFormatted = '0';
+                if (node.row_count) {
+                    if (node.row_count >= 1000000) {
+                        rowsFormatted = (node.row_count / 1000000).toFixed(1) + 'M';
+                    } else if (node.row_count >= 1000) {
+                        rowsFormatted = (node.row_count / 1000).toFixed(1) + 'K';
+                    } else {
+                        rowsFormatted = node.row_count.toString();
+                    }
+                }
+
+                // Create circle pack structure from metrics
+                const structure = createCirclePackStructure(node);
+
+                return {
+                    name: node.name,
+                    color: color,
+                    size: node.size || 40,
+                    pos: pos,
+                    entity: node.entity || node.type,
+                    rows: rowsFormatted,
+                    metrics: node.metrics || [],
+                    structure: structure,
+                    id: node.id
+                };
+            });
+
+            return {
+                nodes: transformedNodes,
+                edges: backendGraph.edges
+            };
+        }
+
+        // Calculate 3D positions for nodes (Fallback Layout)
+        function calculateNodePositions(nodes, edges) {
+            const positions = [];
+            const radius = 300;
+            const angleStep = (Math.PI * 2) / nodes.length;
+
+            // Simple circular layout
+            nodes.forEach((node, index) => {
+                const angle = angleStep * index;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const y = (Math.random() - 0.5) * 100; // Some vertical variation
+
+                positions.push([x, y, z]);
+            });
+
+            return positions;
+        }
+
+        // Create circle pack structure from node data
+        function createCirclePackStructure(node) {
+            const columns = node.columns || [];
+            const primaryKeys = node.primary_keys || [];
+            const foreignKeys = node.foreign_keys || [];
+
+            // Build column children with proper type identification
+            const columnChildren = columns.map((col, idx) => {
+                let type = "data";
+
+                // Check if this column is a primary key
+                if (primaryKeys.includes(col.name)) {
+                    type = "PK";
+                }
+                // Check if this column is a foreign key
+                else if (foreignKeys.find(fk => fk.column === col.name)) {
+                    type = "FK";
+                }
+
+                return {
+                    name: col.name,
+                    value: 100 + idx * 10,
+                    type: type,
+                    dataType: col.type
+                };
+            });
+
+            // Build structure
+            const children = [];
+
+            // Add columns section
+            if (columnChildren.length > 0) {
+                children.push({
+                    name: "Columns",
+                    children: columnChildren
+                });
+            }
+
+            // Add metadata section
+            children.push({
+                name: "Metadata",
+                children: [
+                    { name: "Rows", value: node.row_count || 1000, type: "data" },
+                    { name: "Type", value: 50, type: "index" }
+                ]
+            });
+
+            return {
+                name: node.name,
+                children: children
+            };
+        }
+
+        // Clear existing network
+        function clearNetwork() {
+            // Remove all node meshes from scene
+            nodes.forEach(node => {
+                if (node.mesh) {
+                    scene.remove(node.mesh);
+                    if (node.mesh.geometry) node.mesh.geometry.dispose();
+                    if (node.mesh.material) node.mesh.material.dispose();
+                }
+            });
+
+            // Remove all connection lines
+            connections.forEach(conn => {
+                if (conn) {
+                    scene.remove(conn);
+                    if (conn.geometry) conn.geometry.dispose();
+                    if (conn.material) conn.material.dispose();
+                }
+            });
+
+            // Remove all particles
+            particles.forEach(particle => {
+                if (particle.mesh) {
+                    scene.remove(particle.mesh);
+                    if (particle.mesh.geometry) particle.mesh.geometry.dispose();
+                    if (particle.mesh.material) particle.mesh.material.dispose();
+                }
+            });
+
+            // Clear arrays
+            nodes.length = 0;
+            connections.length = 0;
+            particles.length = 0;
+
+            selectedNode = null;
+        }
+
+        // Create network from transformed data
+        function createNetworkFromData(data) {
+            // Create nodes
+            data.nodes.forEach(nodeData => {
+                const geometry = new THREE.SphereGeometry(nodeData.size, 32, 32);
+                const material = new THREE.MeshPhongMaterial({
+                    color: nodeData.color,
+                    emissive: nodeData.color,
+                    emissiveIntensity: 0.3,
+                    shininess: 100
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(nodeData.pos[0], nodeData.pos[1], nodeData.pos[2]);
+
+                // Add glow
+                const glowGeometry = new THREE.SphereGeometry(nodeData.size * 1.2, 32, 32);
+                const glowMaterial = new THREE.MeshBasicMaterial({
+                    color: nodeData.color,
+                    transparent: true,
+                    opacity: 0.2
+                });
+                const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+                mesh.add(glow);
+
+                scene.add(mesh);
+
+                nodes.push({
+                    mesh: mesh,
+                    name: nodeData.name,
+                    color: nodeData.color,
+                    entity: nodeData.entity,
+                    rows: nodeData.rows,
+                    metrics: nodeData.metrics,
+                    structure: nodeData.structure,
+                    id: nodeData.id,
+                    initialPos: new THREE.Vector3(nodeData.pos[0], nodeData.pos[1], nodeData.pos[2])
+                });
+            });
+
+            // Create connections based on edges (using Bezier curves like demo)
+            data.edges.forEach(edge => {
+                const sourceNode = nodes.find(n => n.id === edge.source || n.name === edge.source);
+                const targetNode = nodes.find(n => n.id === edge.target || n.name === edge.target);
+
+                if (sourceNode && targetNode) {
+                    const start = sourceNode.mesh.position;
+                    const end = targetNode.mesh.position;
+
+                    // Create QuadraticBezierCurve3 for beautiful curved connections (like demo)
+                    // Reduced randomness for cleaner connections (less "zig-zag")
+                    const curve = new THREE.QuadraticBezierCurve3(
+                        start.clone(),
+                        new THREE.Vector3(
+                            (start.x + end.x) / 2 + (Math.random() - 0.5) * 40,
+                            (start.y + end.y) / 2 + (Math.random() - 0.5) * 40,
+                            (start.z + end.z) / 2 + (Math.random() - 0.5) * 40
+                        ),
+                        end.clone()
+                    );
+
+                    // Get 80 points along the curve for smooth line
+                    const points = curve.getPoints(80);
+                    const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                    // Use source node color (like demo)
+                    const lineMaterial = new THREE.LineBasicMaterial({
+                        color: sourceNode.color,
+                        transparent: true,
+                        opacity: 0.35
+                    });
+
+                    const line = new THREE.Line(lineGeometry, lineMaterial);
+                    scene.add(line);
+                    connections.push({
+                        line,
+                        curve,
+                        source: sourceNode,
+                        target: targetNode
+                    });
+
+                    // Create particle that follows the curve (Vitality Visuals)
+                    // High probability for a "busy" look like the demo
+                    if (Math.random() > 0.3) {
+                        const particleGeo = new THREE.SphereGeometry(3, 12, 12);
+                        const particleMat = new THREE.MeshBasicMaterial({
+                            color: sourceNode.color,
+                            transparent: true,
+                            opacity: 0.9 // Brighter particles
+                        });
+                        const particle = new THREE.Mesh(particleGeo, particleMat);
+                        scene.add(particle);
+
+                        particles.push({
+                            mesh: particle,
+                            curve: curve,
+                            progress: Math.random(),
+                            speed: 0.005 + Math.random() * 0.02 // Faster, more varied speed
+                        });
+                    }
+                }
+            });
+        }
+
+
+
+        // Connect WebSocket for real-time updates
+        function connectWebSocket(connectionId) {
+            if (websocket) {
+                websocket.close();
+            }
+
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/${connectionId}`;
+
+            console.log('Connecting to WebSocket:', wsUrl);
+
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = () => {
+                console.log('WebSocket connected');
+            };
+
+            websocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleRealtimeUpdate(data);
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            websocket.onclose = () => {
+                console.log('WebSocket disconnected');
+            };
+        }
+
+        // Handle real-time updates from WebSocket
+        function handleRealtimeUpdate(data) {
+            console.log('Received real-time update:', data);
+
+            // Handle standard metrics (legacy support)
+            if (data.type === 'metrics' && data.data) {
+                updateMetricsFromBackend(data.data);
+            }
+
+            // Handle new "Pin-to-Pin" update format
+            if (data.type === 'metrics_update') {
+                if (data.data) updateMetricsFromBackend(data.data);
+                if (data.health) updateHealthDisplay(data.health);
+                if (data.anomalies) handleAnomalies(data.anomalies);
+            }
+        }
+
+        // Update Health Badge
+        function updateHealthDisplay(health) {
+            const dot = document.getElementById('healthDot');
+            const text = document.getElementById('healthText');
+
+            if (dot && text) {
+                text.textContent = health.state.toUpperCase();
+                dot.style.background = health.color;
+                dot.style.boxShadow = `0 0 10px ${health.color}`;
+
+                // Pulse if critical
+                if (health.state === 'anomalous') {
+                    dot.style.animation = 'pulse 1s infinite';
+                } else {
+                    dot.style.animation = 'none';
+                }
+            }
+        }
+
+        // Handle Anomalies (Visual Alerts)
+        function handleAnomalies(anomalies) {
+            if (!anomalies || anomalies.length === 0) return;
+
+            // Highlight affected nodes
+            anomalies.forEach(anomaly => {
+                console.log('Anomaly detected:', anomaly);
+
+                // Find affected nodes (logic from anomaly explanation)
+                nodes.forEach(node => {
+                    // Simple heuristic to find relevant nodes for demo
+                    // In a real scenario, anomaly payload would list node IDs
+                    if (node.entity === 'fraud' || node.metrics.includes(anomaly.metric)) {
+                        pulseNode(node, 0xff0000);
+                    }
+                });
+            });
+        }
+
+        // Pulse a node visually
+        function pulseNode(node, colorHex) {
+            if (node.mesh) {
+                const originalColor = node.mesh.material.color.getHex();
+                node.mesh.material.color.setHex(colorHex);
+
+                // Restore after 2 seconds
+                setTimeout(() => {
+                    node.mesh.material.color.setHex(originalColor);
+                }, 2000);
+            }
+        }
+
+        // Initialize Search Functionality
+        function initSearch() {
+            const searchInput = document.getElementById('nodeSearch');
+
+            // Add null check to prevent error
+            if (!searchInput) {
+                console.warn('nodeSearch element not found, skipping search initialization');
+                return;
+            }
+
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.toLowerCase();
+                if (term.length < 2) return;
+
+                // Find matching node
+                const target = nodes.find(n => n.name.toLowerCase().includes(term));
+
+                if (target) {
+                    console.log('Found node:', target.name);
+
+                    // Fly camera to node
+                    const startPos = camera.position.clone();
+                    const endPos = new THREE.Vector3(
+                        target.pos[0] * 1.5,
+                        target.pos[1] + 50,
+                        target.pos[2] * 1.5
+                    );
+
+                    // Simple animation (tweening logic could be added)
+                    camera.position.lerp(endPos, 0.1);
+                    controls.target.copy(new THREE.Vector3(...target.pos));
+                }
+            });
+        }
+
+        // Initialize search on load
+        document.addEventListener('DOMContentLoaded', initSearch);
+
+        // Update metrics display from backend data
+        function updateMetricsFromBackend(metricsData) {
+            if (metricsData.transaction_rate) {
+                document.getElementById('tps').textContent = metricsData.transaction_rate;
+            }
+            // Add more metric updates as needed
+        }
+
+        // Update mode indicator badge
+        function updateModeIndicator(mode) {
+            const indicator = document.getElementById('modeIndicator');
+            if (!indicator) return;
+
+            if (mode === 'live') {
+                indicator.className = 'mode-indicator live';
+                indicator.textContent = 'Live Mode';
+            } else {
+                indicator.className = 'mode-indicator demo';
+                indicator.textContent = 'Demo Mode';
+            }
+        }
+
+        // Switch to demo mode
+        function switchToDemoMode() {
+            // Check if already in demo mode
+            if (currentMode === 'demo') {
+                console.log('Already in demo mode');
+                alert('Already viewing demo data. Connect to a database to see live data.');
+                return;
+            }
+
+            // Switch from live to demo
+            console.log('Switching from live to demo mode');
+            currentMode = 'demo';
+            currentConnectionId = null;
+
+            if (websocket) {
+                websocket.close();
+                websocket = null;
+            }
+
+            // Reload page to reset to demo
+            location.reload();
+        }
+
+        // Toggle Stats Panel
+        function toggleStatsPanel() {
+            // Try multiple selectors to find the stats panel
+            let panel = document.getElementById('stats-dashboard');
+            if (!panel) {
+                // Try finding by class or other attributes
+                panel = document.querySelector('.stats-dashboard');
+            }
+            if (!panel) {
+                // Look for any panel on the right side with stats content
+                const allPanels = document.querySelectorAll('.glass-card');
+                for (let p of allPanels) {
+                    if (p.textContent.includes('LIVE DATA') || p.textContent.includes('FRAUD ALERTS')) {
+                        panel = p.parentElement;
+                        break;
+                    }
+                }
+            }
+
+            const btn = document.getElementById('stats-toggle-btn');
+
+            if (!panel) {
+                console.error('Stats panel not found');
+                return;
+            }
+
+            console.log('=== Toggle Stats Panel ===');
+            console.log('Panel found:', panel);
+            console.log('Panel classes:', panel.className);
+            console.log('Panel has minimized class:', panel.classList.contains('minimized'));
+            console.log('Current button text:', btn.textContent);
+
+            if (panel.classList.contains('minimized')) {
+                // Expand panel
+                console.log('ACTION: Expanding panel (removing minimized class)');
+                panel.classList.remove('minimized');
+
+                // Try multiple ways to set the button text
+                btn.innerHTML = '&gt;';
+                btn.textContent = '>';
+                btn.innerText = '>';
+                btn.setAttribute('data-state', 'open');
+
+                console.log('Button text changed to: >');
+            } else {
+                // Minimize panel
+                console.log('ACTION: Minimizing panel (adding minimized class)');
+                panel.classList.add('minimized');
+
+                // Try multiple ways to set the button text
+                btn.innerHTML = '&lt;';
+                btn.textContent = '<';
+                btn.innerText = '<';
+                btn.setAttribute('data-state', 'closed');
+
+                console.log('Button text changed to: <');
+            }
+
+            // Force a reflow
+            void btn.offsetWidth;
+
+            console.log('After toggle - Panel classes:', panel.className);
+            console.log('After toggle - Button innerHTML:', btn.innerHTML);
+            console.log('After toggle - Button textContent:', btn.textContent);
+        }
+
+        // Initialize Stats panel as minimized
+        document.addEventListener('DOMContentLoaded', () => {
+            // Try to find the stats panel and give it an ID
+            let statsPanel = document.getElementById('stats-dashboard');
+
+            if (!statsPanel) {
+                // Look for panels on the right side
+                const allDivs = document.querySelectorAll('div');
+                for (let div of allDivs) {
+                    const style = window.getComputedStyle(div);
+                    const text = div.textContent;
+
+                    // Check if it's positioned on the right and contains stats content
+                    if ((style.position === 'fixed' || style.position === 'absolute') &&
+                        (text.includes('LIVE DATA') || text.includes('FRAUD ALERTS') || text.includes('SYSTEM HEALTH'))) {
+                        const right = style.right;
+                        if (right && parseInt(right) < 100) {
+                            statsPanel = div;
+                            statsPanel.id = 'stats-dashboard';
+                            statsPanel.classList.add('stats-dashboard');
+                            console.log('Found and marked stats panel:', statsPanel);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (statsPanel) {
+                statsPanel.classList.add('minimized');
+                const btn = document.getElementById('stats-toggle-btn');
+                if (btn) {
+                    btn.innerHTML = '&lt;'; // Panel is minimized, so button shows < to open
+                }
+                console.log('Stats panel initialized as minimized, button set to <');
+            } else {
+                console.warn('Stats panel not found during initialization');
+            }
+        });
+    </script>
+
+    <!-- Standalone Neural Panel Toggle Button -->
+    <button id="neural-toggle-btn" class="neural-standalone-toggle" onclick="toggleNeuralPanel()"
+        title="Toggle Neural Core">&lt;</button>
+
+    <!-- Standalone Stats Panel Toggle Button -->
+    <button id="stats-toggle-btn" class="stats-standalone-toggle" onclick="toggleStatsPanel()"
+        title="Toggle Stats">&lt;</button>
+
+    <script src="/static/js/app.js" type="module"></script>
+    <script src="/static/js/visualization.js" type="module"></script>
+    <script>
+        // --- Robust Panel Toggling & CSV Logic ---
+
+        // Toggle Database Fields Visibility
+        function toggleDbFields() {
+            const type = document.getElementById('dbType').value;
+            const dbFields = document.getElementById('db-fields');
+            const csvField = document.getElementById('csv-field');
+            const inputs = dbFields.querySelectorAll('input');
+            const csvInput = document.getElementById('csvFile');
+            const btn = document.querySelector('.connect-btn');
+
+            if (type === 'csv') {
+                dbFields.style.display = 'none';
+                csvField.style.display = 'block';
+                inputs.forEach(i => i.removeAttribute('required'));
+                csvInput.setAttribute('required', '');
+                btn.textContent = 'Upload & Visualize';
+
+                const badge = document.getElementById('dbTypeBadge');
+                if (badge) {
+                    badge.textContent = 'Local CSV File';
+                    badge.style.background = 'rgba(50, 200, 100, 0.2)';
+                    badge.style.borderColor = '#32d74b';
+                }
+            } else {
+                dbFields.style.display = 'grid';
+                csvField.style.display = 'none';
+                inputs.forEach(i => i.setAttribute('required', ''));
+                csvInput.removeAttribute('required');
+                btn.textContent = 'Connect';
+
+                const badge = document.getElementById('dbTypeBadge');
+                if (badge) {
+                    const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+                    badge.textContent = typeName + ' Database';
+                    badge.style.background = '';
+                    badge.style.borderColor = '';
+                }
+            }
+        }
+
+
+        function createNetworkFromCsv(csvText, filename) {
+            const lines = csvText.split(/\r\n|\n/).filter(line => line.trim() !== '');
+            if (lines.length < 2) return { nodes: [], edges: [] };
+
+            const headers = lines[0].split(',').map(h => h.trim());
+            const dataRows = lines.slice(1).map(line => {
+                const values = line.split(',');
+                return headers.reduce((obj, header, i) => {
+                    obj[header] = values[i] ? values[i].trim() : '';
+                    return obj;
+                }, {});
+            });
+
+            const nodes = [];
+            const edges = [];
+
+            // File Node
+            nodes.push({
+                id: 'file_hub',
+                name: filename,
+                type: 'database',
+                size: 60,
+                color: '#22d3ee',
+                x: 0, y: 0, z: 0,
+                pos: [0, 0, 0],
+                row_count: dataRows.length
+            });
+
+            const limit = Math.min(dataRows.length, 50);
+            const radius = 300; // Distance from center
+            const angleStep = (Math.PI * 2) / limit; // Evenly distribute around circle
+
+            dataRows.slice(0, limit).forEach((row, i) => {
+                const id = `row_${i}`;
+                const nameKey = headers.find(h => h.toLowerCase().includes('name') || h.toLowerCase().includes('id')) || headers[0];
+                const name = row[nameKey] || `Row ${i + 1}`;
+
+                // Circular layout around the hub
+                const angle = i * angleStep;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                const z = (Math.random() - 0.5) * 100; // Small variation in depth
+
+                nodes.push({
+                    id: id,
+                    name: name,
+                    type: 'fact',
+                    size: 30,
+                    color: '#fbbf24',
+                    x: x, y: y, z: z,
+                    pos: [x, y, z],
+                    metrics: headers.slice(0, 5).map(h => `${h}: ${row[h]}`)
+                });
+
+                edges.push({
+                    source: 'file_hub',
+                    target: id
+                });
+            });
+
+            return { nodes, edges };
+        }
+
+        // Toggle Neural Panel (Left Side)
+        function toggleNeuralPanel() {
+            const neuralPanel = document.getElementById('neural-panel');
+            const flowsPanel = document.getElementById('relational-flows-panel');
+            const btn = document.getElementById('neural-toggle-btn');
+            if (!neuralPanel) return;
+
+            const isMinimized = neuralPanel.classList.contains('minimized');
+            if (isMinimized) {
+                neuralPanel.classList.remove('minimized');
+                if (flowsPanel) flowsPanel.classList.remove('minimized');
+                if (btn) { btn.textContent = '<'; btn.style.left = '320px'; }
+            } else {
+                neuralPanel.classList.add('minimized');
+                if (flowsPanel) flowsPanel.classList.add('minimized');
+                if (btn) { btn.textContent = '>'; btn.style.left = '0px'; }
+            }
+        }
+
+        // Open CSV Upload Modal Directly
+        function openCsvUpload() {
+            const panel = document.getElementById('dbPanel');
+            const overlay = document.getElementById('dbPanelOverlay');
+            panel.classList.add('open');
+            overlay.classList.add('visible');
+
+            const select = document.getElementById('dbType');
+            select.value = 'csv';
+            toggleDbFields();
+        }
+
+        // Toggle Stats Panel (Right Side)
+        function toggleStatsPanel() {
+            let panel = document.getElementById('stats-dashboard');
+            const btn = document.getElementById('stats-toggle-btn');
+            if (!panel) panel = document.querySelector('.stats-dashboard');
+            if (!panel) return;
+
+            const isMinimized = panel.classList.contains('minimized');
+            if (isMinimized) {
+                panel.classList.remove('minimized');
+                if (btn) { btn.innerHTML = '&gt;'; btn.style.right = '370px'; }
+            } else {
+                panel.classList.add('minimized');
+                if (btn) { btn.innerHTML = '&lt;'; btn.style.right = '0px'; }
+            }
+        }
+
+        // Initialize Styles & Positions on Load
+        document.addEventListener('DOMContentLoaded', () => {
+            const statsPanel = document.getElementById('stats-dashboard') || document.querySelector('.stats-dashboard');
+            const statsBtn = document.getElementById('stats-toggle-btn');
+
+            if (statsPanel) {
+                if (!statsPanel.id) statsPanel.id = 'stats-dashboard';
+                statsPanel.classList.add('minimized');
+                if (statsBtn) { statsBtn.innerHTML = '&lt;'; statsBtn.style.right = '0px'; }
+            }
+
+            const neuralPanel = document.getElementById('neural-panel');
+            const neuralBtn = document.getElementById('neural-toggle-btn');
+            if (neuralPanel && !neuralPanel.classList.contains('minimized')) {
+                if (neuralBtn) { neuralBtn.textContent = '<'; neuralBtn.style.left = '320px'; }
+            }
+
+            // Attach form submit listener for CSV handling
+            const dbForm = document.getElementById('dbConnectionForm');
+            if (dbForm) {
+                dbForm.addEventListener('submit', handleDbConnect);
+            }
+
+            console.log("Panel Toggles & CSV Logic Initialized.");
+        });
+    </script>
+</body>
+
+</html>

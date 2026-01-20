@@ -1,0 +1,1776 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Living Data Intelligence - 3D Network + Drilldown</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Circle Pack Overlay (Drilldown) */
+        #circle-pack-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 32, 39, 0.95);
+            backdrop-filter: blur(30px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        #circle-pack-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        #circle-pack-container {
+            position: relative;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            background: rgba(255, 255, 255, 0.12);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            padding: 22px 45px;
+            max-width: 95%;
+        }
+
+        .logo-modern {
+            width: 65px;
+            height: 65px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.35);
+            flex-shrink: 0;
+        }
+
+        .brand-info {
+            flex: 1;
+        }
+
+        .brand-info h1 {
+            font-size: 26px;
+            font-weight: 800;
+            color: #fff;
+            margin-bottom: 4px;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-info p {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 500;
+        }
+
+        .btn-container {
+            display: flex;
+            gap: 12px;
+        }
+
+        .modern-btn {
+            padding: 13px 28px;
+            border-radius: 14px;
+            border: none;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-gradient:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-glass {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-glass:hover {
+            background: rgba(255, 255, 255, 0.22);
+            transform: translateY(-2px);
+        }
+
+        /* Stats Dashboard */
+        .stats-dashboard {
+            position: fixed;
+            top: 140px;
+            right: 30px;
+            width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            z-index: 100;
+        }
+
+        .hero-stat {
+            padding: 32px;
+        }
+
+        .stat-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 15px;
+            background: rgba(34, 211, 238, 0.15);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            border-radius: 25px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #22d3ee;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 18px;
+        }
+
+        .pulse-indicator {
+            width: 7px;
+            height: 7px;
+            background: #22d3ee;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #22d3ee;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .mega-number {
+            font-size: 52px;
+            font-weight: 900;
+            color: #fff;
+            line-height: 1;
+            margin-bottom: 10px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.65);
+            font-weight: 600;
+        }
+
+        .stat-trend {
+            margin-top: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #22d3ee;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            padding: 24px;
+        }
+
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .metric-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-icon {
+            font-size: 18px;
+            opacity: 0.8;
+        }
+
+        .metric-value {
+            font-size: 34px;
+            font-weight: 900;
+            line-height: 1;
+            color: #fff;
+        }
+
+        .metric-change {
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .positive {
+            color: #22d3ee;
+        }
+
+        .negative {
+            color: #f87171;
+        }
+
+        .warning {
+            color: #fbbf24;
+        }
+
+        .health-card {
+            padding: 24px;
+        }
+
+        .health-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.85);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .health-items {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .health-item {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .health-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .health-name {
+            color: rgba(255, 255, 255, 0.75);
+            font-weight: 600;
+        }
+
+        .health-value {
+            font-weight: 700;
+            color: #22d3ee;
+        }
+
+        .progress-track {
+            height: 8px;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-fill.cyan {
+            background: linear-gradient(90deg, #06b6d4 0%, #22d3ee 100%);
+        }
+
+        .progress-fill.yellow {
+            background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);
+        }
+
+        /* Legend Panel */
+        .legend-panel {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            padding: 28px;
+            min-width: 260px;
+            z-index: 100;
+        }
+
+        .legend-title {
+            font-size: 16px;
+            font-weight: 800;
+            margin-bottom: 22px;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .legend-items {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: all 0.3s;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 10px;
+        }
+
+        .legend-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateX(4px);
+        }
+
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            box-shadow: 0 0 16px currentColor;
+            flex-shrink: 0;
+        }
+
+        .legend-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Node Details Panel */
+        .node-details {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.95);
+            width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 38px;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .node-details.visible {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 28px;
+        }
+
+        .node-title {
+            font-size: 30px;
+            font-weight: 900;
+            color: #fff;
+        }
+
+        .close-button {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            color: white;
+            font-size: 22px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: rotate(90deg);
+        }
+
+        .detail-section {
+            margin-bottom: 24px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: rgba(255, 255, 255, 0.55);
+            margin-bottom: 10px;
+        }
+
+        .detail-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .tag {
+            padding: 10px 18px;
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            border-radius: 25px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #a5b4fc;
+        }
+
+        .connection-section {
+            margin-top: 15px;
+        }
+
+        .connection-item {
+            margin-bottom: 18px;
+        }
+
+        .connection-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /* Controls Hint */
+        .controls-hint {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 16px 32px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 40px;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.85);
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Circle Pack Specific Styles */
+        #circle-pack-svg {
+            border-radius: 20px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+            cursor: pointer;
+        }
+
+        .circle-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 2500;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Circle Pack Header */
+        .circle-pack-header {
+            position: fixed;
+            top: 50%;
+            left: 50px;
+            transform: translateY(-50%);
+            z-index: 2100;
+            padding: 30px;
+            max-width: 350px;
+        }
+
+        .circle-pack-title {
+            font-size: 36px;
+            font-weight: 900;
+            color: #fff;
+            margin-bottom: 12px;
+            line-height: 1.1;
+        }
+
+        .circle-pack-subtitle {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            font-weight: 600;
+            margin-bottom: 25px;
+        }
+
+        .circle-pack-info {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 18px;
+            background: rgba(102, 126, 234, 0.15);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            border-radius: 12px;
+        }
+
+        .info-icon {
+            font-size: 24px;
+        }
+
+        .info-text {
+            flex: 1;
+        }
+
+        .info-label {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 700;
+        }
+
+        .info-value {
+            font-size: 20px;
+            font-weight: 900;
+            color: #fff;
+            margin-top: 2px;
+        }
+
+        /* Close Button for Circle Pack */
+        .circle-pack-close {
+            position: fixed;
+            top: 50%;
+            right: 50px;
+            transform: translateY(-50%);
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 36px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.6);
+            z-index: 2100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .circle-pack-close:hover {
+            transform: translateY(-50%) scale(1.1) rotate(90deg);
+            box-shadow: 0 12px 40px rgba(102, 126, 234, 0.8);
+        }
+
+        @media (max-width: 1400px) {
+            .stats-dashboard {
+                width: 350px;
+                right: 20px;
+            }
+
+            .node-details {
+                width: 440px;
+            }
+
+            .circle-pack-header {
+                left: 30px;
+                max-width: 280px;
+            }
+
+            .circle-pack-close {
+                right: 30px;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.6);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container"></div>
+
+    <!-- Header -->
+    <div class="header glass-card">
+        <div class="logo-modern">🧬</div>
+        <div class="brand-info">
+            <h1>Living Data Network</h1>
+            <p>Real-time Banking Intelligence Visualization</p>
+        </div>
+        <div class="btn-container">
+            <button class="modern-btn btn-gradient" onclick="alert('🎮 Demo feature')">
+                <span>🎮</span> Demo
+            </button>
+            <button class="modern-btn btn-glass" onclick="alert('⚙️ Settings')">
+                <span>⚙️</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Dashboard -->
+    <div class="stats-dashboard">
+        <div class="glass-card hero-stat">
+            <div class="stat-badge">
+                <div class="pulse-indicator"></div>
+                LIVE DATA
+            </div>
+            <div class="mega-number" id="totalTransactions">5.01B</div>
+            <div class="stat-label">Total Transactions Processed</div>
+            <div class="stat-trend positive">
+                <span>↗️</span> +<span id="tps">342</span> tx/sec
+            </div>
+        </div>
+
+        <div class="glass-card metrics-grid">
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Fraud Alerts</span>
+                    <span class="metric-icon">⚠️</span>
+                </div>
+                <div class="metric-value" id="fraudAlerts">8</div>
+                <div class="metric-change negative">
+                    <span>↑</span> +2 today
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Avg Amount</span>
+                    <span class="metric-icon">💰</span>
+                </div>
+                <div class="metric-value">$<span id="avgAmount">1.2K</span></div>
+                <div class="metric-change positive">
+                    <span>↗️</span> +5.2%
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Failed</span>
+                    <span class="metric-icon">❌</span>
+                </div>
+                <div class="metric-value" id="failedTx">2</div>
+                <div class="metric-change warning">
+                    <span>→</span> Stable
+                </div>
+            </div>
+
+            <div class="metric-item">
+                <div class="metric-header">
+                    <span class="metric-name">Active Nodes</span>
+                    <span class="metric-icon">🔗</span>
+                </div>
+                <div class="metric-value" id="activeNodes">847</div>
+                <div class="metric-change positive">
+                    <span>↗️</span> +12
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card health-card">
+            <div class="health-title">System Health</div>
+            <div class="health-items">
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">API Response</span>
+                        <span class="health-value">18ms</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill cyan" style="width: 95%;"></div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">Database Load</span>
+                        <span class="health-value" style="color: #fbbf24;">67%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill yellow" style="width: 67%;"></div>
+                    </div>
+                </div>
+                <div class="health-item">
+                    <div class="health-header">
+                        <span class="health-name">Throughput</span>
+                        <span class="health-value">92%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill cyan" style="width: 92%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend-panel glass-card">
+        <div class="legend-title">
+            <span>🎨</span> Node Types
+        </div>
+        <div class="legend-items">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #22d3ee; color: #22d3ee;"></div>
+                <span class="legend-text">Database Core</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #fbbf24; color: #fbbf24;"></div>
+                <span class="legend-text">Fact Tables</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #34d399; color: #34d399;"></div>
+                <span class="legend-text">Dimensions</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #f87171; color: #f87171;"></div>
+                <span class="legend-text">Fraud Alerts</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: #a78bfa; color: #a78bfa;"></div>
+                <span class="legend-text">Analytics</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Details -->
+    <div class="node-details glass-card" id="nodeDetails">
+        <div class="node-header">
+            <div class="node-title" id="nodeTitle">Transactions</div>
+            <button class="close-button" onclick="hideNodeDetails()">×</button>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Entity Type</div>
+            <div class="detail-value" id="nodeEntity">transaction</div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Total Records</div>
+            <div class="detail-value" id="nodeRows">50,000,000</div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Key Metrics</div>
+            <div class="tags-container" id="nodeTags">
+                <span class="tag">transaction_id</span>
+                <span class="tag">amount</span>
+                <span class="tag">timestamp</span>
+            </div>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Actions</div>
+            <button class="modern-btn btn-gradient" style="width: 100%; justify-content: center;"
+                onclick="showNodeCirclePack()">
+                <span>🔍</span> Explore Internal Structure
+            </button>
+        </div>
+
+        <div class="detail-section">
+            <div class="detail-label">Connections</div>
+            <div class="connection-section">
+                <div class="connection-item">
+                    <div class="connection-label">
+                        <span style="color: rgba(255,255,255,0.7);">To Accounts</span>
+                        <span class="positive">89%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: 89%;"></div>
+                    </div>
+                </div>
+                <div class="connection-item">
+                    <div class="connection-label">
+                        <span style="color: rgba(255,255,255,0.7);">To Customers</span>
+                        <span class="positive">67%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: 67%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls-hint">
+        <div class="control-item">
+            <span>🖱️</span> Drag to Rotate
+        </div>
+        <div class="control-item">
+            <span>🔍</span> Scroll to Zoom
+        </div>
+        <div class="control-item">
+            <span>👆</span> Click Nodes to Explore
+        </div>
+    </div>
+
+    <!-- Circle Pack Overlay (Drilldown) -->
+    <div id="circle-pack-overlay">
+        <div class="circle-pack-header glass-card">
+            <div class="circle-pack-title" id="circlePackTitle">Transactions</div>
+            <div class="circle-pack-subtitle" id="circlePackSubtitle">Internal Structure & Relationships</div>
+            <div class="circle-pack-info">
+                <div class="info-item">
+                    <div class="info-icon">📊</div>
+                    <div class="info-text">
+                        <div class="info-label">Columns</div>
+                        <div class="info-value" id="columnCount">12</div>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">🔑</div>
+                    <div class="info-text">
+                        <div class="info-label">Primary Keys</div>
+                        <div class="info-value" id="pkCount">1</div>
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div class="info-icon">🔗</div>
+                    <div class="info-text">
+                        <div class="info-label">Foreign Keys</div>
+                        <div class="info-value" id="fkCount">3</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="circle-pack-container"></div>
+
+        <button class="circle-pack-close" onclick="hideCirclePack()">×</button>
+    </div>
+
+    <div class="circle-tooltip" id="tooltip"></div>
+
+    <script>
+        let scene, camera, renderer, nodes = [], connections = [], particles = [];
+        let selectedNode = null;
+        let animationId = null;
+
+        let stats = {
+            totalTransactions: 5010119349,
+            fraudAlerts: 8,
+            avgAmount: 1.2,
+            failedTx: 2,
+            tps: 342,
+            activeNodes: 847
+        };
+
+        // Node data with hierarchical structure for circle pack
+        const nodeDataWithStructure = [
+            {
+                name: 'Core Banking',
+                color: 0x22d3ee,
+                size: 50,
+                pos: [0, 0, 0],
+                entity: 'database',
+                rows: '8.5M',
+                metrics: ['tables: 8', 'connections: 234', 'uptime: 99.9%'],
+                structure: {
+                    name: "Core Banking",
+                    children: [
+                        {
+                            name: "System Tables",
+                            children: [
+                                { name: "sys_config", value: 150 },
+                                { name: "sys_users", value: 320 },
+                                { name: "sys_roles", value: 180 }
+                            ]
+                        },
+                        {
+                            name: "Audit",
+                            children: [
+                                { name: "audit_log", value: 8500 },
+                                { name: "change_history", value: 4200 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Accounts',
+                color: 0x34d399,
+                size: 40,
+                pos: [250, 120, -120],
+                entity: 'account',
+                rows: '5.0M',
+                metrics: ['checking', 'savings', 'credit', 'investment'],
+                structure: {
+                    name: "Accounts",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "account_id", value: 1000, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "customer_id → Customers", value: 800, type: "FK" },
+                                { name: "branch_id → Branches", value: 600, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Data Columns",
+                            children: [
+                                { name: "account_type", value: 500 },
+                                { name: "balance", value: 700 },
+                                { name: "currency", value: 400 },
+                                { name: "status", value: 350 },
+                                { name: "created_date", value: 450 },
+                                { name: "last_modified", value: 380 }
+                            ]
+                        },
+                        {
+                            name: "Indexes",
+                            children: [
+                                { name: "idx_customer", value: 300 },
+                                { name: "idx_status", value: 250 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Transactions',
+                color: 0xfbbf24,
+                size: 45,
+                pos: [-180, 180, 80],
+                entity: 'transaction',
+                rows: '50.0M',
+                metrics: ['amount', 'timestamp', 'status', 'merchant'],
+                structure: {
+                    name: "Transactions",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "transaction_id", value: 1200, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "account_id → Accounts", value: 900, type: "FK" },
+                                { name: "merchant_id → Merchants", value: 700, type: "FK" },
+                                { name: "card_id → Cards", value: 650, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Transaction Data",
+                            children: [
+                                { name: "amount", value: 850 },
+                                { name: "currency", value: 450 },
+                                { name: "timestamp", value: 600 },
+                                { name: "status", value: 550 },
+                                { name: "type", value: 500 },
+                                { name: "description", value: 420 }
+                            ]
+                        },
+                        {
+                            name: "Metadata",
+                            children: [
+                                { name: "ip_address", value: 300 },
+                                { name: "device_info", value: 280 },
+                                { name: "location", value: 320 },
+                                { name: "risk_score", value: 400 }
+                            ]
+                        },
+                        {
+                            name: "Indexes",
+                            children: [
+                                { name: "idx_account_date", value: 380 },
+                                { name: "idx_merchant", value: 320 },
+                                { name: "idx_status", value: 290 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Customers',
+                color: 0x34d399,
+                size: 38,
+                pos: [220, -150, 120],
+                entity: 'customer',
+                rows: '3.0M',
+                metrics: ['name', 'segment', 'location', 'tier'],
+                structure: {
+                    name: "Customers",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "customer_id", value: 1100, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Personal Info",
+                            children: [
+                                { name: "first_name", value: 600 },
+                                { name: "last_name", value: 600 },
+                                { name: "email", value: 750 },
+                                { name: "phone", value: 550 },
+                                { name: "date_of_birth", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Address",
+                            children: [
+                                { name: "street", value: 400 },
+                                { name: "city", value: 450 },
+                                { name: "state", value: 420 },
+                                { name: "zip_code", value: 380 },
+                                { name: "country", value: 500 }
+                            ]
+                        },
+                        {
+                            name: "Segmentation",
+                            children: [
+                                { name: "tier", value: 520 },
+                                { name: "segment", value: 580 },
+                                { name: "credit_score", value: 650 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Fraud Alerts',
+                color: 0xf87171,
+                size: 35,
+                pos: [-220, -100, -100],
+                entity: 'alert',
+                rows: '25K',
+                metrics: ['risk_score', 'status', 'priority'],
+                structure: {
+                    name: "Fraud Alerts",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "alert_id", value: 800, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "transaction_id → Transactions", value: 900, type: "FK" },
+                                { name: "account_id → Accounts", value: 700, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Alert Data",
+                            children: [
+                                { name: "risk_score", value: 750 },
+                                { name: "alert_type", value: 600 },
+                                { name: "severity", value: 550 },
+                                { name: "status", value: 500 },
+                                { name: "detected_at", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Investigation",
+                            children: [
+                                { name: "reviewed_by", value: 400 },
+                                { name: "resolution", value: 380 },
+                                { name: "notes", value: 350 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Cards',
+                color: 0xa78bfa,
+                size: 36,
+                pos: [80, -180, -150],
+                entity: 'card',
+                rows: '4.0M',
+                metrics: ['credit_limit', 'balance', 'rewards'],
+                structure: {
+                    name: "Cards",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "card_id", value: 900, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "account_id → Accounts", value: 850, type: "FK" },
+                                { name: "customer_id → Customers", value: 750, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Card Details",
+                            children: [
+                                { name: "card_number", value: 600 },
+                                { name: "card_type", value: 550 },
+                                { name: "expiry_date", value: 500 },
+                                { name: "cvv", value: 450 },
+                                { name: "status", value: 480 }
+                            ]
+                        },
+                        {
+                            name: "Limits & Balance",
+                            children: [
+                                { name: "credit_limit", value: 700 },
+                                { name: "available_credit", value: 650 },
+                                { name: "balance", value: 680 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Loans',
+                color: 0x34d399,
+                size: 32,
+                pos: [-240, 100, 180],
+                entity: 'loan',
+                rows: '800K',
+                metrics: ['amount', 'interest', 'term', 'status'],
+                structure: {
+                    name: "Loans",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "loan_id", value: 850, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Foreign Keys",
+                            children: [
+                                { name: "customer_id → Customers", value: 800, type: "FK" },
+                                { name: "account_id → Accounts", value: 700, type: "FK" }
+                            ]
+                        },
+                        {
+                            name: "Loan Details",
+                            children: [
+                                { name: "amount", value: 750 },
+                                { name: "interest_rate", value: 600 },
+                                { name: "term_months", value: 550 },
+                                { name: "loan_type", value: 500 },
+                                { name: "status", value: 520 }
+                            ]
+                        },
+                        {
+                            name: "Payment Info",
+                            children: [
+                                { name: "monthly_payment", value: 480 },
+                                { name: "outstanding_balance", value: 650 },
+                                { name: "next_payment_date", value: 420 }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                name: 'Branches',
+                color: 0x34d399,
+                size: 28,
+                pos: [150, 200, 100],
+                entity: 'branch',
+                rows: '450',
+                metrics: ['location', 'region', 'staff'],
+                structure: {
+                    name: "Branches",
+                    children: [
+                        {
+                            name: "Primary Keys",
+                            children: [
+                                { name: "branch_id", value: 700, type: "PK" }
+                            ]
+                        },
+                        {
+                            name: "Branch Info",
+                            children: [
+                                { name: "branch_name", value: 550 },
+                                { name: "branch_code", value: 500 },
+                                { name: "region", value: 480 },
+                                { name: "manager", value: 450 }
+                            ]
+                        },
+                        {
+                            name: "Location",
+                            children: [
+                                { name: "address", value: 420 },
+                                { name: "city", value: 480 },
+                                { name: "state", value: 450 },
+                                { name: "country", value: 500 }
+                            ]
+                        },
+                        {
+                            name: "Contact",
+                            children: [
+                                { name: "phone", value: 400 },
+                                { name: "email", value: 380 }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ];
+
+        function init() {
+            try {
+                scene = new THREE.Scene();
+                scene.fog = new THREE.FogExp2(0x0f2027, 0.0006);
+
+                camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 5000);
+                camera.position.z = 650;
+
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.setClearColor(0x0f2027, 1);
+                document.getElementById('container').appendChild(renderer.domElement);
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+                scene.add(ambientLight);
+
+                const light1 = new THREE.PointLight(0x22d3ee, 2, 1500);
+                light1.position.set(400, 400, 400);
+                scene.add(light1);
+
+                const light2 = new THREE.PointLight(0x667eea, 2, 1500);
+                light2.position.set(-400, -400, 400);
+                scene.add(light2);
+
+                createStarfield();
+                createNetwork();
+                setupInteractions();
+                animate();
+
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        }
+
+        function createStarfield() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+
+            for (let i = 0; i < 2000; i++) {
+                vertices.push(
+                    (Math.random() - 0.5) * 4000,
+                    (Math.random() - 0.5) * 4000,
+                    (Math.random() - 0.5) * 4000
+                );
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 2,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            const stars = new THREE.Points(geometry, material);
+            scene.add(stars);
+        }
+
+        function createNetwork() {
+            nodeDataWithStructure.forEach((data, i) => {
+                const geometry = new THREE.SphereGeometry(data.size, 64, 64);
+
+                const material = new THREE.MeshPhongMaterial({
+                    color: data.color,
+                    emissive: data.color,
+                    emissiveIntensity: 0.5,
+                    shininess: 80,
+                    transparent: true,
+                    opacity: 0.9
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(...data.pos);
+
+                const glowGeo = new THREE.SphereGeometry(data.size * 1.35, 32, 32);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: 0.12,
+                    side: THREE.BackSide
+                });
+                const glow = new THREE.Mesh(glowGeo, glowMat);
+                mesh.add(glow);
+
+                scene.add(mesh);
+                nodes.push({ ...data, mesh, index: i });
+            });
+
+            const pairs = [
+                [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [0, 6], [0, 7],
+                [1, 2], [1, 3], [2, 4], [2, 5], [3, 5], [3, 6], [6, 7], [1, 7]
+            ];
+
+            pairs.forEach(pair => {
+                const start = nodes[pair[0]].mesh.position;
+                const end = nodes[pair[1]].mesh.position;
+
+                const curve = new THREE.QuadraticBezierCurve3(
+                    start.clone(),
+                    new THREE.Vector3(
+                        (start.x + end.x) / 2 + (Math.random() - 0.5) * 120,
+                        (start.y + end.y) / 2 + (Math.random() - 0.5) * 120,
+                        (start.z + end.z) / 2 + (Math.random() - 0.5) * 120
+                    ),
+                    end.clone()
+                );
+
+                const points = curve.getPoints(80);
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                const material = new THREE.LineBasicMaterial({
+                    color: nodes[pair[0]].color,
+                    transparent: true,
+                    opacity: 0.35
+                });
+
+                const line = new THREE.Line(geometry, material);
+                scene.add(line);
+                connections.push({ line, curve });
+
+                if (Math.random() > 0.5) {
+                    const particleGeo = new THREE.SphereGeometry(3, 12, 12);
+                    const particleMat = new THREE.MeshBasicMaterial({
+                        color: nodes[pair[0]].color,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    const particle = new THREE.Mesh(particleGeo, particleMat);
+                    scene.add(particle);
+
+                    particles.push({
+                        mesh: particle,
+                        curve,
+                        progress: Math.random(),
+                        speed: 0.008 + Math.random() * 0.012
+                    });
+                }
+            });
+        }
+
+        function setupInteractions() {
+            let isDragging = false;
+            let previousMouse = { x: 0, y: 0 };
+            let rotation = { x: 0, y: 0 };
+
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMouse = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.clientX - previousMouse.x;
+                    const deltaY = e.clientY - previousMouse.y;
+
+                    rotation.y += deltaX * 0.005;
+                    rotation.x += deltaY * 0.005;
+                    rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rotation.x));
+
+                    previousMouse = { x: e.clientX, y: e.clientY };
+                }
+            });
+
+            renderer.domElement.addEventListener('mouseup', () => isDragging = false);
+            renderer.domElement.addEventListener('mouseleave', () => isDragging = false);
+
+            renderer.domElement.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                camera.position.z += e.deltaY * 0.7;
+                camera.position.z = Math.max(250, Math.min(1200, camera.position.z));
+            }, { passive: false });
+
+            renderer.domElement.addEventListener('click', (e) => {
+                if (isDragging) return;
+
+                const mouse = new THREE.Vector2(
+                    (e.clientX / window.innerWidth) * 2 - 1,
+                    -(e.clientY / window.innerHeight) * 2 + 1
+                );
+
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+
+                const intersects = raycaster.intersectObjects(nodes.map(n => n.mesh));
+                if (intersects.length > 0) {
+                    const node = nodes.find(n => n.mesh === intersects[0].object);
+                    showNodeDetails(node);
+                }
+            });
+
+            renderer.domElement.rotation = rotation;
+        }
+
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.0008;
+            const rot = renderer.domElement.rotation;
+
+            scene.rotation.y += (rot.y - scene.rotation.y) * 0.1;
+            scene.rotation.x += (rot.x - scene.rotation.x) * 0.1;
+
+            nodes.forEach((node, i) => {
+                node.mesh.rotation.y += 0.004;
+                node.mesh.position.y += Math.sin(time + i * 0.5) * 0.25;
+
+                const scale = selectedNode === node ? 1.3 : 1;
+                node.mesh.scale.set(scale, scale, scale);
+            });
+
+            particles.forEach(particle => {
+                particle.progress += particle.speed;
+                if (particle.progress >= 1) particle.progress = 0;
+
+                const pos = particle.curve.getPoint(particle.progress);
+                particle.mesh.position.copy(pos);
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        function showNodeDetails(node) {
+            selectedNode = node;
+            document.getElementById('nodeTitle').textContent = node.name;
+            document.getElementById('nodeEntity').textContent = node.entity;
+            document.getElementById('nodeRows').textContent = node.rows;
+            document.getElementById('nodeTags').innerHTML = node.metrics.map(m =>
+                `<span class="tag">${m}</span>`
+            ).join('');
+            document.getElementById('nodeDetails').classList.add('visible');
+        }
+
+        function hideNodeDetails() {
+            selectedNode = null;
+            document.getElementById('nodeDetails').classList.remove('visible');
+        }
+
+        function showNodeCirclePack() {
+            if (!selectedNode) return;
+
+            // Update circle pack info
+            document.getElementById('circlePackTitle').textContent = selectedNode.name;
+            document.getElementById('circlePackSubtitle').textContent = `${selectedNode.entity} • ${selectedNode.rows} records`;
+
+            // Count structure elements
+            const structure = selectedNode.structure;
+            let columnCount = 0;
+            let pkCount = 0;
+            let fkCount = 0;
+
+            if (structure && structure.children) {
+                structure.children.forEach(category => {
+                    if (category.children) {
+                        category.children.forEach(item => {
+                            if (item.type === 'PK') pkCount++;
+                            else if (item.type === 'FK') fkCount++;
+                            else columnCount++;
+                        });
+                    }
+                });
+            }
+
+            document.getElementById('columnCount').textContent = columnCount;
+            document.getElementById('pkCount').textContent = pkCount;
+            document.getElementById('fkCount').textContent = fkCount;
+
+            // Clear previous circle pack
+            const container = document.getElementById('circle-pack-container');
+            container.innerHTML = '';
+
+            // Create circle pack
+            createCirclePack(selectedNode.structure, selectedNode.color);
+
+            // Show overlay
+            document.getElementById('circle-pack-overlay').classList.add('visible');
+            hideNodeDetails();
+        }
+
+        function createCirclePack(data, nodeColor) {
+            const width = 800;
+            const height = 800;
+
+            const color = d3.scaleOrdinal()
+                .domain(["PK", "FK", "data", "index"])
+                .range(["#22d3ee", "#fbbf24", "#34d399", "#a78bfa"]);
+
+            const pack = data => d3.pack()
+                .size([width, height])
+                .padding(4)
+                (d3.hierarchy(data)
+                    .sum(d => d.value)
+                    .sort((a, b) => b.value - a.value));
+
+            const root = pack(data);
+
+            const svg = d3.create("svg")
+                .attr("viewBox", `-${width / 2} -${height / 2} ${width} ${height}`)
+                .attr("width", width)
+                .attr("height", height)
+                .attr("id", "circle-pack-svg")
+                .style("background", `#${nodeColor.toString(16).padStart(6, '0')}15`)
+                .style("cursor", "pointer");
+
+            const node = svg.append("g")
+                .selectAll("circle")
+                .data(root.descendants().slice(1))
+                .join("circle")
+                .attr("fill", d => {
+                    if (d.data.type === 'PK') return color('PK');
+                    if (d.data.type === 'FK') return color('FK');
+                    return d.children ? `#${nodeColor.toString(16).padStart(6, '0')}` : "white";
+                })
+                .attr("fill-opacity", d => d.children ? 0.4 : 0.8)
+                .attr("pointer-events", d => !d.children ? "none" : null)
+                .on("mouseover", function (event, d) {
+                    d3.select(this).attr("stroke", "#fff").attr("stroke-width", 3);
+                    const tooltip = document.getElementById('tooltip');
+                    let tooltipText = `<strong>${d.data.name}</strong>`;
+                    if (d.data.type) tooltipText += `<br><em>${d.data.type}</em>`;
+                    if (d.data.value) tooltipText += `<br>Weight: ${d.data.value}`;
+                    tooltip.innerHTML = tooltipText;
+                    tooltip.style.opacity = 1;
+                    tooltip.style.left = event.pageX + 15 + 'px';
+                    tooltip.style.top = event.pageY - 40 + 'px';
+                })
+                .on("mouseout", function () {
+                    d3.select(this).attr("stroke", null);
+                    document.getElementById('tooltip').style.opacity = 0;
+                })
+                .on("click", (event, d) => {
+                    if (focus !== d) {
+                        zoom(event, d);
+                        event.stopPropagation();
+                    }
+                });
+
+            const label = svg.append("g")
+                .style("font", "12px Inter, sans-serif")
+                .style("font-weight", "700")
+                .attr("pointer-events", "none")
+                .attr("text-anchor", "middle")
+                .selectAll("text")
+                .data(root.descendants())
+                .join("text")
+                .style("fill-opacity", d => d.parent === root ? 1 : 0)
+                .style("display", d => d.parent === root ? "inline" : "none")
+                .style("fill", d => {
+                    if (d.data.type === 'PK') return '#22d3ee';
+                    if (d.data.type === 'FK') return '#fbbf24';
+                    return d.children ? "#fff" : "#000";
+                })
+                .text(d => d.data.name);
+
+            svg.on("click", (event) => zoom(event, root));
+
+            let focus = root;
+            let view;
+            zoomTo([focus.x, focus.y, focus.r * 2]);
+
+            function zoomTo(v) {
+                const k = width / v[2];
+                view = v;
+                label.attr("transform", d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+                node.attr("transform", d => `translate(${(d.x - v[0]) * k},${(d.y - v[1]) * k})`);
+                node.attr("r", d => d.r * k);
+            }
+
+            function zoom(event, d) {
+                focus = d;
+                const transition = svg.transition()
+                    .duration(750)
+                    .tween("zoom", d => {
+                        const i = d3.interpolateZoom(view, [focus.x, focus.y, focus.r * 2]);
+                        return t => zoomTo(i(t));
+                    });
+
+                label
+                    .filter(function (d) { return d.parent === focus || this.style.display === "inline"; })
+                    .transition(transition)
+                    .style("fill-opacity", d => d.parent === focus ? 1 : 0)
+                    .on("start", function (d) { if (d.parent === focus) this.style.display = "inline"; })
+                    .on("end", function (d) { if (d.parent !== focus) this.style.display = "none"; });
+            }
+
+            document.getElementById('circle-pack-container').appendChild(svg.node());
+        }
+
+        function hideCirclePack() {
+            document.getElementById('circle-pack-overlay').classList.remove('visible');
+        }
+
+        setInterval(() => {
+            stats.totalTransactions += Math.floor(Math.random() * 200 + 100);
+            stats.tps = Math.floor(Math.random() * 250 + 200);
+            stats.fraudAlerts = Math.max(0, Math.min(15, stats.fraudAlerts + (Math.random() > 0.75 ? 1 : -1)));
+            stats.avgAmount = (Math.random() * 0.5 + 1).toFixed(1);
+            stats.failedTx = Math.floor(Math.random() * 6);
+            stats.activeNodes = Math.floor(Math.random() * 150 + 800);
+
+            document.getElementById('totalTransactions').textContent =
+                (stats.totalTransactions / 1e9).toFixed(2) + 'B';
+            document.getElementById('tps').textContent = stats.tps;
+            document.getElementById('fraudAlerts').textContent = stats.fraudAlerts;
+            document.getElementById('avgAmount').textContent = stats.avgAmount + 'K';
+            document.getElementById('failedTx').textContent = stats.failedTx;
+            document.getElementById('activeNodes').textContent = stats.activeNodes;
+        }, 2500);
+
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (animationId) cancelAnimationFrame(animationId);
+            if (renderer) renderer.dispose();
+        });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+
+</html>
