@@ -7,7 +7,7 @@ router = APIRouter()
 async def get_graph(connection_id: str):
     """Generate 3D graph from schema with Neural Core Intelligence"""
     try:
-        print(f"🎨 Generating graph for connection: {connection_id}")
+        print(f" Generating graph for connection: {connection_id}")
         
         # Get cluster assignments BEFORE generating graph
         from app.services.cluster_store import cluster_store
@@ -87,7 +87,7 @@ async def get_graph(connection_id: str):
                     'node_glow': round(node_glow, 2)
                 })
             except Exception as inner_e:
-                print(f"⚠️ Error processing node {node.get('name', '?')}: {inner_e}")
+                print(f" Error processing node {node.get('name', '?')}: {inner_e}")
                 # Fallback
                 node.update({'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0})
                 
@@ -144,7 +144,7 @@ async def get_graph(connection_id: str):
         import traceback
         error_msg = f"Error generating graph: {str(e)}"
         stack_trace = traceback.format_exc()
-        print(f"⚠️ {error_msg}")
+        print(f" {error_msg}")
         
         # Log to file for debugging
         try:
@@ -164,7 +164,7 @@ async def recalculate_gravity(payload: dict):
     """Manually trigger neural core recalculation"""
     try:
         from app.services.neural_core import neural_core
-        print("🔄 Manual Recalculation Triggered")
+        print(" Manual Recalculation Triggered")
         await neural_core.process_signal("manual_recalc", 1.0)
         return {"status": "triggered", "message": "Neural Core recalculation started"}
     except Exception as e:

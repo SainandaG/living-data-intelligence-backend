@@ -21,11 +21,18 @@ class GravityEngine:
         3. PCA to project N-dimensions to 3D space (x,y,z).
         4. Gravity = Distance from cluster centroid.
         """
-        print(f"🪐 GravityEngine: Calculating forces for {table}.{column}")
+        print(f" GravityEngine: Calculating forces for {table}.{column}")
         
         # 1. Fetch raw data
-        query = f"SELECT * FROM {table} LIMIT {limit}"
-        records = await db_connector.query(connection_id, query)
+        try:
+            conn_info = db_connector.get_connection(connection_id)
+            db_type = conn_info['type']
+            q_table = f'"{table}"' if db_type == 'postgresql' else f'`{table}`'
+            query = f"SELECT * FROM {q_table} LIMIT {limit}"
+            records = await db_connector.query(connection_id, query)
+        except Exception as e:
+            print(f"Gravity Query Error: {e}")
+            return []
         
         if not records:
             return []
@@ -68,14 +75,14 @@ class GravityEngine:
             max_dist = np.max(distances) if np.max(distances) > 0 else 1
             gravity_scores = [(1 - (d / max_dist)) * 100 for d in distances]
             
-            print(f"✅ Statistical Proof: PCA variance explained ratio: {pca.explained_variance_ratio_}")
+            print(f" Statistical Proof: PCA variance explained ratio: {pca.explained_variance_ratio_}")
 
         except ImportError:
-            print("⚠️ sklearn not found, using simple heuristics")
+            print(" sklearn not found, using simple heuristics")
             # Fallback logic would go here
             return self._assign_default_gravity(records)
         except Exception as e:
-             print(f"⚠️ Statistical Analysis Error: {e}")
+             print(f" Statistical Analysis Error: {e}")
              return self._assign_default_gravity(records)
 
         # 4. Enrich records
@@ -94,7 +101,7 @@ class GravityEngine:
                 "orbital_radius": float(np.linalg.norm(coords[i]) * 50)
             })
             
-        print(f"🪐 GravityEngine: Processed {len(enriched_records)} records with Statistical Proof.")
+        print(f" GravityEngine: Processed {len(enriched_records)} records with Statistical Proof.")
         return enriched_records
 
     def _assign_default_gravity(self, records):

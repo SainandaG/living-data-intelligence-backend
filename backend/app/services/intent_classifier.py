@@ -26,7 +26,7 @@ from app.services.command_registry import get_command_registry
 class IntentClassifier:
     """
     Hybrid intent classifier using both rule-based matching and LLM inference.
-    Falls back gracefully: Rule-based → Groq → Gemini → Default
+    Falls back gracefully: Rule-based  Groq  Gemini  Default
     """
     
     def __init__(self):
@@ -46,7 +46,7 @@ class IntentClassifier:
     def _init_groq(self) -> None:
         """Initialize Groq client if API key is available."""
         if not GROQ_AVAILABLE:
-            print("[WARNING] Groq library not installed")
+            print("[WARN] Groq library not installed")
             return
             
         api_key = os.getenv('GROQ_API_KEY')
@@ -62,7 +62,7 @@ class IntentClassifier:
     def _init_gemini(self) -> None:
         """Initialize Gemini client if API key is available."""
         if not GEMINI_AVAILABLE:
-            print("[WARNING] Gemini library not installed")
+            print("[WARN] Gemini library not installed")
             return
             
         api_key = os.getenv('GOOGLE_API_KEY')
@@ -72,9 +72,9 @@ class IntentClassifier:
                 self.gemini_model = genai.GenerativeModel('gemini-pro')
                 print("[SUCCESS] Gemini LLM initialized for intent classification")
             except Exception as e:
-                print(f"[WARNING] Gemini initialization failed: {e}")
+                print(f"[WARN] Gemini initialization failed: {e}")
         else:
-            print("[WARNING] GOOGLE_API_KEY not found in environment")
+            print("[WARN] GOOGLE_API_KEY not found in environment")
     
     async def classify(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

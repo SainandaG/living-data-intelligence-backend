@@ -46,11 +46,11 @@ class T0Agent:
         """
         start_time = time.time()
         
-        # Update state: IDLE → LISTENING
+        # Update state: IDLE  LISTENING
         self.state_manager.update_t0_state(T0State.LISTENING)
         
         try:
-            # Update state: LISTENING → PROCESSING
+            # Update state: LISTENING  PROCESSING
             self.state_manager.update_t0_state(T0State.PROCESSING)
             
             # Classify the intent
@@ -101,7 +101,7 @@ class T0Agent:
             # Add to classifier history
             self.intent_classifier.add_to_history(text, classification)
             
-            # Update state: PROCESSING → DISPATCHING
+            # Update state: PROCESSING  DISPATCHING
             self.state_manager.update_t0_state(T0State.DISPATCHING)
             
             processing_time = int((time.time() - start_time) * 1000)

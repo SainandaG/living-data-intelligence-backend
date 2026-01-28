@@ -128,7 +128,7 @@ async def get_agent_state():
         return StateResponse(**state)
         
     except Exception as e:
-        print(f"❌ [AGENT API] Error fetching state: {e}")
+        print(f" [AGENT API] Error fetching state: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch agent state: {str(e)}")
@@ -150,7 +150,7 @@ async def get_command_logs(limit: int = 10):
         )
         
     except Exception as e:
-        print(f"❌ [AGENT API] Error fetching logs: {e}")
+        print(f" [AGENT API] Error fetching logs: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch command logs: {str(e)}")

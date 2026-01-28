@@ -30,7 +30,7 @@ class DatabaseConnector:
         # Auto-detect mock mode: if host is 'mock', use mock database regardless of db_type
         if host == 'mock':
             db_type = 'mock'
-            print(f"🎭 Mock mode auto-detected (host='mock')")
+            print(f"[MOCK] Mock mode auto-detected (host='mock')")
             
         # Optimization: Neon pooler endpoints are often much slower/unstable than direct ones
         # and Neon ALWAYS requires SSL.
@@ -40,7 +40,7 @@ class DatabaseConnector:
                 config['host'] = new_host
                 with open("connection_debug.log", "a") as f:
                     f.write(f"AUTO-FIX: Stripped -pooler. New Host: {new_host}\n")
-                print(f"🚀 Optimized Neon connection: Stripped -pooler suffix ({host} -> {new_host})")
+                print(f"[NEON] Optimized Neon connection: Stripped -pooler suffix ({host} -> {new_host})")
             
             # Force db_type to neon for SSL requirement
             if db_type != 'neon':
@@ -48,23 +48,27 @@ class DatabaseConnector:
                 config['db_type'] = 'neon'
                 with open("connection_debug.log", "a") as f:
                     f.write(f"AUTO-FIX: Forced Neon DB type for SSL.\n")
-                print(f"🔒 Forced Neon SSL mode (sslmode=require) for {config['host']}")
+                print(f"[SSL] Forced Neon SSL mode (sslmode=require) for {config['host']}")
         
-        try:
             # Enforce application-level timeout
             async def _connect_wrapper():
+                nonlocal db_type
                 if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                    db_type = 'postgresql'
                     return await asyncio.to_thread(self._connect_postgresql_sync, config)
                 elif db_type == 'mysql':
+                    db_type = 'mysql'
                     return await asyncio.to_thread(self._connect_mysql_sync, config)
                 elif db_type in ['mongodb', 'mongo']:
+                    db_type = 'mongodb'
                     return await asyncio.to_thread(self._connect_mongodb_sync, config)
                 elif db_type == 'mock':
                     return "MOCK_CLIENT"
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
 
-            client = await asyncio.wait_for(_connect_wrapper(), timeout=120.0)
+            print(f"[CONNECT] Dispatching connection thread for {db_type} (Timeout: 110s)...")
+            client = await asyncio.wait_for(_connect_wrapper(), timeout=110.0)
             
             self.connections[connection_id] = {
                 'id': connection_id,
@@ -78,7 +82,7 @@ class DatabaseConnector:
             }
             
             duration = time.perf_counter() - start_time
-            print(f"DONE: Connected to {db_type} database: {config['database']} (in {duration:.3f}s)")
+            print(f"[SUCCESS] Connected to {db_type} database: {config['database']} (in {duration:.3f}s)")
             
             # CRITICAL: Background the schema analysis AFTER storing connection but BEFORE returning
             # This ensures the API responds immediately
@@ -87,7 +91,7 @@ class DatabaseConnector:
                     from app.services.schema_analyzer import schema_analyzer
                     await schema_analyzer.analyze_schema(connection_id)
                 except Exception as e:
-                    print(f"⚠️ Background schema analysis failed for {connection_id}: {e}")
+                    print(f" Background schema analysis failed for {connection_id}: {e}")
             
             asyncio.create_task(_background_schema_analysis())
             
@@ -95,12 +99,12 @@ class DatabaseConnector:
             
         except asyncio.TimeoutError:
             duration = time.perf_counter() - start_time
-            error_msg = f"Connection timeout after {duration:.1f}s. Database may be sleeping/paused (common with Neon free tier). Please wake it up in your cloud console or try again in 30 seconds."
-            print(f"FAIL: {error_msg}")
+            error_msg = f"Connection timeout after {duration:.1f}s. This often happens if the database is hibernating/sleeping (common with Neon free tier) or blocked by a firewall. Please ensure the database is active and reachable."
+            print(f"[ERROR] {error_msg}")
             raise TimeoutError(error_msg)
         except Exception as e:
             duration = time.perf_counter() - start_time
-            print(f"FAIL: Failed to connect to {db_type} after {duration:.3f}s: {str(e)}")
+            print(f"[ERROR] Failed to connect to {db_type} after {duration:.3f}s: {str(e)}")
             raise
 
     def _connect_postgresql_sync(self, config: Dict[str, Any]):
@@ -112,13 +116,13 @@ class DatabaseConnector:
             database=config['database'],
             user=config['username'],
             password=config['password'],
-            connect_timeout=60, # Increased for high latency cloud databases
+            connect_timeout=100, # Increased for high latency cloud databases
             sslmode='require' if config.get('db_type', '').lower() in ['neon', 'neon_db'] else 'prefer'
         )
         
         # Connection pool creation already validates connectivity
         # No need for additional test query that can cause timeouts
-        print(f"✅ PostgreSQL connection pool created successfully")
+        print(f"[SUCCESS] PostgreSQL connection pool created successfully")
         
         return connection_pool
 
@@ -188,7 +192,7 @@ class DatabaseConnector:
             
             duration = time.perf_counter() - start_time
             if duration > 0.5: # Log slow queries
-                print(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
+                print(f" Slow Query ({duration:.3f}s): {sql[:100]}...")
             return result
         except Exception as e:
             duration = time.perf_counter() - start_time
@@ -205,26 +209,44 @@ class DatabaseConnector:
         try:
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 conn = None
-                try:
-                    conn = connection['client'].getconn()
-                    conn.set_session(autocommit=True)
-                    cursor = conn.cursor()
-                    if not params:
-                        cursor.execute(sql)
-                    else:
-                        cursor.execute(sql, params)
-                    
-                    if cursor.description:
-                        columns = [desc[0] for desc in cursor.description]
-                        rows = cursor.fetchall()
-                        result = [dict(zip(columns, row)) for row in rows]
-                    else:
-                        result = []
-                    cursor.close()
-                    return result
-                finally:
-                    if conn:
-                        connection['client'].putconn(conn)
+                retries = 2
+                while retries > 0:
+                    try:
+                        conn = connection['client'].getconn()
+                        # Check if connection is alive, if not, discard and get a new one
+                        if conn.closed != 0:
+                            connection['client'].putconn(conn, close=True)
+                            conn = connection['client'].getconn()
+                        
+                        conn.set_session(autocommit=True)
+                        cursor = conn.cursor()
+                        if not params:
+                            cursor.execute(sql)
+                        else:
+                            cursor.execute(sql, params)
+                        
+                        if cursor.description:
+                            columns = [desc[0] for desc in cursor.description]
+                            rows = cursor.fetchall()
+                            result = [dict(zip(columns, row)) for row in rows]
+                        else:
+                            result = []
+                        cursor.close()
+                        return result
+                    except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
+                        if "closed" in str(e).lower() or "terminated" in str(e).lower():
+                            print(f"[RETRY] Connection stale, retrying... ({retries} left)")
+                            if conn:
+                                connection['client'].putconn(conn, close=True)
+                                conn = None
+                            retries -= 1
+                            if retries == 0: raise
+                            continue
+                        raise
+                    finally:
+                        if conn:
+                            connection['client'].putconn(conn)
+                        retries = 0 # Exit loop on success
                 
             elif db_type == 'mysql':
                 cursor = connection['client'].cursor(pymysql.cursors.DictCursor)
@@ -258,7 +280,7 @@ class DatabaseConnector:
                     connection['client'].close()
                 
                 del self.connections[connection_id]
-                print(f"🔌 Closed connection: {connection_id}")
+                print(f"[CLOSE] Closed connection: {connection_id}")
             except Exception as e:
                 print(f"Error closing connection {connection_id}: {str(e)}")
 

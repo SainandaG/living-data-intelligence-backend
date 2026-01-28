@@ -22,7 +22,7 @@ class DataFlowAnalyzer:
         if cache_key in self.flow_cache:
             return self.flow_cache[cache_key]
         
-        print(f"🔍 Analyzing data flow for table: {table_name}")
+        print(f" Analyzing data flow for table: {table_name}")
         
         # Get schema for context
         from app.services.schema_analyzer import schema_analyzer
@@ -89,7 +89,7 @@ class DataFlowAnalyzer:
         
         # Cache the result
         self.flow_cache[cache_key] = flow_graph
-        print(f"✅ Flow analysis complete: {len(flow_graph['nodes'])} nodes, {len(flow_graph['edges'])} edges")
+        print(f" Flow analysis complete: {len(flow_graph['nodes'])} nodes, {len(flow_graph['edges'])} edges")
         
         return flow_graph
     
@@ -106,7 +106,7 @@ class DataFlowAnalyzer:
                 'type': 'fk',
                 'column': fk['column'],
                 'confidence': 1.0,
-                'reasoning': f"Foreign key: {fk['column']} → {fk['referenced_table']}"
+                'reasoning': f"Foreign key: {fk['column']}  {fk['referenced_table']}"
             })
         
         # Incoming FKs (other tables reference this one)
@@ -162,7 +162,7 @@ class DataFlowAnalyzer:
                     })
         
         except Exception as e:
-            print(f"⚠️ AI relationship inference failed: {e}")
+            print(f" AI relationship inference failed: {e}")
         
         return relationships
     

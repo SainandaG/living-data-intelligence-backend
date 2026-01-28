@@ -20,13 +20,13 @@ class AgentService:
         """Start the background exploration agent"""
         self.is_running = True
         self._tasks.append(asyncio.create_task(self._exploration_worker()))
-        print("🕵️ Agentic AI: Autonomous Explorer started.")
+        print(" Agentic AI: Autonomous Explorer started.")
 
     async def stop(self):
         self.is_running = False
         for t in self._tasks:
             t.cancel()
-        print("🕵️ Agentic AI: Explorer stopped.")
+        print(" Agentic AI: Explorer stopped.")
 
     async def _exploration_worker(self):
         """Main loop for the autonomous agent"""
@@ -38,7 +38,7 @@ class AgentService:
                 
                 # 2. Simulate analysis time
                 analysis_time = random.uniform(2, 5)
-                # print(f"🕵️ Agentic AI: Analyzing {sector} sector...")
+                # print(f" Agentic AI: Analyzing {sector} sector...")
                 await asyncio.sleep(analysis_time)
 
                 # 3. Generate Insight (Simulated)
@@ -47,7 +47,7 @@ class AgentService:
                         "timestamp": datetime.now().isoformat(),
                         "sector": sector,
                         "type": "anomaly",
-                        "description": f"Unusual velocity detected in {sector}. Variance > 3σ.",
+                        "description": f"Unusual velocity detected in {sector}. Variance > 3.",
                         "confidence": 0.92
                     }
                     self.findings.append(finding)
@@ -57,7 +57,7 @@ class AgentService:
                     # Map sector to a potential node or just use 'hub' for general growth
                     await neural_core.process_signal(sector, intensity=finding["confidence"], metadata=finding)
                     
-                    # print(f"💡 Agent Insight: {finding['description']}")
+                    # print(f" Agent Insight: {finding['description']}")
 
             except asyncio.CancelledError:
                 break
@@ -71,7 +71,7 @@ class AgentService:
         Called immediately after connection success.
         """
         from app.services.neural_core import neural_core
-        print("🕵️ Agentic AI: Performing initial schema deep-scan...")
+        print(" Agentic AI: Performing initial schema deep-scan...")
         
         tables = schema_data.get('tables', [])
         for table in tables:
@@ -85,7 +85,7 @@ class AgentService:
         
         # Trigger an initial retraining cycle
         await neural_core.trigger_retraining()
-        print(f"🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
+        print(f" Agentic AI: Schema analysis complete. Neural Core evolved.")
 
     async def get_gravity_suggestions(self, schema_data: Dict) -> List[Dict]:
         """

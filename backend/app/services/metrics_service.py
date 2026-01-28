@@ -12,7 +12,7 @@ class MetricsService:
         Calculate real-time global metrics identifying 'Fact' tables 
         and aggregating their statistics.
         """
-        print(f"📊 MetricsService: Calculating global stats for {connection_id}...")
+        print(f" MetricsService: Calculating global stats for {connection_id}...")
         
         # Default fallback
         metrics = {
@@ -44,7 +44,7 @@ class MetricsService:
 
             if not fact_tables:
                 # Fallback: Just take the largest table
-                print("⚠️ No explicit fact tables found. Using largest table as proxy.")
+                print(" No explicit fact tables found. Using largest table as proxy.")
                 sorted_tables = sorted(tables, key=lambda x: getattr(x, 'row_count', x.get('row_count', 0)), reverse=True)
                 if sorted_tables:
                     fact_tables.append(sorted_tables[0])
@@ -77,7 +77,7 @@ class MetricsService:
                             total_amount_sum += (avg_val * t_rows) # Weighted sum
                             total_amount_count += t_rows
                     except Exception as e:
-                        print(f"⚠️ Failed to calc average for {t_name}.{amount_col}: {e}")
+                        print(f" Failed to calc average for {t_name}.{amount_col}: {e}")
 
             # 3. Calculate Final Metrics
             metrics['total_transactions'] = total_tx
@@ -98,11 +98,11 @@ class MetricsService:
                     alerts += getattr(t, 'row_count', t.get('row_count', 0))
             metrics['fraud_alerts'] = alerts
 
-            print(f"✅ Calculated Global Metrics: {metrics}")
+            print(f" Calculated Global Metrics: {metrics}")
             return metrics
 
         except Exception as e:
-            print(f"❌ Metrics Calculation Error: {e}")
+            print(f" Metrics Calculation Error: {e}")
             return metrics
 
 metrics_service = MetricsService()

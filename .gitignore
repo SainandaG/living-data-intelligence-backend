@@ -55,3 +55,18 @@ htmlcov/
 
 # Logs
 backend_error.log
+
+# Windows batch files
+*.bat
+
+# Test output files
+*_output.txt
+*_results.txt
+*_log.txt
+lint_*.txt
+npm_install_log.txt
+
+# Temporary scripts
+strip_*.py
+test_server.py
+

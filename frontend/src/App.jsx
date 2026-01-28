@@ -16,7 +16,8 @@ import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
-import { Legend, CirclePackOverlay, StatsDashboard } from './components/Dashboard/UIOverlay';
+import { Legend, CirclePackOverlay, StatsDashboard, Header, SystemControls } from './components/Dashboard/UIOverlay';
+import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import VoiceControl from './components/Voice/VoiceControl';
 import AgentStatusPanel from './components/Voice/AgentStatusPanel';
 import { agentService } from './services/agentService';
@@ -64,6 +65,29 @@ const MainDashboard = () => {
   });
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [showIntelligenceHub, setShowIntelligenceHub] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [showSystemNexus, setShowSystemNexus] = useState(true);
+
+  const handleSeed = async () => {
+    if (!connectionId) return;
+    setSeeding(true);
+    try {
+      const resp = await fetch(`/api/seed/${connectionId}`, { method: 'POST' });
+      if (resp.ok) {
+        setAiStatus("Neural Evolution Triggered: Data Injected Successfully");
+        setTimeout(() => window.location.reload(), 2000);
+      } else {
+        setAiStatus("System Error: Seeding Failed");
+      }
+    } catch (err) {
+      console.error(err);
+      setAiStatus("Critical Fault during Data Injection");
+    } finally {
+      setSeeding(false);
+      setTimeout(() => setAiStatus(null), 4000);
+    }
+  };
 
 
   // WebSocket Connection (Same as before)
@@ -107,6 +131,10 @@ const MainDashboard = () => {
 
   // Navigation handlers (Same as before)
   const handleNavigate = React.useCallback((view) => {
+    if (view === 'intelligence') {
+      setShowIntelligenceHub(true);
+      return;
+    }
     setViewMode(view);
     if (view === 'overview') { setBreadcrumbs([]); setDrillDownTable(null); }
   }, []);
@@ -266,7 +294,46 @@ const MainDashboard = () => {
 
   return (
     <DashboardLayout sidebarProps={sidebarProps}>
-      <NavigationBar currentView={viewMode} onNavigate={handleNavigate} breadcrumbs={breadcrumbs} onToggleChat={() => setIsChatOpen(!isChatOpen)} isChatOpen={isChatOpen} />
+      <NavigationBar currentView={showIntelligenceHub ? 'intelligence' : viewMode} onNavigate={handleNavigate} breadcrumbs={breadcrumbs} onToggleChat={() => setIsChatOpen(!isChatOpen)} isChatOpen={isChatOpen} />
+
+      {/* Absolute Overlays for Headers/Stats */}
+      <div className="absolute top-0 left-0 w-full p-6 z-[100] flex justify-between pointer-events-none">
+        <div className="flex flex-col gap-4 pointer-events-auto items-start">
+          <Header onConnect={() => setShowConnectModal(true)} onShowIntelligenceHub={() => setShowIntelligenceHub(true)} />
+
+          <div className="relative flex flex-col items-start gap-3 mt-44">
+            <AnimatePresence mode="wait">
+              {showSystemNexus && (
+                <motion.div
+                  key="system-nexus"
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -20, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                >
+                  <SystemControls
+                    connectionId={connectionId}
+                    onConnect={() => setShowConnectModal(true)}
+                    seeding={seeding}
+                    handleSeed={handleSeed}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="nexus-toggle-container">
+              <span className="nexus-toggle-label">System Nexus</span>
+              <div
+                className={`sliding-switch ${showSystemNexus ? 'active' : ''}`}
+                onClick={() => setShowSystemNexus(!showSystemNexus)}
+                title={showSystemNexus ? "Minimize Control Panel" : "Expand Control Panel"}
+              >
+                <div className="switch-handle" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <ThreeGraph ref={graphRef} className="absolute inset-0 z-0" data={graphData} onNodeClick={handleNodeClick} />
       <AgentStatusPanel />
@@ -333,8 +400,31 @@ const MainDashboard = () => {
         )}
       </AnimatePresence>
 
-      <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+      <ChatInterface
+        connectionId={connectionId}
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        onAction={(action) => {
+          if (action.startsWith('SHOW_')) {
+            setShowIntelligenceHub(true);
+            // We need a way to pass the tab to the hub
+            window.lastIntelligenceTab = action.replace('SHOW_', '').toLowerCase();
+            // Force a re-render or event if needed, but for MVP setting a global or state is fine
+            // Better: update Hub to accept a defaultTab prop
+          }
+        }}
+      />
       {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
+
+      <AnimatePresence>
+        {showIntelligenceHub && (
+          <IntelligenceHub
+            connectionId={connectionId}
+            selectedNode={selectedNode}
+            onClose={() => setShowIntelligenceHub(false)}
+          />
+        )}
+      </AnimatePresence>
     </DashboardLayout>
   );
 };

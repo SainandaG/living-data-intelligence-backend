@@ -161,7 +161,7 @@ class NeuralCore:
             self.analyzed_tables.add(target_table['name'])
             
             # Log for debug visibility
-            # print(f"🧠 Neural Core: Analyzed {target_table['name']} | Complexity: {complexity:.2f}")
+            # print(f" Neural Core: Analyzed {target_table['name']} | Complexity: {complexity:.2f}")
 
         # Update Growth Factor (Global Complexity)
         # Logarithmic scale of total knowledge

@@ -46,7 +46,7 @@ class RLOptimizer:
             if not assigned:
                 clusters[t] = "default"
                 
-        # print(f"🤖 RL Optimizer: Computed {len(valid_prefixes)} semantic clusters for {len(tables)} tables.")
+        # print(f" RL Optimizer: Computed {len(valid_prefixes)} semantic clusters for {len(tables)} tables.")
         return clusters
 
     async def suggest_optimization(self, context: Dict) -> Dict:

@@ -12,13 +12,13 @@ class ConnectionManager:
         """Accept and store WebSocket connection"""
         await websocket.accept()
         self.active_connections[connection_id] = websocket
-        print(f"✅ WebSocket connected: {connection_id}")
+        print(f" WebSocket connected: {connection_id}")
     
     def disconnect(self, connection_id: str):
         """Remove WebSocket connection"""
         if connection_id in self.active_connections:
             del self.active_connections[connection_id]
-            print(f"❌ WebSocket disconnected: {connection_id}")
+            print(f" WebSocket disconnected: {connection_id}")
     
     async def send_update(self, connection_id: str, data: Dict[str, Any]):
         """Send update to specific connection"""

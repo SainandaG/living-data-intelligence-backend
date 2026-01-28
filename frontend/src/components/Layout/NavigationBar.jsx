@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare } from 'lucide-react';
+import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Sparkles } from 'lucide-react';
 
 export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [], onToggleChat, isChatOpen }) {
     const navItems = [
@@ -7,6 +7,7 @@ export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [
         { id: 'dataflow', label: 'Data Flow', icon: GitBranch },
         { id: 'analytics', label: 'Analytics', icon: BarChart3 },
         { id: 'schema', label: 'Schema', icon: Database },
+        { id: 'intelligence', label: 'AI Insights', icon: Sparkles },
     ];
 
     return (

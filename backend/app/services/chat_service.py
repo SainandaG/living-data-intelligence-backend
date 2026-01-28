@@ -20,8 +20,8 @@ class ChatService:
         google_key = os.getenv("GOOGLE_API_KEY")
         
         # DEBUG: Verify keys are loaded
-        print(f"🔑 DEBUG: Loaded GROQ_KEY: {groq_key[:10] if groq_key else 'None'}...")
-        print(f"🔑 DEBUG: Loaded GOOGLE_KEY: {google_key[:10] if google_key else 'None'}...")
+        print(f"[DEBUG] Loaded GROQ_KEY: {groq_key[:10] if groq_key else 'None'}...")
+        print(f"[DEBUG] Loaded GOOGLE_KEY: {google_key[:10] if google_key else 'None'}...")
 
         self.groq_client = None
         self.google_model = None
@@ -31,23 +31,23 @@ class ChatService:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=groq_key)
-                print("✅ ChatService: Groq API initialized (llama-3.3-70b-versatile)")
+                print("[SUCCESS] ChatService: Groq API initialized (llama-3.3-70b-versatile)")
                 if not self.provider: self.provider = "groq"
             except Exception as e:
-                print(f"⚠️ Failed to initialize Groq: {e}")
+                print(f"[WARN] Failed to initialize Groq: {e}")
 
         if google_key:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=google_key)
                 self.google_model = genai.GenerativeModel('models/gemini-2.0-flash-lite')
-                print("✅ ChatService: Google Gemini initialized (backup)")
+                print("[SUCCESS] ChatService: Google Gemini initialized (backup)")
                 if not self.provider: self.provider = "google"
             except Exception as e:
-                print(f"⚠️ Failed to initialize Google Gemini: {e}")
+                print(f"[WARN] Failed to initialize Google Gemini: {e}")
         
         if not self.groq_client and not self.google_model:
-            print("⚠️ ChatService: No working API clients found")
+            print("[WARN] ChatService: No working API clients found")
             self.has_ai = False
         else:
             self.has_ai = True
@@ -66,14 +66,14 @@ class ChatService:
             try:
                 db_connector.get_connection(connection_id)
             except:
-                return response_text + "\n\n⚠️ Could not execute query: Database connection not found."
+                return response_text + "\n\n[WARN] Could not execute query: Database connection not found."
             
             results = []
             for query in sql_queries:
                 query = query.strip()
                 # Only allow SELECT queries for safety
                 if not query.upper().startswith('SELECT'):
-                    results.append(f"⚠️ Skipped non-SELECT query for safety")
+                    results.append(f"[WARN] Skipped non-SELECT query for safety")
                     continue
                 
                 try:
@@ -102,7 +102,7 @@ class ChatService:
                         results.append(f"\n**Query Results:**\n```json\n{json.dumps(result, default=str, indent=2)}\n```")
                         
                 except Exception as e:
-                    results.append(f"\n⚠️ Query error: {str(e)}")
+                    results.append(f"\n[WARN] Query error: {str(e)}")
             
             # Append results to response
             if results:
@@ -110,7 +110,7 @@ class ChatService:
             return response_text
             
         except Exception as e:
-            return response_text + f"\n\n⚠️ SQL execution error: {str(e)}"
+            return response_text + f"\n\n[WARN] SQL execution error: {str(e)}"
 
     async def generate_response(self, message: str, connection_id: str, history: list = []) -> dict:
         if not self.has_ai:
@@ -183,8 +183,8 @@ MYSQL QUERY EXAMPLES:
   ```
 
 RESPONSE STYLE:
-✅ "The primary key of `staff` is `staff_id` (tinyint, NOT NULL)."
-❌ "To determine the primary key, I will write a query... Let me try..."
+[OK] "The primary key of `staff` is `staff_id` (tinyint, NOT NULL)."
+[ERROR] "To determine the primary key, I will write a query... Let me try..."
 
 RULES:
 - Be DIRECT - no "Let me...", "I will...", "Assuming..."
@@ -193,7 +193,17 @@ RULES:
 - One query only - make it correct
 - Professional and concise
 
-Format SQL in ```sql blocks."""
+Format SQL in ```sql blocks.
+
+INTELLIGENCE ACTIONS:
+You can trigger UI dashboards by including a special tag at the end of your response if the user asks for health, patterns, risks, or recommendations.
+- Health: [ACTION: SHOW_HEALTH]
+- Patterns: [ACTION: SHOW_PATTERNS]
+- Anomalies/Risks: [ACTION: SHOW_ANOMALIES]
+- Predictions: [ACTION: SHOW_PREDICTIONS]
+- Root Cause/Why: [ACTION: SHOW_ROOT_CAUSE]
+- Recommendations: [ACTION: SHOW_RECOMMENDATIONS]
+"""
 
         user_message = message
 
@@ -203,20 +213,20 @@ Format SQL in ```sql blocks."""
             
             # Try Groq first if available
             if self.provider == "groq" or (self.groq_client and not self.provider):
-                print(f"🚀 ATTEMPTING PROVIDER: GROQ (Model: llama-3.3-70b-versatile)")
+                print(f"[INFO] ATTEMPTING PROVIDER: GROQ (Model: llama-3.3-70b-versatile)")
                 try:
                     ai_response = await self._call_groq(system_prompt, user_message, history)
                     self.provider = "groq" # Confirm provider
-                    print(f"✅ GROQ SUCCESS")
+                    print(f"[SUCCESS] GROQ SUCCESS")
                 except Exception as e:
-                    print(f"⚠️ Groq failed: {e}")
+                    print(f"[WARN] Groq failed: {e}")
                     if "429" in str(e) or "rate limit" in str(e).lower():
-                        print("🔄 Rate limit hit. Switching to Google Gemini fallback...")
+                        print("[INFO] Rate limit hit. Switching to Google Gemini fallback...")
                         if self.google_model:
-                            print(f"🚀 ATTEMPTING PROVIDER: GOOGLE (Model: gemini-2.0-flash-lite)")
+                            print(f"[INFO] ATTEMPTING PROVIDER: GOOGLE (Model: gemini-2.0-flash-lite)")
                             ai_response = await self._call_google(system_prompt, user_message, history)
                             self.provider = "google" # Switch provider
-                            print(f"✅ GOOGLE SUCCESS")
+                            print(f"[SUCCESS] GOOGLE SUCCESS")
                         else:
                             raise e # No fallback available
                     else:
@@ -224,10 +234,10 @@ Format SQL in ```sql blocks."""
 
             # If no response yet (e.g. was using Google or Groq failed caught above)
             if not ai_response and self.google_model:
-                print(f"🚀 ATTEMPTING PROVIDER: GOOGLE (Primary/Fallback)")
+                print(f"[INFO] ATTEMPTING PROVIDER: GOOGLE (Primary/Fallback)")
                 ai_response = await self._call_google(system_prompt, user_message, history)
                 self.provider = "google" 
-                print(f"✅ GOOGLE SUCCESS") 
+                print(f"[SUCCESS] GOOGLE SUCCESS") 
 
             if not ai_response:
                 return {"response": "System Error: No AI provider available.", "related_nodes": []}
@@ -275,12 +285,21 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
                     "related_nodes": []
                 }
             
+            # Extract Action Tags
+            action = None
+            action_match = re.search(r'\[ACTION: (.*?)\]', response_with_results)
+            if action_match:
+                action = action_match.group(1)
+                # Remove tag from display text
+                response_with_results = response_with_results.replace(f"[ACTION: {action}]", "").strip()
+
             return {
                 "response": response_with_results,
+                "action": action,
                 "related_nodes": []
             }
         except Exception as e:
-            print(f"❌ Chat Error: {e}")
+            print(f"[ERROR] Chat Error: {e}")
             import traceback
             traceback.print_exc()
             return {
@@ -354,7 +373,7 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
                         wait_time = min(suggested_wait + 2, 15) # Cap at 15 seconds
                     
                     if attempt < max_retries - 1:
-                        print(f"⏳ Google Quota Hit. Waiting {wait_time:.1f}s before retry {attempt+1}/{max_retries}...")
+                        print(f"[INFO] Google Quota Hit. Waiting {wait_time:.1f}s before retry {attempt+1}/{max_retries}...")
                         await asyncio.sleep(wait_time)
                         continue
                         

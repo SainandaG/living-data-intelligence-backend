@@ -34,7 +34,7 @@ class TemporalAnalyzer:
         2. Detect growth patterns
         3. Identify major milestones
         """
-        print(f"🎬 Starting Database Evolution Analysis for {connection_id}...")
+        print(f" Starting Database Evolution Analysis for {connection_id}...")
         
         schema = schema_analyzer.get_analysis_result(connection_id)
         if not schema:
@@ -55,7 +55,7 @@ class TemporalAnalyzer:
         
         if not table_timelines:
             # CRITICAL FALLBACK: If no tables have temporal data, treat all as Genesis tables (born 1 year ago)
-            print("⚠️ No temporal data found. Applying Genesis fallback to all tables.")
+            print(" No temporal data found. Applying Genesis fallback to all tables.")
             genesis_date = now_aware - timedelta(days=365)
             for table in schema.tables:
                 table_timelines.append({
@@ -98,7 +98,7 @@ class TemporalAnalyzer:
         }
         
         self.evolution_results[connection_id] = evolution_data
-        print(f"✅ Evolution analysis complete for {connection_id}. {len(table_timelines)} tables analyzed.")
+        print(f" Evolution analysis complete for {connection_id}. {len(table_timelines)} tables analyzed.")
         
         return evolution_data
 
@@ -127,7 +127,7 @@ class TemporalAnalyzer:
                         # Convert year to date (January 1st of that year)
                         birth_date = datetime(year, 1, 1).astimezone()
                 except Exception as e:
-                    print(f"⚠️ Failed to parse birth year for {table.name}: {e}")
+                    print(f" Failed to parse birth year for {table.name}: {e}")
             else:
                 # Standard timestamp query
                 sql = f'SELECT MIN("{timestamp_col}") as birth_date FROM {table_ref}'
@@ -157,7 +157,7 @@ class TemporalAnalyzer:
                             if birth_date and not birth_date.tzinfo:
                                 birth_date = birth_date.replace(tzinfo=datetime.now().astimezone().tzinfo)
                 except Exception as e:
-                    print(f"⚠️ Failed to get birth date for {table.name}: {e}")
+                    print(f" Failed to get birth date for {table.name}: {e}")
         
         if birth_date is None:
             # Fallback for tables without explicit timestamps: Born 1 year ago

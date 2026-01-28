@@ -17,9 +17,9 @@ class SchemaAnalyzer:
         connection = db_connector.get_connection(connection_id)
         db_type = connection['type']
         
-        print(f"🔍 Analyzing schema for connection: {connection_id}")
+        print(f"[INFO] Analyzing schema for connection: {connection_id}")
         
-        if db_type in ['postgresql', 'postgres', 'neon', 'neon_db', 'mock']:
+        if db_type in ['postgresql', 'mock']:
             schema = await self._analyze_postgresql(connection_id)
         elif db_type == 'mysql':
             schema = await self._analyze_mysql(connection_id)
@@ -45,24 +45,23 @@ class SchemaAnalyzer:
             schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
             asyncio.create_task(agent_service.analyze_new_connection(schema_dict))
         except Exception as e:
-            print(f"⚠️ Agent seeding failed: {e}")
+            print(f"[WARN] Agent seeding failed: {e}")
             
-        print(f"✅ Fast Schema analysis complete: {len(schema.tables)} tables mapped")
+        print(f"[SUCCESS] Fast Schema analysis complete: {len(schema.tables)} tables mapped")
         return schema
 
     async def _background_classification(self, schema: Schema):
         """Run deep AI classification in background"""
         try:
-            print("🧠 Background: Starting deep AI classification...")
+            print("[INFO] Background: Starting deep AI classification...")
             await ai_classifier.classify_tables(schema)
-            print("🧠 Background: AI classification complete.")
+            print("[INFO] Background: AI classification complete.")
         except Exception as e:
-            print(f"⚠️ Background classification failed: {e}")
+            print(f"[WARN] Background classification failed: {e}")
 
     async def _analyze_postgresql(self, connection_id: str) -> Schema:
         """Analyze PostgreSQL schema using bulk queries for performance"""
         connection = db_connector.get_connection(connection_id)
-        schema_name = 'public' # Default to public, could be config-driven
         
         # 1. Get all tables
         tables_query = """
@@ -172,7 +171,7 @@ class SchemaAnalyzer:
                     referenced_table=fk['foreign_table_name'],
                     referenced_column=fk['foreign_column_name']
                 ) for fk in t_fks],
-                row_count=t_row_count,
+                row_count=max(0, t_row_count),
                 numeric_columns=[col['column_name'] for col in t_cols if col['data_type'] in numeric_types]
             )
             
@@ -195,7 +194,7 @@ class SchemaAnalyzer:
         
         # 1. Get all tables and counts in one go
         tables_query = """
-            SELECT TABLE_NAME as table_name, TABLE_ROWS as row_count
+            SELECT TABLE_NAME as table_name, TABLE_ROWS as row_count, TABLE_SCHEMA as table_schema
             FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = %s
             ORDER BY TABLE_NAME;
@@ -243,7 +242,7 @@ class SchemaAnalyzer:
                 fk_map[t].append(k)
         
         schema = Schema(database=database, tables=[], relationships=[])
-        numeric_types = ['int', 'bigint', 'decimal', 'float', 'double', 'smallint', 'tinyint']
+        numeric_types = ['int', 'bigint', 'decimal', 'float', 'double', 'smallint', 'tinyint', 'mediumint']
         
         for table_row in tables_data:
             table_name = table_row['table_name']
@@ -253,6 +252,7 @@ class SchemaAnalyzer:
             
             table_obj = Table(
                 name=table_name,
+                schema_name=table_row['table_schema'],
                 columns=[Column(
                     name=col['column_name'],
                     type=col['data_type'],

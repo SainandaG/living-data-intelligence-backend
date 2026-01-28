@@ -46,7 +46,7 @@ class T1Agent:
             'analytics.optimize': self._handle_apply_clustering,
         }
         
-        print("✅ T1 Agent initialized")
+        print("[SUCCESS] T1 Agent initialized")
     
     async def execute_action(
         self,
@@ -67,7 +67,7 @@ class T1Agent:
         """
         start_time = time.time()
         
-        # Update state: IDLE → EXECUTING
+        # Update state: IDLE  EXECUTING
         self.state_manager.update_t1_state(T1State.EXECUTING)
         
         try:
@@ -82,7 +82,7 @@ class T1Agent:
             
             execution_time = int((time.time() - start_time) * 1000)
             
-            # Update state: EXECUTING → SUCCESS
+            # Update state: EXECUTING  SUCCESS
             self.state_manager.update_t1_state(T1State.SUCCESS)
             
             # Complete command tracking
@@ -105,7 +105,7 @@ class T1Agent:
         except Exception as e:
             execution_time = int((time.time() - start_time) * 1000)
             
-            # Update state: EXECUTING → FAILED
+            # Update state: EXECUTING  FAILED
             self.state_manager.update_t1_state(T1State.FAILED)
             
             # Complete command with error
@@ -119,7 +119,7 @@ class T1Agent:
             # Back to IDLE
             self.state_manager.update_t1_state(T1State.IDLE)
             
-            print(f"❌ T1 Agent execution error: {e}")
+            print(f"[ERROR] T1 Agent execution error: {e}")
             
             return {
                 'success': False,
@@ -329,7 +329,7 @@ class T1Agent:
             handler: Async function to handle the action
         """
         self.action_handlers[action] = handler
-        print(f"✅ Registered action handler: {action}")
+        print(f"[SUCCESS] Registered action handler: {action}")
     
     def get_available_actions(self) -> list[str]:
         """

@@ -19,9 +19,9 @@ class AnalysisEngine:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=groq_key)
-                print("✅ AnalysisEngine: Groq AI Online")
+                print(" AnalysisEngine: Groq AI Online")
             except Exception as e:
-                print(f"⚠️ AnalysisEngine: Groq init failed: {e}")
+                print(f" AnalysisEngine: Groq init failed: {e}")
 
     async def get_table_intelligence(self, connection_id: str, table_name: str) -> Dict[str, Any]:
         """
@@ -56,9 +56,9 @@ class AnalysisEngine:
             
             # 4. Formulate the "Mathematical Proof" string (LaTeX-ish)
             proof = {
-                "gravity": f"G = σ(log10(N) + C_s - 3.0) = {gravity:.2f}",
+                "gravity": f"G = (log10(N) + C_s - 3.0) = {gravity:.2f}",
                 "vitality": f"V = min(100, 20log10(N) + 5G) = {vitality:.1f}%",
-                "entropy": f"H(x) = -Σ P(x)log2 P(x) = {entropy:.4f}"
+                "entropy": f"H(x) = - P(x)log2 P(x) = {entropy:.4f}"
             }
 
             # 5. Narrative (Static fallback initially)

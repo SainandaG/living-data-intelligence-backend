@@ -12,22 +12,28 @@ class DrillDownService:
         try:
             connection = db_connector.get_connection(connection_id)
             
-            # Defensive Check: Verify table exists in schema context first
+            # Defensive Check: Verify table exists in schema context first (Case-Insensitive)
             from app.services.schema_analyzer import schema_analyzer
             schema = schema_analyzer.get_analysis_result(connection_id)
+            actual_table_name = table_name
+            
             if schema:
-                table_names = [t.name for t in schema.tables]
-                if table_name not in table_names:
+                # Find matching table case-insensitively
+                match = next((t.name for t in schema.tables if t.name.lower() == table_name.lower()), None)
+                if not match:
                     return {
                         'table': table_name,
                         'records': [],
                         'count': 0,
                         'error': f"Relation '{table_name}' not found in active schema snapshot."
                     }
+                actual_table_name = match
 
             if connection['type'] in ['postgresql', 'mysql']:
-                query = f"SELECT * FROM {table_name} LIMIT {limit}"
-                results = await db_connector.query(connection_id, query)
+                # Quote actual table name for safety
+                quoted_table = f'"{actual_table_name}"' if connection['type'] == 'postgresql' else f'`{actual_table_name}`'
+                query = f"SELECT * FROM {quoted_table} LIMIT %s"
+                results = await db_connector.query(connection_id, query, (limit,))
                 
                 return {
                     'table': table_name,
@@ -64,19 +70,21 @@ class DrillDownService:
         """Get a specific record by ID"""
         try:
             connection = db_connector.get_connection(connection_id)
+            db_type = connection['type']
+            q_char = '"' if db_type == 'postgresql' else '`'
             
-            if connection['type'] in ['postgresql', 'mysql']:
-                # Assume 'id' column exists
-                query = f"SELECT * FROM {table_name} WHERE id = {record_id}"
-                results = await db_connector.query(connection_id, query)
+            if db_type in ['postgresql', 'mysql']:
+                quoted_table = f'{q_char}{table_name}{q_char}'
+                query = f"SELECT * FROM {quoted_table} WHERE {q_char}id{q_char} = %s"
+                results = await db_connector.query(connection_id, query, (record_id,))
                 
                 return {
                     'table': table_name,
                     'record': results[0] if results else None
                 }
-            elif connection['type'] == 'mongodb':
+            elif db_type == 'mongodb':
                 from bson.objectid import ObjectId
-                db = connection['connection']
+                db = connection['client'][connection['config']['database']]
                 collection = db[table_name]
                 record = collection.find_one({'_id': ObjectId(record_id)})
                 
@@ -99,12 +107,17 @@ class DrillDownService:
         """Get records related to a specific record through a foreign key"""
         try:
             connection = db_connector.get_connection(connection_id)
+            db_type = connection['type']
+            q_char = '"' if db_type == 'postgresql' else '`'
+            
             related_table = relationship['referenced_table']
             foreign_key = relationship['column']
             
-            if connection['type'] in ['postgresql', 'mysql']:
-                query = f"SELECT * FROM {related_table} WHERE {foreign_key} = {record_id} LIMIT 100"
-                results = await db_connector.query(connection_id, query)
+            if db_type in ['postgresql', 'mysql']:
+                q_table = f'{q_char}{related_table}{q_char}'
+                q_col = f'{q_char}{foreign_key}{q_char}'
+                query = f"SELECT * FROM {q_table} WHERE {q_col} = %s LIMIT 100"
+                results = await db_connector.query(connection_id, query, (record_id,))
                 
                 return {
                     'source_table': table_name,
@@ -126,10 +139,14 @@ class DrillDownService:
         """Search for records in a table"""
         try:
             connection = db_connector.get_connection(connection_id)
+            db_type = connection['type']
+            q_char = '"' if db_type == 'postgresql' else '`'
             
-            if connection['type'] in ['postgresql', 'mysql']:
-                query = f"SELECT * FROM {table_name} WHERE {search_column} LIKE '%{search_value}%' LIMIT {limit}"
-                results = await db_connector.query(connection_id, query)
+            if db_type in ['postgresql', 'mysql']:
+                q_table = f'{q_char}{table_name}{q_char}'
+                q_col = f'{q_char}{search_column}{q_char}'
+                query = f"SELECT * FROM {q_table} WHERE {q_col} LIKE %s LIMIT {limit}"
+                results = await db_connector.query(connection_id, query, (f"%{search_value}%",))
                 
                 return {
                     'table': table_name,
@@ -221,8 +238,9 @@ class DrillDownService:
                         })
                 # Add some random cross-cluster links for "noise" if sparse
                 elif len(links) < 5 and len(nodes) > 1:
-                    src = nodes[import_random().randint(0, len(nodes)-1)]['id']
-                    dst = nodes[import_random().randint(0, len(nodes)-1)]['id']
+                    import random
+                    src = nodes[random.randint(0, len(nodes)-1)]['id']
+                    dst = nodes[random.randint(0, len(nodes)-1)]['id']
                     if src != dst:
                         links.append({"source": src, "target": dst, "type": "latent_flow"})
 

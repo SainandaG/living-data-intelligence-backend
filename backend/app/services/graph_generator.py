@@ -75,9 +75,9 @@ class GraphGenerator:
         """Generate 3D graph with Semantic Force Layout properties and cluster-aware positioning"""
         from app.services.schema_analyzer import schema_analyzer
         
-        print(f"🎨 Generating graph for connection: {connection_id}")
+        print(f" Generating graph for connection: {connection_id}")
         if cluster_assignments:
-            print(f"📍 Using cluster-based positioning ({clustering_method} mode)")
+            print(f" Using cluster-based positioning ({clustering_method} mode)")
         
         # 1. Get Base Schema
         schema_obj = await schema_analyzer.analyze_schema(connection_id)
@@ -125,7 +125,7 @@ class GraphGenerator:
                     'z': (i % 3 - 1) * 100  # Spread vertically across 3 levels
                 }
             
-            print(f"📍 Positioned {num_clusters} clusters in 3D space")
+            print(f" Positioned {num_clusters} clusters in 3D space")
 
         # 4. Process Tables with CLUSTER-AWARE or STATISTICAL LOGIC
         table_map = {t['name']: t for t in tables}

@@ -9,7 +9,7 @@ router = APIRouter()
 async def connect_database(config: DatabaseConfig):
     """Connect to a database"""
     try:
-        print(f"🔌 Connection attempt: {config.db_type} to {config.database} at {config.host}")
+        print(f"[CONNECT] Connection attempt: {config.db_type} to {config.database} at {config.host}")
         result = await db_connector.connect(config.dict())
         return ConnectionResponse(
             success=True,
@@ -18,7 +18,7 @@ async def connect_database(config: DatabaseConfig):
         )
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ Connection failed: {error_msg}")
+        print(f"[ERROR] Connection failed: {error_msg}")
         raise HTTPException(
             status_code=500, 
             detail={

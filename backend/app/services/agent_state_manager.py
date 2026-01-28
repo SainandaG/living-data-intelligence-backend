@@ -80,7 +80,7 @@ class AgentStateManager:
         """
         old_state = self.t0_state
         self.t0_state = new_state
-        print(f"T0: {old_state} → {new_state}")
+        print(f"T0: {old_state}  {new_state}")
         self._notify_state_change('t0', old_state, new_state)
     
     def update_t1_state(self, new_state: T1State) -> None:
@@ -92,7 +92,7 @@ class AgentStateManager:
         """
         old_state = self.t1_state
         self.t1_state = new_state
-        print(f"T1: {old_state} → {new_state}")
+        print(f"T1: {old_state}  {new_state}")
         self._notify_state_change('t1', old_state, new_state)
     
     def start_command(
@@ -152,7 +152,7 @@ class AgentStateManager:
             error: Error message if failed
         """
         if not self.current_command or self.current_command.id != command_id:
-            print(f"⚠️ Command {command_id} not found or already completed")
+            print(f" Command {command_id} not found or already completed")
             return
         
         self.current_command.success = success
@@ -182,7 +182,7 @@ class AgentStateManager:
                 try:
                     current_cmd_data = self.current_command.to_dict()
                 except Exception as e:
-                    print(f"⚠️ Error serializing current command: {e}")
+                    print(f" Error serializing current command: {e}")
             
             return {
                 't0_state': self.t0_state.value if hasattr(self.t0_state, 'value') else str(self.t0_state),
@@ -192,7 +192,7 @@ class AgentStateManager:
                 'success_rate': self._calculate_success_rate()
             }
         except Exception as e:
-            print(f"❌ Critical error in get_current_state: {e}")
+            print(f" Critical error in get_current_state: {e}")
             # Minimum viable state fallback
             return {
                 't0_state': 'error',
@@ -263,7 +263,7 @@ class AgentStateManager:
                     'timestamp': datetime.utcnow().isoformat()
                 })
             except Exception as e:
-                print(f"⚠️ State change listener error: {e}")
+                print(f" State change listener error: {e}")
     
     def reset(self) -> None:
         """Reset agent states to IDLE."""
@@ -331,7 +331,7 @@ class AgentStateManager:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
         
-        print(f"✅ Exported {len(self.command_history)} commands to {filepath}")
+        print(f" Exported {len(self.command_history)} commands to {filepath}")
 
 
 # Global instance

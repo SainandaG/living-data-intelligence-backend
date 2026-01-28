@@ -174,11 +174,11 @@ class CommandRegistry:
             self.commands.append(command)
             self.intent_map[command['intent']] = command
             
-            print(f"✅ Registered new command: {command['id']}")
+            print(f" Registered new command: {command['id']}")
             return True
             
         except Exception as e:
-            print(f"❌ Error registering command: {e}")
+            print(f" Error registering command: {e}")
             return False
     
     def reload(self) -> None:

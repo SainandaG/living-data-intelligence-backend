@@ -2,50 +2,46 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { useWindowManager } from '../../context/WindowManagerContext';
 
-export const Header = ({ onConnect }) => {
-    const { openWindow, connectionId } = useWindowManager();
-    const [seeding, setSeeding] = useState(false);
-
-    const handleSeed = async () => {
-        if (!connectionId) return;
-        setSeeding(true);
-        try {
-            const resp = await fetch(`/api/seed/${connectionId}`, { method: 'POST' });
-            if (resp.ok) {
-                alert("Database seeded successfully with temporal data!");
-                // Reload to see new tables
-                window.location.reload();
-            } else {
-                alert("Seeding failed. See console for details.");
-            }
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setSeeding(false);
-        }
-    };
+export const Header = ({ onConnect, onShowIntelligenceHub }) => {
+    const { connectionId } = useWindowManager();
 
     return (
         <div className="header glass-card">
-            <div className="logo-modern">🧬</div>
-            <div className="brand-info">
-                <h1>Living Data Network</h1>
-                <p>Real-time Banking Intelligence Visualization</p>
-            </div>
             <div className="btn-container">
+                <div className="status-indicator-pill">
+                    <div className={`status-dot ${connectionId ? 'online' : 'offline'}`}></div>
+                    <span>{connectionId ? 'CORE ONLINE' : 'DISCONNECTED'}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export const SystemControls = ({ onConnect, seeding, handleSeed, connectionId }) => {
+    return (
+        <div className="system-controls glass-card p-4 animate-slide-in">
+            <div className="text-[10px] uppercase tracking-widest text-[#ffffff66] mb-3 font-bold border-b border-white/10 pb-2 flex justify-between">
+                <span>System Nexus</span>
+                <span className="text-cyan-400">v1.2.0</span>
+            </div>
+            <div className="flex flex-col gap-2">
+
                 {connectionId && (
                     <button
-                        className={`modern-btn ${seeding ? 'opacity-50 cursor-wait' : 'btn-gradient'}`}
+                        className={`nav-item w-full justify-between ${seeding ? 'opacity-50 animate-pulse' : ''}`}
                         onClick={handleSeed}
                         disabled={seeding}
-                        style={{ marginRight: '10px', background: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)' }}
                     >
-                        <span>🌱</span> {seeding ? 'Seeding...' : 'Seed Data'}
+                        <div className="flex items-center gap-3">
+                            <span className="text-lg">🌱</span>
+                            <div className="text-left">
+                                <div className="text-xs font-bold">{seeding ? 'Seeding...' : 'Inject Data'}</div>
+                                <div className="text-[9px] opacity-60">Generate Temporal Points</div>
+                            </div>
+                        </div>
+                        {seeding && <div className="loader-mini"></div>}
                     </button>
                 )}
-                <button className="modern-btn btn-gradient" onClick={onConnect}>
-                    <span>🔗</span> {connectionId ? 'Connected' : 'Connect DB'}
-                </button>
             </div>
         </div>
     );

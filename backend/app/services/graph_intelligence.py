@@ -78,8 +78,22 @@ class GraphIntelligence:
             'score': health_score,
             'color': color,
             'issues': issues,
+            'simple_explanation': self._generate_simple_explanation(state, issues),
             'timestamp': datetime.now().isoformat()
         }
+    
+    def _generate_simple_explanation(self, state: str, issues: List[str]) -> str:
+        """Convert technical issues to business language"""
+        if state == "healthy":
+            return "Your system is running smoothly with no major concerns."
+        elif state == "stressed":
+            if issues:
+                return f"Your system is under pressure. Main concern: {issues[0]}"
+            return "Your system is experiencing some performance stress."
+        else: # anomalous
+            if issues:
+                return f"Critical attention needed: {issues[0]}. This could impact business operations."
+            return "Your system requires immediate attention due to unusual behavior."
     
     def calculate_node_vitality(self, node: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
         """

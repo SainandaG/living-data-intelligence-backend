@@ -64,10 +64,10 @@ async def optimize_system(request: OptimizationRequest):
             
             # Choose clustering method
             if method_used == "networkx":
-                print("🧠 Using NetworkX (Graph Theory) clustering")
+                print(" Using NetworkX (Graph Theory) clustering")
                 clusters = await graph_optimizer_nx.compute_semantic_clusters(schema_dict)
             else:
-                print("🔧 Using Heuristic (Prefix-based) clustering")
+                print(" Using Heuristic (Prefix-based) clustering")
                 clusters = await rl_optimizer.compute_semantic_clusters(schema_dict)
             
             # Store clusters for graph coloring

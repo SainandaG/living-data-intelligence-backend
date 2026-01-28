@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-export default function ChatInterface({ connectionId, isOpen, onClose }) {
+export default function ChatInterface({ connectionId, isOpen, onClose, onAction }) {
     const controls = useDragControls();
     // const [isOpen, setIsOpen] = useState(false); // Controlled by parent
     const [messages, setMessages] = useState([
@@ -64,6 +64,11 @@ export default function ChatInterface({ connectionId, isOpen, onClose }) {
 
             const data = await response.json();
             setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+
+            // Trigger Action if present
+            if (data.action && onAction) {
+                onAction(data.action);
+            }
         } catch (error) {
             console.error('Chat error:', error);
             setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error. Please try again." }]);

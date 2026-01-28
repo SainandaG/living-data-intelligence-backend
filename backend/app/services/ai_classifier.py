@@ -15,14 +15,14 @@ class AIClassifier:
             self.has_ai = True
         else:
             self.has_ai = False
-            print("⚠️ AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
+            print("[WARN] AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
 
     async def classify_tables(self, schema: Schema) -> Schema:
         """Classify tables as fact/dimension and identify business entities"""
         if not self.has_ai:
             return self._heuristic_classify(schema)
             
-        print("🧠 AI Classification: Analyzing schema with Gemini...")
+        print("[INFO] AI Classification: Analyzing schema with Gemini...")
         
         try:
             # Prepare prompt
@@ -60,12 +60,12 @@ class AIClassifier:
             return schema
 
         except Exception as e:
-            print(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
+            print(f"[ERROR] AI Classification Error: {e}. Falling back to heuristics.")
             return self._heuristic_classify(schema)
 
     def _heuristic_classify(self, schema: Schema) -> Schema:
         """Fallback heuristic classification"""
-        print("🧪 AI Classification: Using heuristic fallback...")
+        print("[INFO] AI Classification: Using heuristic fallback...")
         for table in schema.tables:
             # We assume 'table' is an object here if it comes from schema.tables (Pydantic)
             # The original classify_tables had logic to handle dicts, but _heuristic_classify

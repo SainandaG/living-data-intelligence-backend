@@ -125,7 +125,7 @@ class HierarchicalFlowService:
             # Parse timestamp
             target_time = datetime.fromisoformat(timestamp)
             
-            # Get flow data for that time window (±5 minutes)
+            # Get flow data for that time window (5 minutes)
             start_time = target_time - timedelta(minutes=5)
             end_time = target_time + timedelta(minutes=5)
             

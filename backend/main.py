@@ -8,10 +8,8 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-# Load environment variables BEFORE importing services
-load_dotenv()
+from app.api import database, schema, graph, metrics, drilldown, hierarchy, ai, data_explorer, data_flow, chat, agent, evolution, intelligence
 
-from app.api import database, schema, graph, metrics, drilldown, hierarchy, ai, data_explorer, data_flow, chat, agent, evolution
 from app.services.connection_manager import ConnectionManager
 
 
@@ -21,10 +19,10 @@ connection_manager = ConnectionManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print("🚀 Living Data Intelligence Platform starting...")
+    print(f"[START] Living Data Intelligence Platform starting...")
     yield
     # Shutdown
-    print("👋 Shutting down...")
+    print("[SHUTDOWN] Shutting down...")
     from app.services.db_connector import db_connector
     await db_connector.close_all()
 
@@ -38,7 +36,7 @@ app = FastAPI(
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     import traceback
-    print(f"🔥 GLOBAL ERROR: {exc}")
+    print(f"[ERROR] GLOBAL ERROR: {exc}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
@@ -72,6 +70,8 @@ app.include_router(data_flow.router, prefix="/api", tags=["data-flow"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(agent.router)
 app.include_router(evolution.router)
+app.include_router(intelligence.router, tags=["intelligence"])
+
 
 # WebSocket endpoint for real-time updates
 @app.websocket("/ws/{connection_id}")
@@ -95,15 +95,14 @@ async def health_check():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))
-    host = os.getenv("HOST", "0.0.0.0")
+    host = os.getenv("HOST", "127.0.0.1")
     
-    print(f"🌐 Server starting on http://{host}:{port}")
-    print(f"📊 Open http://localhost:{port} to view the application")
+    print(f"[START] Server starting on http://{host}:{port}")
+    print(f"[INFO] Open http://localhost:{port} to view the application")
     
     uvicorn.run(
-        "main:app",
+        app,
         host=host,
         port=port,
-        reload=True,
         log_level="info"
     )

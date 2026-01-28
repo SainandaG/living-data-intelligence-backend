@@ -37,10 +37,12 @@ const ConnectionModal = ({ onClose }) => {
 
         // Abort controller for timeout
         const controller = new AbortController();
+        const TIMEOUT_MS = 120000; // 120s for slow DB wake-ups
+
         const timeoutId = setTimeout(() => {
-            console.warn('⏱️ Connection timeout reached (120s). Aborting request.');
+            console.warn(`⏱️ Connection timeout reached (${TIMEOUT_MS / 1000}s). Aborting request.`);
             controller.abort();
-        }, 120000);
+        }, TIMEOUT_MS);
 
         try {
             // Ensure port is an integer
@@ -48,7 +50,9 @@ const ConnectionModal = ({ onClose }) => {
                 ...config,
                 port: parseInt(config.port, 10)
             };
+
             console.log('Attempting to connect with:', payload);
+
             const response = await fetch('/api/connect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -63,17 +67,14 @@ const ConnectionModal = ({ onClose }) => {
                 try {
                     const errData = await response.json();
                     console.error('Connection error response (JSON):', errData);
-                    // Handle both simple string details and structured objects
                     if (errData.detail) {
                         errorMessage = typeof errData.detail === 'object'
                             ? (errData.detail.message || JSON.stringify(errData.detail))
                             : errData.detail;
                     }
                 } catch (jsonErr) {
-                    console.warn('Could not parse error response as JSON, trying text...');
                     try {
                         const textErr = await response.text();
-                        console.error('Connection error response (Text):', textErr);
                         errorMessage = textErr || `Server returned ${response.status}: ${response.statusText}`;
                     } catch (textErr) {
                         errorMessage = `Server error ${response.status}`;
@@ -87,10 +88,12 @@ const ConnectionModal = ({ onClose }) => {
             setConnectionId(data.connection_id);
             onClose();
         } catch (err) {
-            // Check if it was aborted by our timeout or something else
             if (err.name === 'AbortError') {
                 console.error('🚫 Request was aborted:', err);
-                setError('Connection timed out (60s). Please check if your database is accessible and your network firewall allows the connection.');
+                const isNeon = config.host.includes('neon.tech');
+                setError(isNeon
+                    ? 'Connection timed out (120s). This usually happens if your Neon database is "sleeping". Please refresh your Neon dashboard to wake it up and try again.'
+                    : 'Connection timed out (120s). Please check if your host is correct and your database is accessible (not blocked by a firewall).');
             } else {
                 console.error('⚠️ Caught error during connection:', err);
                 setError(err.message || 'An unexpected error occurred');
@@ -99,6 +102,11 @@ const ConnectionModal = ({ onClose }) => {
             setLoading(false);
             clearTimeout(timeoutId);
         }
+    };
+
+    const handleDemoMode = () => {
+        setConnectionId('conn_mock');
+        onClose();
     };
 
     return (
@@ -112,7 +120,16 @@ const ConnectionModal = ({ onClose }) => {
                 {error && (
                     <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded flex items-center gap-2 text-sm text-red-100">
                         <AlertCircle size={16} />
-                        {error}
+                        <div className="flex flex-col gap-1">
+                            <span>{error}</span>
+                            <button
+                                type="button"
+                                onClick={handleDemoMode}
+                                className="text-xs font-bold underline text-left hover:text-white"
+                            >
+                                Try Demo Mode with Sample Data Instead →
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -192,13 +209,22 @@ const ConnectionModal = ({ onClose }) => {
                         {loading ? 'Connecting...' : 'Establish Link'}
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="w-full text-center text-sm text-gray-500 hover:text-white mt-2"
-                    >
-                        Cancel (Run in Offline Mode)
-                    </button>
+                    <div className="flex flex-col gap-2 mt-2">
+                        <button
+                            type="button"
+                            onClick={handleDemoMode}
+                            className="w-full text-center text-xs text-cyan-400 hover:text-white font-bold uppercase tracking-wider"
+                        >
+                            🚀 Load Demo Intelligence
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="w-full text-center text-[10px] text-gray-500 hover:text-white uppercase tracking-wider"
+                        >
+                            Cancel (Stay Offline)
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
