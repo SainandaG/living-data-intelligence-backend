@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.services.graph_generator import graph_generator
+import math
 
 router = APIRouter()
 
@@ -22,7 +23,13 @@ async def get_graph(connection_id: str):
         from app.services.realtime_monitor import realtime_monitor
         
         # 1. Feed the Schema for Active Scanning
-        neural_core.update_schema_context({'tables': graph.get('nodes', [])})
+        neural_core.update_schema_context({'tables': graph.get('nodes', [])}, connection_id=connection_id)
+        
+        # FORCE: Run immediate analysis cycle to populate stats
+        # Tick the core once for every table (or max 50) so "Patterns" are counted instantly
+        import asyncio
+        for i in range(min(50, len(graph.get('nodes', [])))):
+             await neural_core.process_signal(f"init_tick_{i}", 1.0)
         
         # 2. Get Real-Time Metrics (DB Traffic)
         real_metrics_data = await realtime_monitor.get_realtime_data(connection_id)
@@ -32,47 +39,41 @@ async def get_graph(connection_id: str):
         # 3. Get Neural Core Status (Schema Intelligence)
         core_metrics = neural_core.get_core_metrics()
         
-        # 4. Enrich Nodes & Edges with "Truth-Preserving" Math (Director Formulation)
-        import math
+        # 4. Enrich Nodes & Edges via GlowCalculator Service
+        from visualization.glow_calculator import GlowCalculator
+        glow_calc = GlowCalculator()
         
-        # Mathematical Constants for Glow Logic
-        ALPHA = 0.8  # Weight for Row Count (N) - Logarithmic
-        BETA = 0.6   # Weight for Centrality/Importance (C) - Linear
-        GAMMA = 1.2  # Weight for Relationship Count (R)
-        DELTA = 0.8  # Weight for Semantic Similarity (S)
+        # Prepare data for calculator
+        # We need to pass raw lists, the calculator handles the logic (and feature flags)
+        nodes_for_calc = graph.get('nodes', [])
+        edges_for_calc = graph.get('edges', [])
+        
+        # Add necessary properties for calculator if missing (mapping API format to calculator expectation)
+        for n in nodes_for_calc:
+            n.setdefault('record_count', n.get('row_count', 0))
+            # Inject neural importance if available
+            raw_imp = neural_core.gravity_store.get(n.get('name'), 1.0)
+            if isinstance(raw_imp, str):
+                 importance_map = {"critical": 3.0, "high": 2.2, "medium": 1.5, "low": 0.8}
+                 n['centrality'] = importance_map.get(raw_imp.lower(), 1.0)
+            else:
+                 n['centrality'] = float(raw_imp)
 
+        # Batch Calculate
+        glow_results = glow_calc.batch_calculate(nodes_for_calc, edges_for_calc)
+        node_glow_map = glow_results.get('node_glows', {})
+        edge_glow_map = glow_results.get('edge_glows', {})
+
+        # Apply results back to graph
         enriched_nodes = []
-        for node in graph.get('nodes', []) or []:
+        for node in nodes_for_calc:
             try:
-                # --- Node Glow Formula ---
-                # NodeGlow(v) = alpha * log(N + 1) + beta * C
+                # Apply Glow
+                node_id = node.get('id')
+                node['node_glow'] = round(node_glow_map.get(node_id, 1.0), 2)
                 
-                # Defensive type casting
-                try:
-                    row_count = int(node.get('row_count', 0) or 0)
-                except:
-                    row_count = 0
-                    
-                # 1. Logarithmic Term (N)
-                n_term = math.log10(max(1, row_count + 1))
-                
-                # 2. Centrality Term (C)
-                raw_importance = neural_core.gravity_store.get(node.get('name'), 1.0)
-                if isinstance(raw_importance, str):
-                    importance_map = {"critical": 3.0, "high": 2.2, "medium": 1.5, "low": 0.8}
-                    importance = importance_map.get(raw_importance.lower(), 1.0)
-                else:
-                    importance = float(raw_importance)
-                
-                c_term = importance
-                
-                # 3. Final Glow Value
-                node_glow = (ALPHA * n_term) + (BETA * c_term)
-                
-                # Calculate vitality
-                vitality = min(100, (n_term * 20) + (importance * 5))
-                
-                # Cluster processing
+                # Setup visual properties
+                # ... other vitality/cluster logic preserved ...
                 table_name = node.get('name')
                 cluster = cluster_assignments.get(table_name) if table_name and cluster_assignments else None
                 
@@ -81,50 +82,30 @@ async def get_graph(connection_id: str):
                     new_color = graph_generator.get_cluster_color(cluster, clustering_method)
                     node['color'] = new_color
                 
-                node.update({
-                    'vitality': int(vitality),
-                    'importance_score': importance,
-                    'node_glow': round(node_glow, 2)
-                })
+                # Fallback vitality calculation (or move to calculator later)
+                # Maintaining simple visual size logic here for now
+                n_term = math.log10(max(1, int(node.get('row_count', 0) or 0) + 1))
+                vitality = min(100, (n_term * 20) + (node.get('centrality', 1.0) * 5))
+                node['vitality'] = int(vitality)
+                node['importance_score'] = node.get('centrality', 1.0)
+
             except Exception as inner_e:
                 print(f"⚠️ Error processing node {node.get('name', '?')}: {inner_e}")
-                # Fallback
                 node.update({'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0})
-                
+            
             enriched_nodes.append(node)
             
         graph['nodes'] = enriched_nodes
         
-        # --- Edge Glow Formula ---
-        # EdgeGlow(u, v) = gamma * log(R + 1) + delta * cos(theta)
-        
         enriched_edges = []
-        for edge in graph.get('edges', []) or []:
-            try:
-                # Proxy for R (Relationship Count)
-                e_type = edge.get('type')
-                if e_type == 'foreign_key':
-                    r_proxy = 100 
-                    semantic_sim = 1.0
-                elif e_type == 'ai_predicted':
-                    r_proxy = 10
-                    semantic_sim = float(edge.get('confidence', 0.5))
-                else:
-                    r_proxy = 1 
-                    semantic_sim = float(edge.get('link_strength', 0.1))
-                    
-                # 1. Log Term
-                r_term = math.log10(r_proxy + 1)
-                
-                # 2. Final Edge Glow
-                edge_glow = (GAMMA * r_term) + (DELTA * semantic_sim)
-                
-                edge['edge_glow'] = round(edge_glow, 2)
-            except Exception as inner_e:
+        for edge in edges_for_calc:
+             try:
+                 edge_id = edge.get('id')
+                 edge['edge_glow'] = round(edge_glow_map.get(edge_id, 1.0), 2)
+             except:
                  edge['edge_glow'] = 1.0
-                 
-            enriched_edges.append(edge)
-            
+             enriched_edges.append(edge)
+
         graph['edges'] = enriched_edges
         graph['neural_core'] = {
             'status': core_metrics['status'],
@@ -142,9 +123,15 @@ async def get_graph(connection_id: str):
         
     except Exception as e:
         import traceback
-        error_msg = f"Error generating graph: {str(e)}"
+        error_msg = str(e)
+        
+        # Check if it's a "connection not found" error
+        if "not found" in error_msg.lower() or "connection" in error_msg.lower():
+            # Handle missing connection gracefully with a 404
+            raise HTTPException(status_code=404, detail=f"Connection {connection_id} not found. Please re-connect.")
+            
         stack_trace = traceback.format_exc()
-        print(f"⚠️ {error_msg}")
+        print(f"⚠️ Error generating graph: {error_msg}")
         
         # Log to file for debugging
         try:

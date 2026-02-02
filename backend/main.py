@@ -6,22 +6,34 @@ from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
 import os
+import sys
 from dotenv import load_dotenv
+
+# Ensure backend directory is in path and 'app' is findable
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
 # Load environment variables BEFORE importing services
 load_dotenv()
 
-from app.api import database, schema, graph, metrics, drilldown, hierarchy, ai, data_explorer, data_flow, chat, agent, evolution
-from app.services.connection_manager import ConnectionManager
+import logging
+from datetime import datetime
+from app.services.connection_manager import connection_manager
 
+logger = logging.getLogger(__name__)
 
-# Connection manager for WebSocket
-connection_manager = ConnectionManager()
+# Using global connection_manager from services
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print("🚀 Living Data Intelligence Platform starting...")
+    # Start background WebSocket maintenance loops
+    await connection_manager.start()
+    # Start background WebSocket streaming task
+    from app.api.websocket import start_streaming_task
+    await start_streaming_task()
     yield
     # Shutdown
     print("👋 Shutting down...")
@@ -59,39 +71,97 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
-app.include_router(database.router, prefix="/api", tags=["database"])
-app.include_router(schema.router, prefix="/api", tags=["schema"])
-app.include_router(graph.router, prefix="/api", tags=["graph"])
-app.include_router(metrics.router, prefix="/api", tags=["metrics"])
-app.include_router(drilldown.router, prefix="/api", tags=["drilldown"])
-app.include_router(hierarchy.router, prefix="/api", tags=["hierarchy"])
-app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
-app.include_router(data_explorer.router, prefix="/api", tags=["data"])
-app.include_router(data_flow.router, prefix="/api", tags=["data-flow"])
-app.include_router(chat.router, prefix="/api", tags=["chat"])
-app.include_router(agent.router)
-app.include_router(evolution.router)
+class RouterRegistry:
+    """
+    Centralized router registry with validation
+    Ensures all required routes are loaded before startup
+    """
+    def __init__(self, app: FastAPI):
+        self.app = app
+        self.required_routers = []
+        self.optional_routers = []
+        self.failed_routers = []
+    
+    def register_required(self, module_path: str, prefix: str = "", tags: list = None, router_name: str = "router"):
+        """Register a required router (app won't start if missing)"""
+        try:
+            module = __import__(module_path, fromlist=[router_name])
+            router = getattr(module, router_name)
+            self.app.include_router(router, prefix=prefix, tags=tags or [])
+            self.required_routers.append(module_path)
+            logger.info(f"✅ Registered required router: {module_path}")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logger.error(f"❌ CRITICAL: Failed to load required router {module_path}: {e}")
+            self.failed_routers.append((module_path, str(e)))
+            raise RuntimeError(f"Required router {module_path} failed to load") from e
+    
+    def register_optional(self, module_path: str, prefix: str = "", tags: list = None, router_name: str = "router"):
+        """Register an optional router (app continues if missing)"""
+        try:
+            module = __import__(module_path, fromlist=[router_name])
+            router = getattr(module, router_name)
+            self.app.include_router(router, prefix=prefix, tags=tags or [])
+            self.optional_routers.append(module_path)
+            logger.info(f"✅ Registered optional router: {module_path}")
+        except Exception as e:
+            logger.warning(f"⚠️ Optional router {module_path} not loaded: {e}")
+            self.failed_routers.append((module_path, str(e)))
+    
+    def get_status(self):
+        """Get registration status"""
+        return {
+            "required_routers": self.required_routers,
+            "optional_routers": self.optional_routers,
+            "failed_routers": self.failed_routers,
+            "total_registered": len(self.required_routers) + len(self.optional_routers),
+            "status": "healthy" if not self.failed_routers else "degraded"
+        }
 
-# WebSocket endpoint for real-time updates
-@app.websocket("/ws/{connection_id}")
-async def websocket_endpoint(websocket: WebSocket, connection_id: str):
-    await connection_manager.connect(websocket, connection_id)
-    try:
-        while True:
-            # Keep connection alive and send updates
-            from app.services.realtime_monitor import realtime_monitor
-            data = await realtime_monitor.get_realtime_data(connection_id)
-            await connection_manager.send_update(connection_id, data)
-            await asyncio.sleep(int(os.getenv("REFRESH_INTERVAL", 5)))
-    except WebSocketDisconnect:
-        connection_manager.disconnect(connection_id)
-        print(f"Client disconnected from {connection_id}")
+# Initialize registry
+registry = RouterRegistry(app)
 
-# Health check
+# ============================================================================
+# ROUTER REGISTRATION
+# ============================================================================
+
+# Required Routers
+registry.register_required("app.api.database", prefix="/api", tags=["database"])
+registry.register_required("app.api.schema", prefix="/api", tags=["schema"])
+registry.register_required("app.api.graph", prefix="/api", tags=["graph"])
+registry.register_required("app.api.metrics", prefix="/api", tags=["metrics"])
+registry.register_required("app.api.drilldown", prefix="/api", tags=["drilldown"])
+registry.register_required("app.api.hierarchy", prefix="/api", tags=["hierarchy"])
+registry.register_required("app.api.ai", prefix="/api/ai", tags=["ai"])
+registry.register_required("app.api.agent")
+registry.register_required("app.api.websocket")
+
+# Optional Routers
+registry.register_optional("app.api.data_explorer", prefix="/api", tags=["data"])
+registry.register_optional("app.api.data_flow", prefix="/api", tags=["data-flow"])
+registry.register_optional("app.api.chat", prefix="/api", tags=["chat"])
+registry.register_optional("app.api.evolution")
+registry.register_optional("app.api.ml")
+registry.register_optional("app.api.events")
+registry.register_optional("app.api.explainability")
+registry.register_optional("app.routers.intelligence", prefix="/api/intelligence", tags=["intelligence"])
+
+# ============================================================================
+# HEALTH CHECK ENDPOINT
+# ============================================================================
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": "1.0.0"}
+    """System health check"""
+    router_status = registry.get_status()
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "routers": router_status,
+        "timestamp": datetime.now().isoformat()
+    }
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))

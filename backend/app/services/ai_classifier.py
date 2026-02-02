@@ -60,7 +60,10 @@ class AIClassifier:
             return schema
 
         except Exception as e:
-            print(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
+            if "429" in str(e) or "quota" in str(e).lower():
+                print("🧪 AI Classification: Quota exceeded. Using heuristic fallback.")
+            else:
+                print(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
             return self._heuristic_classify(schema)
 
     def _heuristic_classify(self, schema: Schema) -> Schema:

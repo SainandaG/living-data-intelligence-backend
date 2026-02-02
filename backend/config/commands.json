@@ -17,41 +17,13 @@
             "intent": "highlight_node",
             "action": "graph.highlight",
             "parameters": {
-                "table_name": {
-                    "type": "string",
-                    "required": true,
-                    "description": "Name of the database table to highlight"
-                }
+                "table_name": "table_name"
             },
             "examples": [
                 "highlight patient table",
-                "show me orders",
-                "focus on users",
-                "where is the account table"
+                "show me orders"
             ],
-            "description": "Highlights a specific table node in the 3D graph"
-        },
-        {
-            "id": "show_anomalies",
-            "phrases": [
-                "show anomalies",
-                "detect anomalies",
-                "find anomalies",
-                "check for anomalies",
-                "what is broken",
-                "show errors",
-                "are there any anomalies",
-                "run health check"
-            ],
-            "intent": "run_anomaly_detection",
-            "action": "analytics.anomaly",
-            "parameters": {},
-            "examples": [
-                "show anomalies",
-                "detect anomalies today",
-                "run health check"
-            ],
-            "description": "Runs anomaly detection on the current database"
+            "description": "Auto-generated for highlight_node"
         },
         {
             "id": "zoom_cluster",
@@ -65,17 +37,12 @@
             "intent": "zoom_cluster",
             "action": "graph.zoom_cluster",
             "parameters": {
-                "cluster_name": {
-                    "type": "string",
-                    "required": true,
-                    "description": "Name of the cluster to zoom into"
-                }
+                "cluster_name": "cluster_name"
             },
             "examples": [
-                "zoom into revenue cluster",
-                "focus cluster authentication"
+                "zoom into revenue cluster"
             ],
-            "description": "Zooms camera into a specific cluster group"
+            "description": "Auto-generated for zoom_cluster"
         },
         {
             "id": "start_flow",
@@ -85,16 +52,22 @@
                 "start flow",
                 "begin animation",
                 "show data moving",
-                "activate particles"
+                "activate particles",
+                "transaction flow of {table_name}",
+                "show flow for {table_name}",
+                "flow of {table_name}",
+                "start flow for {table_name}"
             ],
             "intent": "start_flow",
             "action": "graph.start_flow",
-            "parameters": {},
+            "parameters": {
+                "table_name": "table_name"
+            },
             "examples": [
                 "start data flow",
                 "play transaction flow"
             ],
-            "description": "Starts the particle flow animation"
+            "description": "Auto-generated for start_flow"
         },
         {
             "id": "stop_flow",
@@ -102,18 +75,31 @@
                 "stop flow",
                 "pause flow",
                 "stop data flow",
-                "pause animation",
-                "deactivate particles",
-                "freeze flow"
+                "pause animation"
             ],
             "intent": "stop_flow",
             "action": "graph.stop_flow",
             "parameters": {},
             "examples": [
-                "stop flow",
-                "pause animation"
+                "stop flow"
             ],
-            "description": "Stops the particle flow animation"
+            "description": "Auto-generated for stop_flow"
+        },
+        {
+            "id": "run_anomaly_detection",
+            "phrases": [
+                "show anomalies",
+                "detect anomalies",
+                "find anomalies",
+                "run health check"
+            ],
+            "intent": "run_anomaly_detection",
+            "action": "analytics.anomaly",
+            "parameters": {},
+            "examples": [
+                "show anomalies"
+            ],
+            "description": "Auto-generated for run_anomaly_detection"
         },
         {
             "id": "apply_clustering",
@@ -121,55 +107,30 @@
                 "apply clustering",
                 "run clustering",
                 "cluster tables",
-                "organize tables",
-                "group related tables",
-                "run layout optimization"
+                "organize tables"
             ],
             "intent": "apply_clustering",
             "action": "analytics.cluster",
             "parameters": {},
             "examples": [
-                "apply clustering",
-                "organize tables"
+                "apply clustering"
             ],
-            "description": "Applies clustering algorithm to organize tables"
-        },
-        {
-            "id": "recalculate_gravity",
-            "phrases": [
-                "recalculate gravity",
-                "update gravity",
-                "refresh positions",
-                "reorganize graph",
-                "reset physics",
-                "update layout"
-            ],
-            "intent": "recalculate_gravity",
-            "action": "graph.recalculate_gravity",
-            "parameters": {},
-            "examples": [
-                "recalculate gravity",
-                "refresh positions"
-            ],
-            "description": "Recalculates node positions using gravity engine"
+            "description": "Auto-generated for apply_clustering"
         },
         {
             "id": "show_schema",
             "phrases": [
                 "show schema",
                 "display schema",
-                "view database structure",
-                "open schema view",
-                "switch to schema"
+                "view database structure"
             ],
             "intent": "show_schema",
             "action": "ui.show_schema",
             "parameters": {},
             "examples": [
-                "show schema",
-                "view database structure"
+                "show schema"
             ],
-            "description": "Displays the database schema view"
+            "description": "Auto-generated for show_schema"
         },
         {
             "id": "reset_view",
@@ -177,250 +138,38 @@
                 "reset view",
                 "reset camera",
                 "go back",
-                "show all",
-                "overview",
-                "zoom out"
+                "overview"
             ],
             "intent": "reset_view",
             "action": "graph.reset_view",
             "parameters": {},
             "examples": [
-                "reset view",
-                "show all tables"
+                "reset view"
             ],
-            "description": "Resets the camera to default overview position"
-        },
-        {
-            "id": "start_evolution",
-            "phrases": [
-                "start evolution playback",
-                "show database history",
-                "how did this database evolve",
-                "play temporal genesis",
-                "start evolution",
-                "watch evolution",
-                "play history"
-            ],
-            "intent": "start_evolution",
-            "action": "graph.start_evolution",
-            "parameters": {},
-            "examples": [
-                "start evolution playback",
-                "show database history"
-            ],
-            "description": "Starts the temporal database evolution playback"
-        },
-        {
-            "id": "stop_evolution",
-            "phrases": [
-                "stop evolution",
-                "exit evolution mode",
-                "end history review",
-                "stop playback",
-                "close evolution"
-            ],
-            "intent": "stop_evolution",
-            "action": "graph.stop_evolution",
-            "parameters": {},
-            "examples": [
-                "stop evolution",
-                "exit evolution mode"
-            ],
-            "description": "Stops the evolution playback and returns to current state"
+            "description": "Auto-generated for reset_view"
         },
         {
             "id": "drill_down",
             "phrases": [
                 "drill down {table_name}",
                 "inspect table {table_name}",
-                "open detail for {table_name}",
-                "show data for {table_name}",
-                "analyze {table_name}",
-                "view records for {table_name}",
-                "go deep into {table_name}"
+                "open detail for {table_name}"
             ],
             "intent": "drill_down",
             "action": "ui.drill_down",
             "parameters": {
-                "table_name": {
-                    "type": "string",
-                    "required": true,
-                    "description": "Name of the table to drill down into"
-                }
+                "table_name": "table_name"
             },
             "examples": [
-                "drill down users",
-                "inspect table payments",
-                "open detail for orders"
+                "drill down users"
             ],
-            "description": "Navigates to the detailed drill-down view of a specific table"
-        },
-        {
-            "id": "simulate_formation",
-            "phrases": [
-                "simulate node formation",
-                "run formation simulation",
-                "show how nodes form",
-                "start structure simulation",
-                "simulate formation",
-                "how is database built"
-            ],
-            "intent": "simulate_formation",
-            "action": "graph.simulate_formation",
-            "parameters": {
-                "table_name": {
-                    "type": "string",
-                    "required": false,
-                    "description": "Optional specific table to simulate"
-                }
-            },
-            "examples": [
-                "simulate node formation",
-                "run formation simulation for users"
-            ],
-            "description": "Triggers the 3D node formation simulation sequence"
-        },
-        {
-            "id": "system_report",
-            "phrases": [
-                "system report",
-                "status update",
-                "how is the database",
-                "check health",
-                "what is the neural core doing",
-                "give me a report",
-                "how healthy is the system"
-            ],
-            "intent": "system_report",
-            "action": "analytics.report",
-            "parameters": {},
-            "examples": [
-                "give me a status update",
-                "how healthy is the database"
-            ],
-            "description": "Provides a comprehensive AI report on system health and neural growth"
-        },
-        {
-            "id": "node_report",
-            "phrases": [
-                "analyze table",
-                "show intelligence for",
-                "explain node",
-                "what's special about",
-                "give me node details",
-                "analyze node",
-                "intelligence for"
-            ],
-            "intent": "node_report",
-            "action": "ui.drill_down",
-            "parameters": {
-                "table_name": {
-                    "type": "string",
-                    "required": true,
-                    "description": "The specific table to analyze"
-                }
-            },
-            "examples": [
-                "analyze table users",
-                "intelligence for transactions"
-            ],
-            "description": "Navigates to a specific node's drill-down view and triggers AI analysis"
-        },
-        {
-            "id": "trace_lineage",
-            "phrases": [
-                "trace lineage for {table_name}",
-                "trace lineage {table_name}",
-                "show dependencies for {table_name}",
-                "what affects {table_name}",
-                "show data lineage for {table_name}",
-                "where does data go from {table_name}",
-                "upstream and downstream of {table_name}"
-            ],
-            "intent": "trace_lineage",
-            "action": "graph.trace_lineage",
-            "parameters": {
-                "table_name": {
-                    "type": "string",
-                    "required": true,
-                    "description": "The table to trace lineage from"
-                },
-                "hops": {
-                    "type": "integer",
-                    "required": false,
-                    "default": 2,
-                    "description": "Number of hops to trace"
-                }
-            },
-            "examples": [
-                "trace lineage for users",
-                "what affects products"
-            ],
-            "description": "Triggers a K-hop traversal to show data dependencies across the graph"
-        },
-        {
-            "id": "sonify_data",
-            "phrases": [
-                "sonify data",
-                "start sonification",
-                "listen to database",
-                "turn metrics into sound",
-                "play data audio",
-                "stop sonification",
-                "mute audio"
-            ],
-            "intent": "toggle_sonification",
-            "action": "ui.sonify",
-            "parameters": {
-                "active": {
-                    "type": "boolean",
-                    "required": false,
-                    "description": "Whether to turn sonification on or off"
-                }
-            },
-            "examples": [
-                "sonify the current metrics",
-                "stop data sonification"
-            ],
-            "description": "Converts real-time database metrics into an immersive soundscape"
-        },
-        {
-            "id": "optimize_layout",
-            "phrases": [
-                "optimize layout",
-                "run neural optimization",
-                "organize graph",
-                "clean up nodes",
-                "balance gravity"
-            ],
-            "intent": "apply_clustering",
-            "action": "analytics.optimize",
-            "parameters": {},
-            "examples": [
-                "run neural optimization",
-                "clean up the graph nodes"
-            ],
-            "description": "Uses AI to optimize the graph layout for better readability"
-        },
-        {
-            "id": "domain_dynamic_action",
-            "phrases": [],
-            "intent": "domain_dynamic",
-            "action": "ui.drill_down",
-            "parameters": {
-                "concept": {
-                    "type": "string",
-                    "required": true,
-                    "description": "The domain concept detected by AI"
-                }
-            },
-            "description": "DYNAMIC TEMPLATE: AI maps domain-specific words (like 'audit') to standard intents (like 'drill_down') on the fly"
+            "description": "Auto-generated for drill_down"
         }
     ],
     "metadata": {
-        "created": "2026-01-13",
+        "created": "2026-01-28",
         "version": "1.0.0",
-        "total_commands": 11,
-        "description": "Command registry for Living Data Intelligence Platform voice control"
+        "total_commands": 9,
+        "description": "Auto-generated command registry"
     }
 }

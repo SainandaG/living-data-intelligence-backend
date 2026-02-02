@@ -21,7 +21,7 @@ class RealtimeMonitor:
             
             # 2. Tick the Neural Core (Active Scanning)
             # This advances the scanning cursor to find patterns in the next table
-            await neural_core.process_signal("heartbeat", 1.0)
+            await neural_core.process_signal(connection_id, 1.0)
             ai_stats = neural_core.get_core_metrics()
             
             # 3. Real anomaly detection based on those metrics
@@ -108,7 +108,11 @@ class RealtimeMonitor:
             }
         except Exception as e:
             # Fallback if query fails (e.g. connection lost) to prevent crash
-            print(f"Metric Fetch Error: {e}")
+            if "not found" in str(e).lower():
+                # Silently fail if connection is just missing (common on restart)
+                pass
+            else:
+                print(f"Metric Fetch Error: {e}")
             return { 'transaction_rate': 0, 'total_transactions': self.last_total_rows, 'active_connections': 0 }
 
     def _analyze_graph_health(self, metrics: dict) -> dict:

@@ -10,6 +10,10 @@ import asyncio
 from typing import List, Dict, Any
 import math
 from datetime import datetime, timedelta
+try:
+    from backend.app.services.latent_manager import latent_manager
+except ImportError:
+    from app.services.latent_manager import latent_manager
 
 class NeuralCore:
     def __init__(self):
@@ -34,15 +38,19 @@ class NeuralCore:
         # Insights
         self.gravity_store = {} # node_id -> importance_score
         self.agent_status = "IDLE"
+        self.active_connection_id = None
 
     async def initialize(self):
         """Prepare the core for schema analysis"""
         self.model_state = "ready"
         print("Neural Core: Visual Intelligence Engine Ready.")
 
-    def update_schema_context(self, schema: Dict):
+    def update_schema_context(self, schema: Dict, connection_id: str = None):
         """Receive the latest schema snapshot to analyze"""
         self.schema_snapshot = schema
+        if connection_id:
+            self.active_connection_id = connection_id
+            
         # Reset if new schema
         if not self.analyzed_tables:
             self.agent_status = "ACTIVE_SCANNING"
@@ -174,7 +182,26 @@ class NeuralCore:
 
         # AUTO-SAVE: If we just finished a full scan cycle, persist to DB
         if len(self.analyzed_tables) == len(tables) and self.scan_cursor % len(tables) == 0:
-            asyncio.create_task(self.save_snapshot(node_id)) # node_id here is connection_id in the API flux
+            # Trigger Latent Space Update
+            # Extract basic node/edge structure for the GNN
+            gnn_nodes = [{"id": t['name'], "metadata": t} for t in tables]
+            gnn_edges = []
+            for t in tables:
+                for fk in t.get('foreign_keys', []):
+                    if fk.get('target_table'):
+                        gnn_edges.append({"source": t['name'], "target": fk['target_table']})
+            
+            # Fire and forget (or await if async)
+            # Since update_latent_space is CPU bound (numpy/sklearn), ideally we offload or run it here.
+            # It has its own lock, so it's thread-safe.
+            try:
+                latent_manager.update_latent_space(gnn_nodes, gnn_edges)
+            except Exception as e:
+                print(f"Neural Core: Failed to update Latent Space: {e}")
+
+            # Prioritize stored connection ID over signal origin
+            persist_id = self.active_connection_id or node_id
+            asyncio.create_task(self.save_snapshot(persist_id))
 
     async def save_snapshot(self, connection_id: str):
         """Persist the current neural state to the database"""

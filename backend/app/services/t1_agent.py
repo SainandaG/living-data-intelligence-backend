@@ -7,6 +7,11 @@ import time
 import asyncio
 
 from app.services.agent_state_manager import get_agent_state_manager, T1State
+from app.services.handlers.graph_action_handler import GraphActionHandler
+from app.services.handlers.ui_action_handler import UIActionHandler
+from app.services.handlers.analytics_action_handler import AnalyticsActionHandler
+from app.services.handlers.dataflow_action_handler import DataflowActionHandler
+from app.config.feature_flags import USE_MODULAR_HANDLERS
 
 
 class T1Agent:
@@ -47,6 +52,35 @@ class T1Agent:
         }
         
         print("✅ T1 Agent initialized")
+        
+        # Initialize modular handlers if enabled
+        if USE_MODULAR_HANDLERS:
+            self.graph_handler = GraphActionHandler()
+            self.ui_handler = UIActionHandler()
+            self.analytics_handler = AnalyticsActionHandler()
+            self.dataflow_handler = DataflowActionHandler()
+            
+            self.modular_handler_map = {
+                'graph.highlight': self.graph_handler,
+                'graph.zoom_cluster': self.graph_handler,
+                'graph.start_flow': self.dataflow_handler,
+                'graph.stop_flow': self.dataflow_handler,
+                'graph.highlight_path': self.dataflow_handler,
+                'graph.set_flow_speed': self.dataflow_handler,
+                'graph.recalculate_gravity': self.graph_handler,
+                'graph.reset_view': self.graph_handler,
+                'graph.trace_lineage': self.graph_handler,
+                'ui.drill_down': self.ui_handler,
+                'ui.show_schema': self.ui_handler,
+                'ui.sonify': self.ui_handler,
+                'analytics.anomaly': self.analytics_handler,
+                'analytics.cluster': self.analytics_handler,
+                'analytics.report': self.analytics_handler,
+                'analytics.optimize': self.analytics_handler,
+                'graph.start_evolution': self.dataflow_handler,
+                'graph.stop_evolution': self.dataflow_handler,
+                'graph.simulate_formation': self.dataflow_handler,
+            }
     
     async def execute_action(
         self,
@@ -71,14 +105,36 @@ class T1Agent:
         self.state_manager.update_t1_state(T1State.EXECUTING)
         
         try:
-            # Get the appropriate handler
-            handler = self.action_handlers.get(action)
+            # HYBRID EXECUTION MODE: Try Modular, Fallback to Legacy
+            # This ensures "existing features" are never lost even if new handlers fail.
+            result = None
+            used_legacy = False
             
-            if not handler:
-                raise ValueError(f"Unknown action: {action}")
-            
-            # Execute the action
-            result = await handler(parameters)
+            if USE_MODULAR_HANDLERS and action in self.modular_handler_map:
+                try:
+                    handler_instance = self.modular_handler_map[action]
+                    raw_result = await handler_instance.handle(action, parameters)
+                    
+                    # UNWRAP RESULT: Modular handlers return {success, result: {...}}
+                    # We only want the inner content for T1Agent's 'result' field
+                    if isinstance(raw_result, dict) and 'result' in raw_result:
+                        result = raw_result['result']
+                    else:
+                        result = raw_result # Fallback if direct return
+                except Exception as modular_error:
+                    print(f"⚠️ Modular Handler Failed for {action}: {modular_error}. Falling back to Legacy.")
+                    # Fallback will happen below
+                    result = None
+
+            if result is None:
+                # Legacy / Fallback Path
+                handler = self.action_handlers.get(action)
+                if not handler:
+                    raise ValueError(f"Unknown action: {action}")
+                
+                # Execute the legacy action
+                result = await handler(parameters)
+                used_legacy = True
             
             execution_time = int((time.time() - start_time) * 1000)
             
@@ -171,10 +227,13 @@ class T1Agent:
         """Handle start data flow action."""
         await asyncio.sleep(0.05)
         
+        table_name = params.get('table_name')
+        
         return {
             'action_type': 'graph_flow',
             'instruction': 'start_flow',
-            'message': "Started data flow animation"
+            'target': table_name,
+            'message': f"Started data flow animation{' for ' + table_name if table_name else ''}"
         }
     
     async def _handle_stop_flow(self, params: Dict[str, Any]) -> Dict[str, Any]:

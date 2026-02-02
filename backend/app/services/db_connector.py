@@ -12,6 +12,18 @@ class DatabaseConnector:
         self.locks: Dict[str, asyncio.Lock] = {}
         self.connection_counter = 0
 
+    def quote_identifier(self, connection_id: str, identifier: str) -> str:
+        """Quote a database identifier (table/column) based on connection type"""
+        try:
+            connection = self.get_connection(connection_id)
+            db_type = connection['type'].lower()
+            if db_type == 'mysql':
+                return f"`{identifier}`"
+            # Default to double quotes for Postgres, SQLite, etc.
+            return f'"{identifier}"'
+        except:
+            return f'"{identifier}"'
+
     async def connect(self, config: Dict[str, Any]) -> Dict[str, str]:
         """Connect to a database and return connection info"""
         start_time = time.perf_counter()

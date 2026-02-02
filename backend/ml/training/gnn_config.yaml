@@ -1,0 +1,19 @@
+model:
+  in_features: 16
+  hidden_features: 32
+  out_features: 1
+  dropout: 0.6
+  alpha: 0.2
+  layers: 3
+
+training:
+  epochs: 100
+  learning_rate: 0.005
+  weight_decay: 0.0005
+  patience: 20
+  batch_size: 1
+
+data:
+  synthetic_nodes: 1000
+  synthetic_edges: 3000
+  train_split: 0.8

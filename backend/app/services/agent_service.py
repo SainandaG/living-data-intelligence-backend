@@ -65,13 +65,16 @@ class AgentService:
                 print(f"Agent Error: {e}")
                 await asyncio.sleep(5)
 
-    async def analyze_new_connection(self, schema_data: Dict):
+    async def analyze_new_connection(self, schema_data: Dict, connection_id: str = None):
         """
         Analyze a fresh database schema to seed the Neural Core.
         Called immediately after connection success.
         """
         from app.services.neural_core import neural_core
-        print("🕵️ Agentic AI: Performing initial schema deep-scan...")
+        print(f"🕵️ Agentic AI: Performing initial schema deep-scan for {connection_id}...")
+        
+        # Seed the Neural Core with context and the real connection ID
+        neural_core.update_schema_context(schema_data, connection_id=connection_id)
         
         tables = schema_data.get('tables', [])
         for table in tables:

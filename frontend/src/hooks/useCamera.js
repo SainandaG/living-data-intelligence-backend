@@ -29,6 +29,10 @@ export const useCameraManager = (cameraRef, controlsRef) => {
         };
     }, [cameraRef, controlsRef]);
 
+    const stopTransition = useCallback(() => {
+        transitionState.current.active = false;
+    }, []);
+
     const update = (delta) => {
         if (!transitionState.current.active) return;
 
@@ -46,5 +50,5 @@ export const useCameraManager = (cameraRef, controlsRef) => {
         }
     };
 
-    return { focusOn, update };
+    return { focusOn, stopTransition, update };
 };

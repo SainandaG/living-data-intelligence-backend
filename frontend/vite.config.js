@@ -13,4 +13,20 @@ export default defineConfig({
       },
     },
   },
+  optimizeDeps: {
+    include: ['d3-force-3d']
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'three-vendor': ['three', '@react-three/fiber', '@react-three/drei'],
+          'charts-vendor': ['recharts'],
+          'd3-vendor': ['d3', 'd3-force-3d'],
+          'ui-vendor': ['lucide-react', 'clsx', 'tailwind-merge']
+        }
+      }
+    },
+    chunkSizeWarningLimit: 1000
+  }
 })

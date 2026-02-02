@@ -111,15 +111,18 @@ class TemporalAnalyzer:
         is_fallback = False
         
         # Schema-aware table reference
+        table_name_quoted = db_connector.quote_identifier(connection_id, table.name)
         if table.schema_name:
-            table_ref = f'"{table.schema_name}"."{table.name}"'
+            schema_name_quoted = db_connector.quote_identifier(connection_id, table.schema_name)
+            table_ref = f'{schema_name_quoted}.{table_name_quoted}'
         else:
-            table_ref = f'"{table.name}"'
+            table_ref = table_name_quoted
 
         if timestamp_col:
+            col_quoted = db_connector.quote_identifier(connection_id, timestamp_col)
             # Special handling for 'year' column (integer)
             if timestamp_col.lower() == 'year':
-                sql = f'SELECT MIN("{timestamp_col}") as birth_year FROM {table_ref}'
+                sql = f'SELECT MIN({col_quoted}) as birth_year FROM {table_ref}'
                 try:
                     result = await db_connector.query(connection_id, sql)
                     if result and result[0]['birth_year']:
@@ -130,7 +133,7 @@ class TemporalAnalyzer:
                     print(f"⚠️ Failed to parse birth year for {table.name}: {e}")
             else:
                 # Standard timestamp query
-                sql = f'SELECT MIN("{timestamp_col}") as birth_date FROM {table_ref}'
+                sql = f'SELECT MIN({col_quoted}) as birth_date FROM {table_ref}'
                 try:
                     result = await db_connector.query(connection_id, sql)
                     if result and isinstance(result, list) and len(result) > 0:

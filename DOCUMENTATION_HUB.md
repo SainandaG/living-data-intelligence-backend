@@ -137,6 +137,23 @@ Driven by `@react-three/fiber`'s `useFrame` hook.
 - **Toggle Logic**: Each UI window (Neural Core, Metrics, DB Connect) has a unique ID and `zIndex` state.
 - **Persistence**: Window positions and minimize states are preserved during the session.
 
+### Audio Engine (`SoundSystem.js`)
+- **Singleton Architecture**: Centralized audio manager accessible via `window.soundSystem`.
+- **Oscillator Network**: Uses Web Audio API `createOscillator` for synthesized sounds (no external files).
+- **Sonification Logic**:
+  - `playMetricOscillation(gravity, entropy)`: Real-time mapping of math to sound.
+  - **Frequency Mapping**: $f = 200 + (gravity \times 120)$ Hz.
+  - **LFO Modulation**: Entropy drives Low Frequency Oscillation for "texture".
+
+### Latent World Renderer (`LatentWorld.jsx`)
+- **Dual View Modes**:
+  1.  **Galaxy View**: Standard force-directed layout.
+  2.  **Internal Orbit View**: When a node is targeted, it becomes the center of a solar system. Columns become orbiting satellites.
+- **Visual Tech**:
+  - **UnrealBloomPass**: Post-processing glow.
+  - **InstancedMesh**: Optimized rendering for thousands of nodes.
+  - **Procedural Geometry**: Rings (PK), Tetrahedrons (FK), Spheres (Standard).
+
 ---
 
 ## 7. Hierarchical Flow & Dynamics

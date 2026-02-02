@@ -43,7 +43,7 @@ class SchemaAnalyzer:
         from app.services.agent_service import agent_service
         try:
             schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
-            asyncio.create_task(agent_service.analyze_new_connection(schema_dict))
+            asyncio.create_task(agent_service.analyze_new_connection(schema_dict, connection_id=connection_id))
         except Exception as e:
             print(f"⚠️ Agent seeding failed: {e}")
             
@@ -194,13 +194,27 @@ class SchemaAnalyzer:
         database = connection['config']['database']
         
         # 1. Get all tables and counts in one go
+        # 1. Get all tables (Row counts fetched separately for accuracy)
         tables_query = """
-            SELECT TABLE_NAME as table_name, TABLE_ROWS as row_count
+            SELECT TABLE_NAME as table_name
             FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = %s
+              AND TABLE_NAME NOT IN ('neural_snapshots', 'alembic_version', 'flyway_schema_history')
             ORDER BY TABLE_NAME;
         """
         tables_data = await db_connector.query(connection_id, tables_query, (database,))
+
+        # 1.5 Fetch EXACT row counts (Fix for InnoDB approximation issues)
+        # Note: accurate counts are critical for static data visualization
+        for t in tables_data:
+            try:
+                # Use simple backtick quoting for MySQL
+                count_sql = f"SELECT COUNT(*) as c FROM `{t['table_name']}`"
+                count_res = await db_connector.query(connection_id, count_sql)
+                t['row_count'] = count_res[0]['c']
+            except Exception as e:
+                print(f"⚠️ Failed to count rows for {t['table_name']}: {e}")
+                t['row_count'] = 0
         
         # 2. Bulk fetch columns
         columns_query = """

@@ -30,9 +30,24 @@ class CommandRegistry:
     def _load_commands(self) -> None:
         """Load commands from JSON configuration file."""
         try:
-            config_file = Path(self.config_path)
-            if not config_file.exists():
-                raise FileNotFoundError(f"Commands configuration not found: {self.config_path}")
+            # Try finding the file in multiple locations
+            possible_paths = [
+                Path(self.config_path), # As passed
+                Path("backend") / self.config_path, # From root
+                Path(__file__).parent.parent.parent / "config" / "commands.json" # Relative to this file
+            ]
+            
+            config_file = None
+            for p in possible_paths:
+                if p.exists():
+                    config_file = p
+                    break
+            
+            if not config_file:
+                print(f"❌ Commands config NOT found in: {[str(p) for p in possible_paths]}")
+                raise FileNotFoundError(f"Commands configuration not found")
+            
+            print(f"✅ Loading commands from: {config_file}")
             
             with open(config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -126,7 +141,16 @@ class CommandRegistry:
         required_params = cmd.get('parameters', {})
         
         for param_name, param_def in required_params.items():
-            if param_def.get('required', False):
+            # Handle both simple string mappings and complex parameter objects
+            if isinstance(param_def, dict):
+                is_required = param_def.get('required', False)
+            else:
+                # If it's just a string, it's not strictly 'required' in the schema sense
+                # unless specified otherwise. We'll treat it as optional for now
+                # or assume it's required if it exists in the dict.
+                is_required = False 
+                
+            if is_required:
                 if param_name not in parameters or not parameters[param_name]:
                     return False, f"Missing required parameter: {param_name}"
         

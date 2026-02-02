@@ -65,9 +65,11 @@ const ConnectionModal = ({ onClose }) => {
                     console.error('Connection error response (JSON):', errData);
                     // Handle both simple string details and structured objects
                     if (errData.detail) {
-                        errorMessage = typeof errData.detail === 'object'
-                            ? (errData.detail.message || JSON.stringify(errData.detail))
-                            : errData.detail;
+                        if (typeof errData.detail === 'object') {
+                            errorMessage = errData.detail.error || errData.detail.message || JSON.stringify(errData.detail);
+                        } else {
+                            errorMessage = errData.detail;
+                        }
                     }
                 } catch (jsonErr) {
                     console.warn('Could not parse error response as JSON, trying text...');

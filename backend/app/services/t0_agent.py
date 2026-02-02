@@ -5,7 +5,7 @@ Handles voice input, intent classification, and dispatching to T1.
 from typing import Dict, Any, Optional
 import time
 
-from app.services.intent_classifier import get_intent_classifier
+from app.ai.unified_intent_classifier import get_intent_classifier
 from app.services.agent_state_manager import get_agent_state_manager, T0State
 from app.services.command_registry import get_command_registry
 
@@ -54,7 +54,9 @@ class T0Agent:
             self.state_manager.update_t0_state(T0State.PROCESSING)
             
             # Classify the intent
+            print(f"🎤 [T0 Agent] Processing: '{text}'")
             classification = await self._classify_intent(text, ui_context)
+            print(f"🧠 [T0 Agent] Classification ({classification['method']}): {classification['intent']} with params {classification['parameters']}")
             
             # Inject connection_id from UI context if available
             if ui_context and 'connectionId' in ui_context:
@@ -127,8 +129,10 @@ class T0Agent:
             return result
             
         except Exception as e:
+            import traceback
+            print(f"🔥 [T0 Agent] CRITICAL ERROR: {e}")
+            traceback.print_exc()
             self.state_manager.update_t0_state(T0State.ERROR)
-            print(f"[ERROR] T0 Agent error: {e}")
             return {
                 'success': False,
                 'error': str(e),

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 
-from app.services.t0_agent import get_t0_agent
+from app.services.t0_agent_v2 import get_t0_agent
 from app.services.t1_agent import get_t1_agent
 from app.services.agent_state_manager import get_agent_state_manager
 from app.services.command_registry import get_command_registry
@@ -252,5 +252,21 @@ async def get_command_details(command_id: str):
         
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/config")
+async def get_system_config():
+    """
+    Get system configuration and feature flags.
+    """
+    try:
+        from app.config.feature_flags import get_enabled_features
+        return {
+            "features": get_enabled_features(),
+            "version": "2.0.0",
+            "environment": "production"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

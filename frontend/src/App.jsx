@@ -25,6 +25,7 @@ import EvolutionOverlay from './components/Evolution/EvolutionOverlay';
 import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
 import { CommandRegistryProvider, useCommandRegistry, useRegisterCommand } from './context/CommandRegistryContext';
 import soundSystem from './utils/SoundSystem';
+import { useWebSocket } from './hooks/useWebSocket';
 
 const App = () => {
   return (
@@ -66,41 +67,80 @@ const MainDashboard = () => {
   const [breadcrumbs, setBreadcrumbs] = useState([]);
 
 
-  // WebSocket Connection (Same as before)
-  useEffect(() => {
-    if (!connectionId) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${protocol}://localhost:8001/ws/${connectionId}`;
-    console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
-    const socket = new WebSocket(wsUrl);
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'metrics_update') {
-        const metrics = data.data;
-        const aiStats = data.ai_stats || {};
-        setLiveStats(prev => ({
-          ...prev,
-          totalTransactions: metrics.total_transactions,
-          fraudAlerts: metrics.fraud_alerts,
-          avgAmount: metrics.average_amount,
-          failedTx: metrics.failed_transactions,
-          tps: metrics.transaction_rate,
-          activeNodes: aiStats.total_nodes || prev.activeNodes,
-          health: data.health || prev.health,
-          anomalies: data.anomalies || prev.anomalies
-        }));
-        if (aiStats.status) setAiStatus(`Neural Core: ${aiStats.status} | Scanned: ${aiStats.scanned_nodes || 0}/${aiStats.total_nodes || 0}`);
-        setMlInsights(prev => ({ ...prev, anomalyScore: (100 - (data.health?.score || 100)).toFixed(0), gravity: aiStats.avg_gravity ? `${aiStats.avg_gravity.toFixed(2)}x` : '1.0x', optimization: 'Active' }));
-        if (selectedNode?.id === 'hub' && aiStats.patterns !== undefined) {
-          setSelectedNode(prev => ({ ...prev, customMetrics: { 'Patterns Learned': aiStats.patterns, 'Core Growth': `${aiStats.growth}x`, 'Signal Load': aiStats.signal_load } }));
-        }
-      }
-    };
-    return () => socket.close();
-  }, [connectionId]);
+  // --- REAL-TIME SYNC (WebSocket) ---
+  const wsUrl = connectionId ? `ws://localhost:8001/ws/${connectionId}` : null;
+  const { isConnected: wsConnected, lastMessage } = useWebSocket(wsUrl);
 
-  // Initial load check (Same as before)
+
   useEffect(() => {
+    if (lastMessage && lastMessage.type === 'metrics_update') {
+      const metrics = lastMessage.data;
+      const aiStats = lastMessage.ai_stats || {};
+
+      console.log("📡 [WS] Real-time Metrics Update:", metrics);
+
+      setLiveStats(prev => ({
+        ...prev,
+        totalTransactions: metrics.total_transactions,
+        fraudAlerts: metrics.fraud_alerts,
+        avgAmount: metrics.average_amount,
+        failedTx: metrics.failed_transactions,
+        tps: metrics.transaction_rate,
+        activeNodes: aiStats.total_nodes || prev.activeNodes,
+        health: lastMessage.health || prev.health,
+        anomalies: lastMessage.anomalies || prev.anomalies
+      }));
+
+      if (aiStats.status) {
+        setAiStatus(`Neural Core: ${aiStats.status} | Scanned: ${aiStats.scanned_nodes || 0}/${aiStats.total_nodes || 0}`);
+      }
+
+      setMlInsights(prev => ({
+        ...prev,
+        anomalyScore: (100 - (lastMessage.health?.score || 100)).toFixed(0),
+        gravity: aiStats.avg_gravity ? `${aiStats.avg_gravity.toFixed(2)}x` : '1.0x',
+        optimization: 'Active'
+      }));
+
+      // 4. Update Node Evolution (Incremental)
+      if (lastMessage.evolved_nodes) {
+        setGraphData(prev => {
+          const updatedNodes = prev.nodes.map(node => {
+            const evolved = lastMessage.evolved_nodes.find(e => e.id === node.id);
+            if (evolved) {
+              return {
+                ...node,
+                size: evolved.size || node.size,
+                status: evolved.status || node.status,
+                vitality: evolved.vitality || node.vitality
+              };
+            }
+            return node;
+          });
+          return { ...prev, nodes: updatedNodes };
+        });
+      }
+    }
+  }, [lastMessage]);
+
+
+
+  // Initial load check
+  useEffect(() => {
+    // Fetch System Config & Feature Flags
+    fetch('/api/agent/config')
+      .then(res => res.json())
+      .then(config => {
+        console.log("🛠️ System Config Loaded:", config);
+        // Store in global window for easy debugging access
+        window.SYSTEM_FEATURES = config.features;
+
+        // If specific features are enabled, we might want to set initial state
+        if (config.features?.USE_NLP_V2) console.log("🧠 NLP V2 Active");
+        if (config.features?.USE_NETWORKX_GLOW) console.log("✨ NetworkX Glow Active");
+      })
+      .catch(err => console.error("Could not fetch system config:", err));
+
     if (!connectionId) setTimeout(() => setShowConnectModal(true), 500);
     else fetchRealGraphData(connectionId);
   }, [connectionId]);
@@ -117,7 +157,15 @@ const MainDashboard = () => {
     setBreadcrumbs([{ label: 'Overview', onClick: () => handleNavigate('overview') }, { label: `Table: ${nodeId}` }]);
   }, [handleNavigate]);
 
-  const handleBackToOverview = React.useCallback(() => { setViewMode('overview'); setDrillDownTable(null); setBreadcrumbs([]); }, []);
+  const handleBackToOverview = React.useCallback(() => {
+    setViewMode('overview');
+    setDrillDownTable(null);
+    setBreadcrumbs([]);
+    if (graphRef.current) {
+      console.log("Returning to Overview -> Resetting Camera");
+      graphRef.current.resetView();
+    }
+  }, []);
 
   const fetchGravitySuggestions = React.useCallback(async (connId) => {
     try {
@@ -133,6 +181,7 @@ const MainDashboard = () => {
       const resp = await fetch(`/api/graph/${id}`);
       if (!resp.ok) throw new Error('Failed to fetch graph');
       const rawData = await resp.json();
+      console.log(`[App] 📥 Graph Data Received from Backend:`, rawData);
       if (rawData.neural_core) {
         const core = rawData.neural_core;
         setAiStatus(`Neural Core: ${core.ai_stats?.status || 'ACTIVE'} | Scanned: ${core.ai_stats?.scanned_nodes || 0}/${core.ai_stats?.total_nodes || 0}`);
@@ -143,14 +192,40 @@ const MainDashboard = () => {
         setMlInsights({ anomalyScore: (100 - (core.health?.score || 100)).toFixed(0), gravity: core.ai_stats?.avg_gravity ? `${core.ai_stats.avg_gravity.toFixed(2)}x` : '1.0x', optimization: 'Active', clusters: clusterDetails.length > 0 ? clusterDetails : null });
       } else { setAiStatus("Neural Core: Global Analysis Complete"); }
 
-      const nodesTransformed = (rawData.nodes || []).map((node, i) => ({
-        id: node.id, name: node.name, color: node.color || (node.group === 1 ? 0xfbbf24 : 0x22d3ee), size: node.size || (node.group === 1 ? 40 : 25),
-        pos: [node.x || Math.cos(i * 0.5) * (150 + i * 10), node.y || (Math.random() - 0.5) * 200, node.z || Math.sin(i * 0.5) * (150 + i * 10)],
-        entity: node.entity || 'TABLE', rows: node.row_count ? node.row_count.toLocaleString() + ' Records' : 'Empty', metrics: node.metrics || [],
-        columns: node.columns || [], vitality: node.vitality || 50, pulse_rate: node.pulse_rate || 1.0, glow_intensity: node.glow_intensity || 0.5,
-        customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' }
+      const nodesTransformed = (rawData.nodes || []).map((node, i) => {
+        // Dynamic Size Calculation based on Neural Importance
+        // Base size (25) + (Importance * 20) + (Row Count Factor)
+        const importance = node.importance_score || 1.0;
+        const rowBonus = node.record_count ? Math.log10(node.record_count + 1) * 5 : 0;
+        const calculatedSize = 20 + (importance * 15) + rowBonus;
+
+        return {
+          id: node.id,
+          name: node.name,
+          color: node.color || (node.group === 1 ? 0xfbbf24 : 0x22d3ee),
+          size: calculatedSize, // Use Calculated Size
+          pos: [node.x || Math.cos(i * 0.5) * (150 + i * 10), node.y || (Math.random() - 0.5) * 200, node.z || Math.sin(i * 0.5) * (150 + i * 10)],
+          entity: node.entity || 'TABLE',
+          rows: node.row_count ? node.row_count.toLocaleString() + ' Records' : 'Empty',
+          metrics: node.metrics || node.foreign_keys || [], // Map FKs to metrics if empty
+          columns: node.columns || [],
+          vitality: node.vitality || 50,
+          pulse_rate: node.pulse_rate || 1.0,
+          glow_intensity: node.node_glow || 0.5, // Use Backend Glow
+          node_glow: node.node_glow || 1.0,      // Pass raw value too
+          importance_score: node.importance_score || 1.0, // EXPLICIT MAP
+          foreign_keys: node.foreign_keys || [], // Pass explicitly for counts
+          customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' }
+        };
+      });
+      const edgesTransformed = (rawData.edges || []).map(e => ({
+        source: e.source,
+        target: e.target,
+        type: e.type,
+        confidence: e.confidence,
+        trafficIntensity: e.traffic_intensity || 0.3,
+        edge_glow: e.edge_glow || 1.0 // Pass edge glow
       }));
-      const edgesTransformed = (rawData.edges || []).map(e => ({ source: e.source, target: e.target, type: e.type, confidence: e.confidence, trafficIntensity: e.traffic_intensity || 0.3 }));
       setGraphData({ nodes: nodesTransformed, edges: edgesTransformed });
       setLiveStats(prev => ({ ...prev, activeNodes: nodesTransformed.length }));
       setTimeout(() => setAiStatus(null), 5000);
@@ -261,6 +336,13 @@ const MainDashboard = () => {
       console.warn(`[App] Agent Command Failed: ${outcome.error}`);
       setAiStatus(`Agent Error: ${outcome.error}`);
       setTimeout(() => setAiStatus(null), 4000);
+    } else if (outcome.result && outcome.result.success === false) {
+      console.warn(`[App] Frontend Execution Failed: ${outcome.result.error}`);
+      setAiStatus(`Visual Error: ${outcome.result.error}`);
+      setTimeout(() => setAiStatus(null), 4000);
+    } else if (outcome.result && outcome.result.success === true && outcome.result.message) {
+      setAiStatus(outcome.result.message);
+      setTimeout(() => setAiStatus(null), 3000);
     }
   }, [executeCommand]);
 

@@ -49,7 +49,7 @@ class IntentClassifier:
             print("[WARNING] Groq library not installed")
             return
             
-        api_key = os.getenv('GROQ_API_KEY')
+        api_key = os.getenv('GROQ_API_KEY') or os.getenv('GROQ_KEY')
         if api_key:
             try:
                 self.groq_client = AsyncGroq(api_key=api_key)
@@ -57,7 +57,7 @@ class IntentClassifier:
             except Exception as e:
                 print(f"[ERROR] Groq initialization failed: {e}")
         else:
-            print("[ERROR] GROQ_API_KEY not found in environment")
+            print("[ERROR] GROQ_API_KEY/GROQ_KEY not found in environment")
     
     def _init_gemini(self) -> None:
         """Initialize Gemini client if API key is available."""
@@ -65,7 +65,7 @@ class IntentClassifier:
             print("[WARNING] Gemini library not installed")
             return
             
-        api_key = os.getenv('GOOGLE_API_KEY')
+        api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GOOGLE_KEY')
         if api_key:
             try:
                 genai.configure(api_key=api_key)
@@ -74,7 +74,7 @@ class IntentClassifier:
             except Exception as e:
                 print(f"[WARNING] Gemini initialization failed: {e}")
         else:
-            print("[WARNING] GOOGLE_API_KEY not found in environment")
+            print("[WARNING] GOOGLE_API_KEY/GOOGLE_KEY not found in environment")
     
     async def classify(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -202,7 +202,10 @@ class IntentClassifier:
                 'alternatives': result.get('alternatives', [])
             }
         except Exception as e:
-            print(f"[ERROR] Groq classification internal error: {e}")
+            if "429" in str(e) or "quota" in str(e).lower():
+                print("🧪 Groq LLM: Quota exceeded. Using heuristic fallback.")
+            else:
+                print(f"[ERROR] Groq classification internal error: {e}")
             return None
     
     async def _classify_gemini(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -235,7 +238,10 @@ class IntentClassifier:
             }
             
         except Exception as e:
-            print(f"[ERROR] Gemini classification error: {e}")
+            if "429" in str(e) or "quota" in str(e).lower():
+                print("🧪 Gemini LLM: Quota exceeded. Using heuristic fallback.")
+            else:
+                print(f"[ERROR] Gemini classification error: {e}")
             return None
     
     def _build_llm_prompt(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> str:
@@ -255,7 +261,7 @@ class IntentClassifier:
         ui_context_str = ""
         available_tables_str = ""
         system_telemetry_str = ""
-        if ui_context:
+        if ui_context and isinstance(ui_context, dict):
             ui_context_str = f"\n\nCurrent UI State:\n" + "\n".join([f"- {k}: {v}" for k, v in ui_context.items() if k not in ['availableTables', 'databaseMetrics', 'neuralCoreStats']])
             
             if 'availableTables' in ui_context:

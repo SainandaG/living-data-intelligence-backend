@@ -328,7 +328,28 @@ The Living Data Intelligence Platform transforms relational databases into inter
 - **Recommendation Engine**: Suggests optimizations
 - **Action Policies**: Configurable response rules
 
-### 27. **Metrics Service**
+### 27. **Latent World Explorer** (New)
+- **internal View**: "Orbiting Satellite" visualization for table columns
+- **Visual Intelligence**:
+  - **Satellites**: Columns orbit the central table node
+  - **Color Coding**: Gold (PK), Silver (FK), Green (Text), Orange (Date)
+  - **Starfield Environment**: Immersive nebula background
+- **Interactive Controls**:
+  - Manual override for node sizes and shapes
+  - "Glow" and "Spread" environment sliders
+  - Bloom intensity adjustment
+
+### 28. **Sonic Intelligence (Sonification)** (New)
+- **Audio Feedback System**:
+  - `nodeClick`: High-tech interaction blips
+  - `scanPulse`: Radar-like sweeps for new data
+  - `voiceConfirm`: Success chimes for commands
+- **Data Sonification**:
+  - Maps **Gravity** -> Pitch Frequency (Higher gravity = Higher pitch)
+  - Maps **Entropy** -> Audio Texture (Static/Distortion)
+- **Spatial Audio**: 3D position-aware sound rendering
+
+### 29. **Metrics Service**
 - **System Metrics**:
   - Memory usage
   - CPU utilization
