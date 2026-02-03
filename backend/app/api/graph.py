@@ -32,7 +32,11 @@ async def get_graph(connection_id: str):
         # 3. Get Neural Core Status (Schema Intelligence)
         core_metrics = neural_core.get_core_metrics()
         
-        # 4. Enrich Nodes & Edges with "Truth-Preserving" Math (Director Formulation)
+        # 4. Initialize Latent Space Service
+        from app.services.latent_space_service import latent_space_service
+        from app.services.causal_intelligence import causal_intelligence
+        
+        # 5. Enrich Nodes & Edges with "Truth-Preserving" Math (Director Formulation)
         import math
         
         # Mathematical Constants for Glow Logic
@@ -86,10 +90,30 @@ async def get_graph(connection_id: str):
                     'importance_score': importance,
                     'node_glow': round(node_glow, 2)
                 })
+
+                # --- Autonomous Latent Space Mapping ---
+                # This intelligently projects the node based on Value, Risk, and Health
+                latent_coords = latent_space_service.calculate_latent_coordinates(
+                    node, live_metrics, real_metrics_data.get('anomalies', [])
+                )
+                # Save state for causal intelligence
+                node.update(latent_coords)
+                
+                # node['intelligence'] = intelligence  # Removed undefined variable
+                
+                # UNIFIED COLORING: Ensure Overview and Latent Space share the same semantic logic
+                node['color'] = latent_space_service._get_semantic_color(node)
             except Exception as inner_e:
                 print(f" Error processing node {node.get('name', '?')}: {inner_e}")
-                # Fallback
-                node.update({'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0})
+                # Fallback: DO NOT zero out. Use statistical defaults to prevent clumping.
+                node.update({
+                    'vitality': 50, 
+                    'importance_score': 1.0, 
+                    'node_glow': 1.0,
+                    'latent_x': (hash(node.get('id', 'default')) % 10000) - 5000,
+                    'latent_y': 100,
+                    'latent_z': 0
+                })
                 
             enriched_nodes.append(node)
             
@@ -126,6 +150,14 @@ async def get_graph(connection_id: str):
             enriched_edges.append(edge)
             
         graph['edges'] = enriched_edges
+        
+        # --- Manifold Surface Parameters ---
+        # Provides the mathematical terrain data for the frontend
+        graph['latent_manifold'] = latent_space_service.generate_manifold_data(enriched_nodes)
+        
+        # --- Causal History (Global Narrative Thread) ---
+        graph['intelligence_stream'] = causal_intelligence.causal_history[-10:] if causal_intelligence.causal_history else []
+        
         graph['neural_core'] = {
             'status': core_metrics['status'],
             'health': health_report,

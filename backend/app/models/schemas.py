@@ -40,6 +40,7 @@ class Table(BaseModel):
     table_type: Optional[str] = None  # 'fact' or 'dimension'
     business_entity: Optional[str] = None
     importance_score: Optional[int] = None
+    sample_data: Optional[List[Dict[str, Any]]] = None
 
 class Relationship(BaseModel):
     from_table: str
@@ -61,7 +62,8 @@ class GraphNode(BaseModel):
     color: str
     row_count: int
     metrics: List[str]
-    columns: Optional[List[Column]] = None
+    columns: Optional[List[Any]] = None
+    sample_data: Optional[List[Dict[str, Any]]] = None
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None

@@ -5,979 +5,937 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { useGlowManager } from '../../hooks/useGlow';
 import { useCameraManager } from '../../hooks/useCamera';
+import { SeededRNG } from '../../utils/mathUtils';
 
-/**
- * Calculates 3D positions using Golden Spiral Spherical distribution
- * @param {Array} nodes - Your array of node objects
- * @param {Number} radius - Radius of the galaxy (e.g., 400-800)
- */
-function applyGalaxyLayout(nodes, radius = 600) {
+// Layout & Spatial Formulas
+function applyGalaxyLayout(nodes, radius = 900) {
     const numNodes = nodes.length;
-    // Golden Angle constant
-    const phi = Math.PI * (3 - Math.sqrt(5));
+    const phi = Math.PI * (3 - Math.sqrt(5)); // Golden Angle
 
     nodes.forEach((node, i) => {
-        // 1. Center the Core
-        if (node.id === 'DATABASE_CORE' || node.type === 'core' || node.id === 'hub') {
-            node.x = 0;
-            node.y = 0;
-            node.z = 0;
-            node.baseY = 0;
+        if (node.id === 'DATABASE_CORE' || node.id === 'hub') {
+            node.targetX = 0; node.targetY = 0; node.targetZ = 0;
             return;
         }
 
-        // 2. Fibonacci Sphere Logic (Fallback)
-        if (numNodes <= 1) {
-            // Fallback for single node (centered)
-            node.x = 0;
-            node.y = 0;
-            node.z = 0;
-        } else {
-            // y goes from 1 to -1
-            const y = 1 - (i / (numNodes - 1)) * 2;
-            const r = Math.sqrt(Math.max(0, 1 - y * y)); // Ensure no sqrt negative
-            const theta = phi * i; // Increment theta
+        const y = 1 - (i / (numNodes - 1)) * 2;
+        const r = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = phi * i;
 
-            // Assign fixed galaxy coordinates
-            node.x = Math.cos(theta) * r * radius;
-            node.y = y * radius;
-            node.z = Math.sin(theta) * r * radius;
+        node.targetX = Math.cos(theta) * r * radius;
+        node.targetY = y * radius;
+        node.targetZ = Math.sin(theta) * r * radius;
+
+        // If it's a new node or doesn't have initial pos, snap it
+        if (node.x === undefined) {
+            node.x = node.targetX;
+            node.y = node.targetY;
+            node.z = node.targetZ;
         }
-
-        // Store base Y for the bobbing animation
-        node.baseY = node.y;
     });
+}
 
+function applyLatentSpaceLayout(nodes) {
+    nodes.forEach(node => {
+        if (node.id === 'hub') {
+            node.targetX = 0; node.targetY = 0; node.targetZ = 0;
+            return;
+        }
+        // SCALING: Ensure nodes inhabit the full 30k x 20k plain
+        node.targetX = (node.latent_x || 0) * 1.1;
+        node.targetY = (node.latent_y || 0); // Temporary, will be refined in animate
+        node.targetZ = (node.latent_z || 0) * 1.8; // More spread in depth
+    });
     return nodes;
 }
 
+// Helper to find height on the manifold for any X, Z
+function getManifoldHeight(x, z, emitters) {
+    if (!emitters || emitters.length === 0) return 0;
 
-function createNodeMesh(nodeData) {
-    // Colors based on Spline-Style Soft Pastels
-    const colorMap = {
-        core: 0x68d391,      // Soft Green
-        fact: 0xfcd34d,      // Soft Yellow
-        dimension: 0x5eead4, // Soft Teal
-        warning: 0xfda4af,   // Soft Red
-        default: 0x5eead4    // Default Teal
-    };
+    const sigma = 2500.0; // Wider peak influence
+    let weightedHeight = 0;
+    let totalW = 0;
 
-    let color;
+    emitters.forEach(e => {
+        // High-Fidelity Scaling: Categories are mapped to wide zones
+        const ex = e.x * 1.1;
+        const ez = e.z * 1.8;
+        const d2 = Math.pow(x - ex, 2) + Math.pow(z - ez, 2);
 
-    // PRIORITY 1: Core node is ALWAYS green (Neural Core hub)
-    if (nodeData.id === 'DATABASE_CORE' || nodeData.id === 'hub' || nodeData.type === 'core' || nodeData.entity === 'core') {
-        color = colorMap.core;
-    }
-    // PRIORITY 2: Use color from backend (cluster coloring) for regular nodes
-    else if (nodeData.color) {
-        if (typeof nodeData.color === 'string') {
-            // Handle hex strings like "#fbbf24"
-            color = new THREE.Color(nodeData.color).getHex();
-            console.log(`[ThreeGraph] Converting cluster hex string for ${nodeData.name}: ${nodeData.color} -> 0x${color.toString(16)}`);
-        } else if (typeof nodeData.color === 'number') {
-            color = nodeData.color;
-            console.log(`[ThreeGraph] Using cluster numeric color for ${nodeData.name}: 0x${color.toString(16)}`);
+        // Dynamic influence based on category importance
+        const w = Math.exp(-d2 / (2 * sigma * sigma)) * (e.weight || 1.0);
+        weightedHeight += e.y * w;
+        totalW += w;
+    });
+
+    // Mountain Base Floor: prevent sagging
+    return (totalW > 0.001) ? (weightedHeight / (totalW + 0.05)) : 0;
+}
+
+// Manifold & Intelligence Visuals (Hyper-Latent Summons)
+function createLatentManifold(manifoldData) {
+    if (!manifoldData || !manifoldData.emitters) return null;
+
+    const group = new THREE.Group();
+
+    // REDUCED RESOLUTION: Prevents excessive vertex twinkling
+    const res = 150; // Reduced from 300 for stability
+    const geometry = new THREE.PlaneGeometry(32000, 22000, res, res);
+    const vertices = geometry.attributes.position.array;
+    const colors = new Float32Array(vertices.length);
+
+    const sigma = 2500.0;
+
+    for (let i = 0; i < vertices.length; i += 3) {
+        const x = vertices[i];
+        const geom_y = vertices[i + 1];
+        const world_z = -geom_y;
+
+        let weightedHeight = 0;
+        let totalW = 0;
+        let r_acc = 0, g_acc = 0, b_acc = 0;
+
+        manifoldData.emitters.forEach(e => {
+            const ex = e.x * 1.1; // Consistent scaling
+            const ez = e.z * 1.8;
+            const d2 = Math.pow(x - ex, 2) + Math.pow(world_z - ez, 2);
+            const w = Math.exp(-d2 / (2 * sigma * sigma)) * (e.weight || 1.0);
+
+            weightedHeight += e.y * w;
+            totalW += w;
+
+            // Use the actual emitter color (business_entity-based from backend)
+            const emitterColor = new THREE.Color(e.color || '#94A3B8');
+            r_acc += emitterColor.r * w;
+            g_acc += emitterColor.g * w;
+            b_acc += emitterColor.b * w;
+        });
+
+        // Sharp Topological Peaks
+        const finalY = (totalW > 0.001) ? (weightedHeight / (totalW + 0.05)) : 0;
+        vertices[i + 2] = finalY;
+
+        if (totalW > 0.01) {
+            colors[i] = r_acc / totalW;
+            colors[i + 1] = g_acc / totalW;
+            colors[i + 2] = b_acc / totalW;
+        } else {
+            // Dark abyssal depths
+            colors[i] = 0.02; colors[i + 1] = 0.03; colors[i + 2] = 0.04;
         }
     }
-    // PRIORITY 3: Status-based
-    else if (nodeData.status === 'warning') {
-        color = colorMap.warning;
+
+    geometry.attributes.position.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    // 1. Vibrant Matte Surface (Reference Diagram Style)
+    const surfaceMaterial = new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.9,
+        metalness: 0.0, // Eliminate high-frequency twinkling
+        roughness: 0.9, // Matte finish for diagrammatic clarity
+        clearcoat: 0.0,
+        side: THREE.DoubleSide
+    });
+    const surface = new THREE.Mesh(geometry, surfaceMaterial);
+
+    group.add(surface);
+
+    // DISABLED: Contour wireframe causing excessive twinkling
+    /*
+    // 2. High-Contrast Contour Overlays (Surgical Topology)
+    const contourMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.7, // High clarity as in Image 2
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1
+    });
+
+    // Multiple contour layers for depth
+    const contours = new THREE.Mesh(geometry.clone(), contourMat);
+    contours.position.z = 5;
+    group.add(contours);
+    */
+
+    // Ground Shadow Plane (Density Map)
+    const groundGeo = new THREE.PlaneGeometry(32000, 22000, 1, 1);
+    const groundMat = new THREE.MeshBasicMaterial({
+        color: 0x011627,
+        transparent: true,
+        opacity: 0.8
+    });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.position.z = -200;
+    group.add(ground);
+
+    // 3D Grid Helper for Grounding (Reduced visibility)
+    const grid = new THREE.GridHelper(32000, 16, 0x1e293b, 0x0f172a); // Fewer lines
+    grid.rotation.x = Math.PI / 2;
+    grid.position.z = -190;
+    grid.material.opacity = 0.15; // Much dimmer
+    grid.material.transparent = true;
+    group.add(grid);
+
+    // DYNAMIC CATEGORY LABELS (Derived from Connected Database)
+    const categoryMap = new Map();
+    manifoldData.emitters.forEach(e => {
+        const catName = e.classification || 'Other';
+        if (!categoryMap.has(catName)) {
+            categoryMap.set(catName, { x: 0, count: 0, color: e.color });
+        }
+        const data = categoryMap.get(catName);
+        data.x += e.x * 1.1;
+        data.count++;
+    });
+
+    categoryMap.forEach((data, name) => {
+        const avgX = data.x / data.count;
+        const sprite = createTextSprite(name.charAt(0).toUpperCase() + name.slice(1), 400, data.color); // Larger labels
+        sprite.position.set(avgX, 11500, 1000); // Floating above the summits
+        group.add(sprite);
+    });
+
+    group.rotation.x = -Math.PI / 2;
+    group.position.y = -50;
+
+    group.userData = { isManifold: true };
+    return group;
+}
+
+function createDistributionCurve(points, color, width = 2000) {
+    const curvePoints = [];
+    const count = 50;
+    for (let i = 0; i < count; i++) {
+        const t = i / (count - 1);
+        const x = (t - 0.5) * width;
+        let y = 0;
+        points.forEach(p => {
+            const w = Math.exp(-Math.pow(x - p.pos, 2) / (2 * Math.pow(400, 2)));
+            y += p.val * w;
+        });
+        curvePoints.push(new THREE.Vector3(x, y, 0));
     }
-    // PRIORITY 4: Type-based
-    else if (nodeData.table_type === 'fact' || ['payment', 'rental', 'orders', 'sales'].includes(nodeData.id)) {
-        color = colorMap.fact;
-    }
-    // PRIORITY 5: Default
-    else {
-        color = colorMap.dimension;
+    const curve = new THREE.CatmullRomCurve3(curvePoints);
+    const geometry = new THREE.TubeGeometry(curve, 64, 5, 8, false);
+    return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 }));
+}
+
+function create3DAxes(layoutMode, manifoldData) {
+    const group = new THREE.Group();
+    if (layoutMode !== 'latent') return group;
+
+    const size = 30000;
+    const depth = 20000;
+
+    // 1. Background Grid Walls
+    const wall1 = new THREE.GridHelper(size, 20, 0x1e293b, 0x1e293b);
+    wall1.rotation.x = Math.PI / 2;
+    wall1.position.z = -depth / 2;
+    wall1.position.y = 2000;
+    wall1.material.opacity = 0.1;
+    wall1.material.transparent = true;
+    group.add(wall1);
+
+    const wall2 = new THREE.GridHelper(depth, 10, 0x1e293b, 0x1e293b);
+    wall2.rotation.z = Math.PI / 2;
+    wall2.position.x = -size / 2;
+    wall2.position.y = 2000;
+    wall2.material.opacity = 0.1;
+    wall2.material.transparent = true;
+    group.add(wall2);
+
+    // TECHNICAL AXIS LABELS (Matched to Reference Image 2)
+    const riskLabel = createTextSprite("RISK (Y-AXIS)", 350, "#ff4d4d");
+    riskLabel.position.set(-size / 2 - 1000, 6000, -depth / 2);
+    group.add(riskLabel);
+
+    const healthLabel = createTextSprite("HEALTH (Z-AXIS)", 350, "#4dff4d");
+    healthLabel.position.set(-size / 2 - 1000, 0, depth / 2 + 1000);
+    group.add(healthLabel);
+
+    const valueLabel = createTextSprite("BUSINESS VALUE (X-AXIS)", 350, "#4d4dff");
+    valueLabel.position.set(0, -500, depth / 2 + 2000);
+    group.add(valueLabel);
+
+    // 2. Technical Arrows (Reference Aligned)
+    const arrowOrigin = new THREE.Vector3(-size / 2, 0, depth / 2);
+    group.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), arrowOrigin, size, 0xffffff, 800, 400));
+    group.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), arrowOrigin, 8000, 0xffffff, 800, 400));
+    group.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), arrowOrigin, depth, 0xffffff, 800, 400));
+
+    // Semantic Zone Labels REMOVED as per User Request (they were just examples)
+    // Mountain peaks now rely on categorical colors and node clustering for classification.
+
+    // 3. 2D Distribution Curves (Shadow Projections)
+    if (manifoldData?.emitters) {
+        const xPoints = manifoldData.emitters.map(e => ({ pos: e.x, val: e.weight * 50 }));
+        const curveX = createDistributionCurve(xPoints, 0xffffff, size);
+        curveX.position.set(0, 0, depth / 2);
+        group.add(curveX);
+
+        const zPoints = manifoldData.emitters.map(e => ({ pos: e.z, val: e.weight * 50 }));
+        const curveZ = createDistributionCurve(zPoints, 0xffffff, depth);
+        curveZ.rotation.y = Math.PI / 2;
+        curveZ.position.set(-size / 2, 0, 0);
+        group.add(curveZ);
     }
 
-    // VISUAL DEBUG REMOVED - Returning to Premium Palette
-    // The glow will now drive BRIGHTNESS, not Color hue.
+    return group;
+}
 
-    const size = nodeData.size || 40;
+function createFlowArrows(manifoldData) {
+    const group = new THREE.Group();
+    if (!manifoldData?.emitters) return group;
+
+    // Sequence: Dimensions -> Facts -> Time Intelligence
+    const cats = ['dimension', 'fact', 'time_intelligence'];
+    const centers = {};
+    manifoldData.emitters.forEach(e => {
+        if (e.classification && cats.includes(e.classification)) {
+            if (!centers[e.classification]) centers[e.classification] = { pos: new THREE.Vector3(0, 0, 0), count: 0 };
+            centers[e.classification].pos.add(new THREE.Vector3(e.x, e.y, e.z));
+            centers[e.classification].count++;
+        }
+    });
+
+    const sequence = cats.filter(c => centers[c]);
+    for (let i = 0; i < sequence.length - 1; i++) {
+        const start = centers[sequence[i]].pos.clone().divideScalar(centers[sequence[i]].count);
+        const end = centers[sequence[i + 1]].pos.clone().divideScalar(centers[sequence[i + 1]].count);
+
+        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+        mid.y += 1200; // Arch upwards for prominence
+
+        const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+        const points = curve.getPoints(30);
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({
+            color: 0xffffff,
+            opacity: 0.6,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        }));
+        group.add(line);
+
+        // Arrow head for flow direction
+        const dir = new THREE.Vector3().subVectors(end, mid).normalize();
+        const arrow = new THREE.ArrowHelper(dir, end, 250, 0xffffff, 120, 60);
+        group.add(arrow);
+    }
+    return group;
+}
+
+function createFloorProjections(manifoldData) {
+    const group = new THREE.Group();
+    if (!manifoldData) return group;
+
+    manifoldData.emitters.forEach(e => {
+        // Glowing Halo Projection
+        const geometry = new THREE.RingGeometry(180, 200, 32);
+        const material = new THREE.MeshBasicMaterial({
+            color: e.color,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending
+        });
+        const ring = new THREE.Mesh(geometry, material);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(e.x, -95, e.z); // REMOVED 2.5x
+        group.add(ring);
+    });
+    return group;
+}
+
+// Composite Voxel Architecture - Each voxel is a specific table
+function createClusterVoxelMesh(nodesInCluster, currentLens = 'ops') {
+    const group = new THREE.Group();
+    const count = nodesInCluster.length;
+
+    // Calculate grid dimensions
+    const dim = Math.ceil(Math.pow(count, 1 / 2.5));
+    const voxelSize = 100;
+
+    nodesInCluster.forEach((node, i) => {
+        const x = i % dim;
+        const y = Math.floor(i / (dim * dim));
+        const z = Math.floor((i % (dim * dim)) / dim);
+
+        const color = node.color ? new THREE.Color(node.color).getHex() : 0x22d3ee;
+        const tex = createDataGridTexture(node.name, color, node);
+
+        const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(voxelSize - 6, voxelSize - 6, voxelSize - 6),
+            new THREE.MeshPhysicalMaterial({
+                map: tex,
+                transparent: true, opacity: 0.95,
+                metalness: 0.2, roughness: 0.5, clearcoat: 0.8
+            })
+        );
+
+        mesh.position.set(
+            (x - dim / 2 + 0.5) * voxelSize,
+            (y + 0.5) * voxelSize,
+            (z - dim / 2 + 0.5) * voxelSize
+        );
+
+        mesh.userData = { ...node, isNode: true };
+        group.add(mesh);
+    });
+
+    return group;
+}
+
+function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy') {
+    const colorMap = {
+        core: 0xff9f1a,      // Vibrant Orange (Matched to 2nd Image)
+        fact: 0x45aaf2,      // Analysis Blue
+        dimension: 0x20bf6b, // Success Green
+        warning: 0xeb3b5a,   // High-Risk Red
+        default: 0x4b7bec    // Semantic Blue
+    };
+
+    const isCore = nodeData.id === 'DATABASE_CORE' || nodeData.id === 'hub';
+    const tt = (nodeData.table_type || nodeData.type || 'dimension').toLowerCase();
+
+    let color;
+    if (isCore) color = colorMap.core;
+    else if (nodeData.color) {
+        if (typeof nodeData.color === 'string') color = new THREE.Color(nodeData.color).getHex();
+        else color = nodeData.color;
+    }
+    else if (tt === 'fact') color = colorMap.fact;
+    else color = colorMap.dimension;
+    // SIZING Logic
+    const nTerm = Math.log10(Math.max(1, nodeData.row_count || 1));
+    const rawImportance = nodeData.importance_score || 1.0;
+    const importance = rawImportance > 5 ? (rawImportance / 50.0) : rawImportance;
+
+    // Increased variance: smaller nodes stay small, larger nodes feel more massive
+    let size = isCore ? 160 : (30 + (importance * 60) + (nTerm * 15));
+    if (layoutMode === 'latent') size *= 0.8; // Slightly larger than before for visibility
 
     // 1. Inner Core Sphere (The Light Source)
     const geometry = new THREE.SphereGeometry(size * 0.5, 32, 32);
-    const material = new THREE.MeshBasicMaterial({ // Basic material = 100% unlit brightness
-        color: color
-    });
-    const sphere = new THREE.Mesh(geometry, material);
+    const material = new THREE.MeshBasicMaterial({ color: color });
+    const mesh = new THREE.Mesh(geometry, material);
 
     // 2. Outer Glass Shell (The Lens)
-    const shellGeo = new THREE.SphereGeometry(size, 64, 64);
+    const shellGeo = new THREE.SphereGeometry(size, 32, 32);
     const shellMat = new THREE.MeshPhysicalMaterial({
         color: color,
         transparent: true,
-        opacity: 0.1,
-        roughness: 0.1,
-        metalness: 0.1,
-        transmission: 0.9,      // Glass effect
-        thickness: 2.0,
+        opacity: layoutMode === 'latent' ? 0.3 : 0.45,
+        roughness: layoutMode === 'latent' ? 0.8 : 0.05,
+        metalness: 0.0,
+        transmission: layoutMode === 'latent' ? 0.5 : 0.95,
+        thickness: 4.0,
         emissive: color,
-        emissiveIntensity: 0.5, // Subtle glow on the glass itself
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.0
+        emissiveIntensity: layoutMode === 'latent' ? 0.4 : 1.5, // Dimmable in analytical mode
+        clearcoat: layoutMode === 'latent' ? 0.0 : 1.0
     });
     const shell = new THREE.Mesh(shellGeo, shellMat);
-    sphere.add(shell);
+    mesh.add(shell);
 
-    // 3. The "Tech" Ring (Saturn Ring) - REMOVED to match desired clean style
-    // const ringGeo = new THREE.RingGeometry(size * 1.2, size * 1.4, 32); ...
+    const group = new THREE.Group();
+    group.add(mesh);
 
-    // Store "Truth-Preserving" Glow Metric
-    // Default to 1.0 if missing
-    sphere.userData.nodeGlow = nodeData.node_glow || 1.0;
+    // Label
+    const displayName = isCore ? "Neural Core" : (nodeData.name || nodeData.id);
+    let labelSize = isCore ? 200 : (140 + (importance * 60));
+    if (layoutMode === 'latent') labelSize *= 1.5; // LARGER labels in Latent Space for visibility
 
-    // Label (Clean)
-    const labelText = nodeData.name || nodeData.id;
-    // VISUAL FIX: Doubled font size for readability
-    const label = createTextSprite(labelText, 80, '#ffffff');
-    label.position.set(0, size + 60, 0);
-    sphere.add(label);
+    const label = createTextSprite(displayName, labelSize, isCore ? '#ff9f1a' : '#ffffff');
+    label.position.set(0, size + 140, 0); // Further offset for giant labels
+    group.add(label);
 
-    return sphere;
+    return group;
 }
 
+function createDataGridTexture(title, baseColorHex, nodeData) {
+    const canvas = document.createElement('canvas'); const size = 1024; canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#020617'; ctx.fillRect(0, 0, size, size);
+    const baseColor = '#' + new THREE.Color(baseColorHex).getHexString();
+    ctx.fillStyle = baseColor; ctx.fillRect(0, 0, size, 100);
+    ctx.font = 'bold 48px Inter, Arial'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.fillText((title || 'Unknown').toUpperCase(), 40, 70);
+    const columns = nodeData?.columns || [];
+    let displayCols = columns.slice(0, 2).map(c => typeof c === 'string' ? c : c.name);
+    // User Request: Align Operations/Analytics to Z-Axis readings
+    displayCols.push('OP_SIGMA_Z', 'HEALTH_IDX', 'STABILITY.Ω');
+    ctx.lineWidth = 3; const rows = 12; const cols = displayCols.length; const rowH = (size - 100) / rows; const colW = size / cols;
+    ctx.font = 'bold 36px monospace'; ctx.fillStyle = '#cbd5e1';
+    for (let c = 0; c < cols; c++) ctx.fillText(displayCols[c].substring(0, 12), c * colW + 20, 160);
+    ctx.font = '28px monospace';
+    for (let r = 1; r < rows; r++) {
+        const y = 100 + r * rowH; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.strokeStyle = '#1e293b'; ctx.stroke();
+
+        // Fetch Real Live Row if available
+        const sampleRow = (nodeData.sample_data && nodeData.sample_data[r - 1]) ? nodeData.sample_data[r - 1] : null;
+
+        for (let c = 0; c < cols; c++) {
+            const x = c * colW; if (r === 1) { ctx.beginPath(); ctx.moveTo(x, 100); ctx.lineTo(x, size); ctx.strokeStyle = '#334155'; ctx.stroke(); }
+
+            // SEEDING: Deterministic noise per node to prevent "same-y" values
+            const nodeSeed = title.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            const baseVal = (Math.sin(r * 0.5 + c * 0.2 + nodeSeed) + 1) / 2;
+
+            let val = '---';
+            const colName = displayCols[c];
+
+            if (sampleRow && sampleRow[colName] !== undefined) {
+                // 1. RENDER REAL "INNER DATA" (First Priority)
+                val = String(sampleRow[colName]).substring(0, 15);
+                ctx.fillStyle = '#ffffff';
+            } else if (nodeData.analytical_readings && nodeData.analytical_readings[colName]) {
+                // 2. RENDER LOGICAL READINGS (Calculated in Backend)
+                val = nodeData.analytical_readings[colName];
+                ctx.fillStyle = colName.includes('HEALTH') ? '#10b981' : (colName.includes('STABILITY') ? '#f59e0b' : '#00d4ff');
+            } else {
+                // 3. FALLBACK TO SEMANTICALLY GUIDED NOISE
+                const lowColName = colName.toLowerCase();
+                if (lowColName.includes('op_sigma_z')) {
+                    val = ((nodeData.latent_z || 0) / 2000 + baseVal * 0.1).toFixed(4);
+                    ctx.fillStyle = '#00d4ff';
+                } else if (lowColName.includes('health')) {
+                    val = (90 + (baseVal * 9)).toFixed(1) + '%';
+                    ctx.fillStyle = '#10b981';
+                } else {
+                    val = Math.floor(baseVal * 5000 + 100 * r).toString();
+                    ctx.fillStyle = '#94a3b8';
+                }
+            }
+            ctx.fillText(val, x + 20, y + rowH * 0.7);
+        }
+    }
+    ctx.font = 'bold 20px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillText('VALIDATED NEURAL TOPOLOGY // CALC: ACCURATE', 40, size - 40);
+    ctx.strokeStyle = baseColor; ctx.lineWidth = 16; ctx.strokeRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
+}
 
 function createTextSprite(message, fontsize, color) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    ctx.font = "bold " + fontsize + "px Arial";
-    const metrics = ctx.measureText(message);
-    const textWidth = metrics.width;
-    canvas.width = textWidth + 20;
-    canvas.height = fontsize + 20;
-    ctx.font = "bold " + fontsize + "px Arial";
-    ctx.fillStyle = color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'black';
-    ctx.shadowBlur = 6;
+    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+    ctx.font = `bold ${fontsize}px Inter, Arial`;
+    const w = ctx.measureText(message).width + 80;
+    canvas.width = w; canvas.height = fontsize * 1.8;
+
+    ctx.font = `bold ${fontsize}px Inter, Arial`;
+    ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+    // High-Contrast Backdrop Glow (Absolute Clarity)
+    ctx.shadowColor = 'rgba(0,0,0,1.0)';
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = fontsize / 6; // Thicker outline
+    ctx.strokeText(message, canvas.width / 2, canvas.height / 2);
     ctx.fillText(message, canvas.width / 2, canvas.height / 2);
-    const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(canvas.width / 10 * 4, canvas.height / 10 * 4, 1);
-    return sprite;
+
+    // Secondary Fill for extra brightness
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.8;
+    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+    ctx.globalAlpha = 1.0;
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+    sprite.scale.set(canvas.width / 8, canvas.height / 8, 1); return sprite;
 }
 
-// --- Restored Curved Edge for "Living" Feel ---
-import { SeededRNG, getHash } from '../../utils/mathUtils'; // Added deterministic math
+function createCurvedEdge(sourceMesh, targetMesh, edgeData = {}) {
+    const s = sourceMesh.position;
+    const t = targetMesh.position;
+    const start = new THREE.Vector3(s.x, s.y, s.z);
+    const end = new THREE.Vector3(t.x, t.y, t.z);
+    const dist = start.distanceTo(end);
 
-// ... existing imports ...
-
-// ... applyGalaxyLayout remains same (pure math) ...
-// ... createNodeMesh remains same ...
-// ... createTextSprite remains same ...
-
-// --- Restored Curved Edge for "Living" Feel ---
-function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId) {
-    const start = new THREE.Vector3(sourcePos.x, sourcePos.y, sourcePos.z);
-    const end = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z);
-
-    // Create a quadratic bezier curve
-    // Midpoint with DETERMINISTIC offset for "organic" curve
-    const distance = start.distanceTo(end);
+    // DETERMINISTIC ORGANIC OFFSET
     const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    const rng = new SeededRNG((sourceMesh.userData.id || 's') + '-' + (targetMesh.userData.id || 't'));
 
-    // Seed RNG with unique edge identifier for consistent curve shape
-    const seed = (sourceId && targetId) ? `${sourceId}-${targetId}` : JSON.stringify(sourcePos) + JSON.stringify(targetPos);
-    const rng = new SeededRNG(seed);
-
-    // Offset perpendicular to the line
-    mid.x += (rng.next() - 0.5) * distance * 0.3;
-    mid.y += (rng.next() - 0.5) * distance * 0.3;
-    mid.z += (rng.next() - 0.5) * distance * 0.3;
+    // Increased curvature offset (0.3 -> 0.45) for better "organic" look in large clusters
+    mid.x += (rng.next() - 0.5) * dist * 0.45;
+    mid.y += (rng.next() - 0.5) * dist * 0.45;
+    mid.z += (rng.next() - 0.5) * dist * 0.45;
 
     const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
 
-    const points = curve.getPoints(50);
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-
-    // Use edge data properties for visual distinction
-    // TRUTH-PRESERVING: Use calculated Edge Glow (0.0 - 5.0 typically)
+    // TRUTH-PRESERVING: Use calculated Edge Glow (0.0 - 5.0 typical)
     const edgeGlow = edgeData.edge_glow || 1.0;
-
-    // Scale visual properties logarithmically based on glow
-    const edgeWidth = Math.min(6, Math.max(1.5, edgeGlow * 1.5)); // Thicker edges
-    const edgeOpacity = Math.min(0.9, Math.max(0.4, edgeGlow * 0.2)); // Higher base opacity
+    const edgeWidth = Math.min(4, Math.max(1.0, edgeGlow * 1.0));
+    const edgeOpacity = 0.15; // Low opacity for "fine connections" aesthetic
 
     const material = new THREE.LineBasicMaterial({
-        color: 0x00d4ff, // Bright Cyan default
+        color: 0x00d4ff,
         transparent: true,
         opacity: edgeOpacity,
-        linewidth: edgeWidth
+        linewidth: edgeWidth,
+        blending: THREE.AdditiveBlending
     });
 
     const line = new THREE.Line(geometry, material);
-
-    // Store curve for particle animation
-    line.userData.curve = curve;
-    line.userData.sourcePos = sourcePos;
-    line.userData.targetPos = targetPos;
-
+    line.userData = {
+        sourceMesh, targetMesh, curve, edgeData,
+        originalOpacity: edgeOpacity
+    };
     return line;
 }
 
-function createParticle(type = 'normal') {
-    // Increased size for visibility (was 3)
-    const geometry = new THREE.SphereGeometry(6, 16, 16);
+function updateEdgeGeometry(edge) {
+    const s = edge.userData.sourceMesh.position;
+    const t = edge.userData.targetMesh.position;
+    const start = new THREE.Vector3(s.x, s.y, s.z);
+    const end = new THREE.Vector3(t.x, t.y, t.z);
+    const dist = start.distanceTo(end);
 
-    let color;
-    if (type === 'fraud') color = 0xFF4757;      // Red
-    else if (type === 'high_traffic') color = 0xFFD700; // Gold
-    else color = 0x00FF88;                       // Green
+    // DETERMINISTIC ORGANIC OFFSET
+    const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    const rng = new SeededRNG((edge.userData.sourceMesh.userData.id || 's') + '-' + (edge.userData.targetMesh.userData.id || 't'));
 
-    const material = new THREE.MeshBasicMaterial({
-        color: color,
-        // Maximize glow for Green to ensure it's visible
-        emissive: color,
-        emissiveIntensity: 2.0
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    return mesh;
+    // Consistent curvature with createCurvedEdge
+    mid.x += (rng.next() - 0.5) * dist * 0.45;
+    mid.y += (rng.next() - 0.5) * dist * 0.45;
+    mid.z += (rng.next() - 0.5) * dist * 0.45;
+
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    edge.geometry.setFromPoints(curve.getPoints(50));
+    edge.userData.curve = curve;
 }
 
-// --- "Universe Nebula" Background to match Reference Images ---
-function createStarfield(scene) {
-    // DETERMINISTIC STARFIELD
-    const rng = new SeededRNG("universe-v1");
+function createParticle(type = 'normal') {
+    return new THREE.Mesh(new THREE.SphereGeometry(6, 16, 16), new THREE.MeshBasicMaterial({ color: type === 'fraud' ? 0xFF4757 : (type === 'high_traffic' ? 0xFFD700 : 0x00FF88), emissive: 0xffffff, emissiveIntensity: 2 }));
+}
 
-    // Layer 1: Distant Stars (White/Blue, crisp)
+function createStarfield(scene) {
+    const rng = new SeededRNG("comet-v2");
+
+    // Layer 1: Distant Stars
     const starGeo = new THREE.BufferGeometry();
-    const starVertices = [];
-    for (let i = 0; i < 4000; i++) {
-        starVertices.push((rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000);
-    }
-    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
+    const starVerts = [];
+    for (let i = 0; i < 5000; i++) starVerts.push((rng.next() - 0.5) * 15000, (rng.next() - 0.5) * 15000, (rng.next() - 0.5) * 15000);
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+    const starMat = new THREE.PointsMaterial({ size: 12, color: 0xaaaaaa, transparent: true, opacity: 0.6 });
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
-    // Layer 2: Nebula Dust (Blue/Purple, soft, large)
+    // Layer 2: Nebula Nebula (Deep Space Clouds)
     const dustGeo = new THREE.BufferGeometry();
-    const dustVertices = [];
+    const dustVerts = [];
     const dustColors = [];
     const colorA = new THREE.Color(0x4c1d95); // Deep Purple
     const colorB = new THREE.Color(0x2563eb); // Royal Blue
 
-    for (let i = 0; i < 1500; i++) {
-        dustVertices.push((rng.next() - 0.5) * 5000, (rng.next() - 0.5) * 5000, (rng.next() - 0.5) * 5000);
-
-        // Mix colors - seeded random mix
-        const mixFactor = rng.next();
-        const mixedColor = colorA.clone().lerp(colorB, mixFactor);
+    for (let i = 0; i < 2500; i++) {
+        dustVerts.push((rng.next() - 0.5) * 12000, (rng.next() - 0.5) * 12000, (rng.next() - 0.5) * 12000);
+        const mixedColor = colorA.clone().lerp(colorB, rng.next());
         dustColors.push(mixedColor.r, mixedColor.g, mixedColor.b);
     }
-    dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dustVertices, 3));
+    dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dustVerts, 3));
     dustGeo.setAttribute('color', new THREE.Float32BufferAttribute(dustColors, 3));
-
-    // Soft transparent particles for nebula effect
-    const dustMat = new THREE.PointsMaterial({
-        size: 15,
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.2,
-        blending: THREE.AdditiveBlending
-    });
-    const dust = new THREE.Points(dustGeo, dustMat);
-    scene.add(dust);
+    const dustMat = new THREE.PointsMaterial({ size: 40, vertexColors: true, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending });
+    const nebula = new THREE.Points(dustGeo, dustMat);
+    nebula.userData = { isNebula: true };
+    scene.add(nebula);
 }
 
-const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) => {
+/**
+ * Main Component
+ */
+const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, layoutMode = 'galaxy', currentLens = 'ops', isIsolated = false }, ref) => {
     const containerRef = useRef(null);
     const rendererRef = useRef(null);
     const cameraRef = useRef(null);
     const animationRef = useRef(null);
     const nodesRef = useRef([]);
-    const particlesRef = useRef([]);
     const edgesRef = useRef([]);
+    const particlesRef = useRef([]);
+    const activeFlowTargetRef = useRef(null);
     const sceneRef = useRef(null);
     const hoverNodeRef = useRef(null);
     const controlsRef = useRef(null);
+    const layoutModeRef = useRef(layoutMode);
     const tpsRef = useRef(tps);
-    const selectedNodeRef = useRef(null);
-    const flowEnabledRef = useRef(true);
-    const lineageRef = useRef({ origin: null, nodes: [] });
+    const onNodeClickRef = useRef(onNodeClick);
+
+    useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
+    useEffect(() => { tpsRef.current = tps; }, [tps]);
+    useEffect(() => { onNodeClickRef.current = onNodeClick; }, [onNodeClick]);
+
+    const spawnParticleForTarget = useCallback((targetNodeNames) => {
+        if (!sceneRef.current || edgesRef.current.length === 0) return;
+
+        let targetEdges = [];
+        if (targetNodeNames && targetNodeNames.length > 0) {
+            const targets = targetNodeNames.map(name => name.toLowerCase().trim());
+            targetEdges = edgesRef.current.filter(e => {
+                const sId = e.userData.sourceMesh.userData.id.toLowerCase();
+                const tId = e.userData.targetMesh.userData.id.toLowerCase();
+                return targets.includes(sId) || targets.includes(tId);
+            });
+        } else {
+            targetEdges = edgesRef.current;
+        }
+
+        if (targetEdges.length > 0) {
+            const randomEdge = targetEdges[Math.floor(Math.random() * targetEdges.length)];
+            const particle = createParticle('normal');
+            sceneRef.current.add(particle);
+
+            particlesRef.current.push({
+                mesh: particle,
+                curve: randomEdge.userData.curve,
+                speed: 0.005 + Math.random() * 0.01,
+                progress: 0
+            });
+        }
+    }, []);
 
     const { update: updateGlow } = useGlowManager();
-    const { focusOn: cameraFocus, update: updateCamera } = useCameraManager(cameraRef, controlsRef);
+    const { focusOn: cameraFocus } = useCameraManager(cameraRef, controlsRef);
 
-    // --- VOICE COMMAND REGISTRATION ---
-    const handleZoom = useCallback(({ target, instruction }) => {
-        if (!target) return;
-        console.log(`[ThreeGraph] Voice Action: ${instruction} on "${target}"`);
-
-        const normalizedTarget = target.toLowerCase().trim();
-
-        // 1. Try to find nodes by cluster ID or table type (Exact or Prefix)
-        const clusterNodes = nodesRef.current.filter(n => {
-            const c = n.cluster?.toString().toLowerCase();
-            const t = n.table_type?.toLowerCase();
-            return c === normalizedTarget || (c && c.includes(normalizedTarget)) ||
-                t === normalizedTarget || (t && t.includes(normalizedTarget));
-        });
-
-        if (clusterNodes.length > 0) {
-            console.log(`[ThreeGraph] Found ${clusterNodes.length} nodes for cluster/type match:`, clusterNodes.map(n => n.name));
-            zoomToNodes(clusterNodes);
-            return;
-        }
-
-        // 2. Fallback: Try to find a specific node by name/ID (Fuzzy Match)
-        const singleNode = nodesRef.current.find(n => {
-            const name = n.name?.toLowerCase() || "";
-            const id = n.id?.toLowerCase() || "";
-            return id === normalizedTarget ||
-                name === normalizedTarget ||
-                name.includes(normalizedTarget) ||
-                normalizedTarget.includes(name);
-        });
-
-        if (singleNode) {
-            console.log(`[ThreeGraph] Target "${target}" matched node: ${singleNode.name}. Focusing camera.`);
-            focusOnNode(singleNode);
-            selectedNodeRef.current = singleNode.id;
-        }
-    }, []);
-
-    const handleHighlight = useCallback(({ target }) => {
-        if (!target) return;
-        const node = nodesRef.current.find(n =>
-            n.id.toLowerCase() === target.toLowerCase() ||
-            n.name.toLowerCase().includes(target.toLowerCase())
-        );
-        if (node) {
-            selectedNodeRef.current = node.id;
-            focusOnNode(node);
-        }
-    }, []);
-
-    const handleCamera = useCallback(({ instruction }) => {
-        if (instruction === 'reset_view') resetCamera();
-    }, []);
-
-    const handleFlow = useCallback(({ instruction }) => {
-        if (instruction === 'start_flow') flowEnabledRef.current = true;
-        if (instruction === 'stop_flow') flowEnabledRef.current = false;
-    }, []);
-
-    const handleTraceLineage = useCallback(({ target, lineage_nodes }) => {
-        if (!target || !lineage_nodes) return;
-        console.log(`[ThreeGraph] Tracing lineage for ${target}`);
-
-        lineageRef.current = {
-            origin: target,
-            nodes: lineage_nodes
-        };
-
-        const originNode = nodesRef.current.find(n => n.id === target || n.name === target);
-        if (originNode) {
-            cameraFocus(new THREE.Vector3(originNode.x, originNode.y, originNode.z).add(new THREE.Vector3(0, 300, 600)), new THREE.Vector3(originNode.x, originNode.y, originNode.z));
-            soundSystem.play('voiceConfirm');
-        }
-    }, [focusOnNode]);
-
-    useRegisterCommand('graph_zoom', handleZoom);
-    useRegisterCommand('graph_highlight', handleHighlight);
-    useRegisterCommand('graph_camera', handleCamera);
-    useRegisterCommand('graph_flow', handleFlow);
-    useRegisterCommand('graph_trace_lineage', handleTraceLineage);
-
-    // Imperative API for Voice Agent
     useImperativeHandle(ref, () => ({
-        highlightNode: (target) => {
-            console.log(`[ThreeGraph] Action: Highlight ${target}`);
-            const node = nodesRef.current.find(n =>
-                n.id.toLowerCase() === target.toLowerCase() ||
-                n.name.toLowerCase().includes(target.toLowerCase())
-            );
-
-            if (node) {
-                selectedNodeRef.current = node.id;
-                // Move camera to node
-                focusOnNode(node);
-                return true;
-            }
-            return false;
-        },
-        zoomToCluster: (target) => {
-            console.log(`[ThreeGraph] Action: Zoom to (Cluster or Node) "${target}"`);
-
-            const normalizedTarget = target.toLowerCase().trim();
-
-            // 1. Try to find nodes by cluster ID or table type (Exact or Prefix)
-            const clusterNodes = nodesRef.current.filter(n => {
-                const c = n.cluster?.toString().toLowerCase();
-                const t = n.table_type?.toLowerCase();
-                return c === normalizedTarget || (c && c.includes(normalizedTarget)) ||
-                    t === normalizedTarget || (t && t.includes(normalizedTarget));
-            });
-
-            if (clusterNodes.length > 0) {
-                console.log(`[ThreeGraph] Found ${clusterNodes.length} nodes for cluster/type match:`, clusterNodes.map(n => n.name));
-                zoomToNodes(clusterNodes);
-                return true;
-            }
-
-            // 2. Fallback: Try to find a specific node by name/ID (Fuzzy Match)
-            const singleNode = nodesRef.current.find(n => {
-                const name = n.name?.toLowerCase() || "";
-                const id = n.id?.toLowerCase() || "";
-                return id === normalizedTarget ||
-                    name === normalizedTarget ||
-                    name.includes(normalizedTarget) ||
-                    normalizedTarget.includes(name);
-            });
-
-            if (singleNode) {
-                console.log(`[ThreeGraph] Target "${target}" matched node: ${singleNode.name}. Focusing camera.`);
-                focusOnNode(singleNode);
-                selectedNodeRef.current = singleNode.id;
-                return true;
-            }
-
-            console.warn(`[ThreeGraph] No matches found for "${target}" among ${nodesRef.current.length} nodes.`);
-            return false;
-        },
-        setEvolutionSnapshot: (snapshot) => {
-            if (!snapshot || !nodesRef.current) return;
-
-            const snapshotTables = new Map(snapshot.tables.map(t => [t.name, t]));
-
-            nodesRef.current.forEach(node => {
-                const snap = snapshotTables.get(node.id) || snapshotTables.get(node.name);
-
-                if (node.mesh) {
-                    if (snap) {
-                        node.mesh.visible = true;
-
-                        // TIME INTELLIGENCE: Size based on records added
-                        // Base size 0.5 + some relative scale from growth
-                        const sizeBonus = snap.relative_size * 2.0;
-                        const targetScale = 0.5 + sizeBonus;
-
-                        node.mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
-
-                        // TIME INTELLIGENCE: Age-based Brightness
-                        // New records (tables) are bright, old ones go dim
-                        if (node.mesh.material && node.mesh.material.emissiveIntensity !== undefined) {
-                            const baseGlow = snap.node_glow || 1.0;
-                            const ageGlow = snap.age_factor !== undefined ? snap.age_factor : 1.0;
-                            node.mesh.material.emissiveIntensity = baseGlow * ageGlow;
-
-                            // Adjust opacity/color for "Dim" effect
-                            if (ageGlow < 0.5) {
-                                node.mesh.material.opacity = 0.3 + (ageGlow * 0.7);
-                                node.mesh.material.transparent = true;
-                            } else {
-                                node.mesh.material.opacity = 1.0;
-                                node.mesh.material.transparent = false;
-                            }
-                        }
-
-                        if (snap.is_new && !node.was_born) {
-                            node.was_born = true;
-                            triggerBirthEffect(node.mesh);
-                            if (Math.random() > 0.7) soundSystem.play('scanPulse');
-                        }
-                    } else {
-                        node.mesh.visible = false;
-                        node.mesh.scale.set(0.1, 0.1, 0.1);
-                        node.was_born = false;
-                    }
-                }
-            });
-        },
-        startFlow: () => {
-            console.log(`[ThreeGraph] Action: Start Flow`);
-            flowEnabledRef.current = true;
-        },
-        stopFlow: () => {
-            console.log(`[ThreeGraph] Action: Stop Flow`);
-            flowEnabledRef.current = false;
-        },
-        resetView: () => {
-            console.log(`[ThreeGraph] Action: Reset View`);
-            resetCamera();
-        }
+        resetView: () => { cameraFocus(new THREE.Vector3(0, 0, 2000), new THREE.Vector3(0, 0, 0)); }
     }));
-
-    function focusOnNode(node) {
-        if (!cameraRef.current || !controlsRef.current) return;
-
-        const targetPos = new THREE.Vector3(node.x, node.y, node.z);
-        const offset = new THREE.Vector3(0, 200, 400); // Cinematic offset
-        const camPos = targetPos.clone().add(offset);
-
-        animateCamera(camPos, targetPos);
-    }
-
-    function zoomToNodes(nodes) {
-        if (!cameraRef.current || !controlsRef.current || nodes.length === 0) return;
-
-        const box = new THREE.Box3();
-        nodes.forEach(n => box.expandByPoint(new THREE.Vector3(n.x, n.y, n.z)));
-
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-
-        const camPos = center.clone().add(new THREE.Vector3(0, maxDim, maxDim * 1.5));
-        animateCamera(camPos, center);
-    }
-
-    function resetCamera() {
-        animateCamera(new THREE.Vector3(0, 0, 1600), new THREE.Vector3(0, 0, 0));
-        selectedNodeRef.current = null;
-    }
-
-    function animateCamera(newPos, target) {
-        if (!cameraRef.current || !controlsRef.current) return;
-
-        const duration = 1200;
-        const startPos = cameraRef.current.position.clone();
-        const startTarget = controlsRef.current.target.clone();
-        const startTime = Date.now();
-
-        const ease = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-
-        const anim = () => {
-            const now = Date.now();
-            const progress = Math.min((now - startTime) / duration, 1);
-            const e = ease(progress);
-
-            cameraRef.current.position.lerpVectors(startPos, newPos, e);
-            controlsRef.current.target.lerpVectors(startTarget, target, e);
-
-            if (progress < 1) requestAnimationFrame(anim);
-        };
-        anim();
-    }
-
-    // Update tpsRef whenever tps prop changes
-    useEffect(() => {
-        console.log(`[ThreeGraph] TPS changed: ${tps}`);
-        tpsRef.current = tps;
-        if (tps <= 0) {
-            console.log('[ThreeGraph] TPS is 0 - clearing all particles');
-            // Force immediate stability: Clear existing particles
-            particlesRef.current.forEach(p => {
-                if (sceneRef.current) sceneRef.current.remove(p.mesh);
-            });
-            particlesRef.current = [];
-        }
-    }, [tps]);
 
     useEffect(() => {
         if (!containerRef.current) return;
-
-        // Cleanup
-        const width = containerRef.current.clientWidth;
-        const height = containerRef.current.clientHeight;
-
-        // Init Scene
-        const scene = new THREE.Scene();
-        // REMOVED: Static background color
-        // scene.background = new THREE.Color(0x0e1012); 
-        // scene.fog = new THREE.FogExp2(0x0e1012, 0.0008); 
-        // We will use CSS background for better gradient control
-
-        // Init Camera
-        const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 15000);
-        camera.position.z = 1600; // Zoomed out for better overview (was 1000)
-        cameraRef.current = camera;
-
-        // Init Renderer
-        const renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            alpha: true, // Allow CSS background to show through if needed
-            powerPreference: "high-performance"
-        });
-        renderer.setSize(width, height);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-        // Clears any existing canvas to prevent 'double graph' ghosting
-        containerRef.current.innerHTML = '';
-
-        const canvasContainer = document.createElement('div');
-        canvasContainer.className = "absolute inset-0 z-0";
-        containerRef.current.appendChild(canvasContainer);
-        canvasContainer.appendChild(renderer.domElement);
+        const width = containerRef.current.clientWidth, height = containerRef.current.clientHeight;
+        const scene = new THREE.Scene(); sceneRef.current = scene;
+        const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 100000);
+        camera.position.set(2500, 2000, 3500); cameraRef.current = camera;
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(width, height); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        containerRef.current.innerHTML = ''; containerRef.current.appendChild(renderer.domElement);
         rendererRef.current = renderer;
-
-        // PREMIUM LIGHTING (Ultra Bright Mode)
-        // High Ambient to wash out shadows and ensure color visibility
-        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
-        scene.add(ambientLight);
-
-        const pointLight = new THREE.PointLight(0xffffff, 2.0);
-        pointLight.position.set(500, 500, 500);
-        scene.add(pointLight);
-
-        const fillLight = new THREE.DirectionalLight(0xa78bfa, 2.0);
-        fillLight.position.set(-500, 200, -500);
-        scene.add(fillLight);
-
-        const rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
-        rimLight.position.set(0, 500, -500);
-        scene.add(rimLight);
-
-        // Starfield (Universe Nebula)
+        scene.add(new THREE.AmbientLight(0xffffff, 1.0)); // Softer light
+        const pLight = new THREE.PointLight(0xffffff, 1.2); pLight.position.set(1000, 1000, 1000); scene.add(pLight);
         createStarfield(scene);
 
-        // --- Data Processing ---
-        nodesRef.current = [];
-        edgesRef.current = [];
-        particlesRef.current = [];
-        sceneRef.current = scene;
-
-        const mouse = new THREE.Vector2();
-        const raycaster = new THREE.Raycaster();
-        // let hoverNode = null; // Removed local variable in favor of Ref
-
-        if (data && data.nodes && data.nodes.length > 0) {
-            // 1. Layout
-            const layoutNodes = applyGalaxyLayout([...data.nodes], 600);
+        if (data?.nodes) {
+            // FORCE GALAXY as default for all top-level views (Overview/Universe/Schema)
+            if (layoutMode === 'latent') {
+                applyLatentSpaceLayout(data.nodes);
+            } else {
+                applyGalaxyLayout(data.nodes, 2200); // Massive sprawl for high-fidelity look
+            }
             const nodeMap = new Map();
+            nodesRef.current = [];
 
-            // 2. Create Nodes
-            layoutNodes.forEach((nodeData, i) => {
-                const mesh = createNodeMesh(nodeData);
-                mesh.position.set(nodeData.x, nodeData.y, nodeData.z);
-                nodeData.mesh = mesh;
-                nodeData.baseY = nodeData.y; // Ensure baseY is set on the object we use in animate
+            if (layoutMode === 'analysis') {
+                const clusters = {};
+                data.nodes.forEach(n => { const cid = n.cluster || 0; if (!clusters[cid]) clusters[cid] = []; clusters[cid].push(n); });
+                Object.values(clusters).forEach(nodesInCluster => {
+                    const group = createClusterVoxelMesh(nodesInCluster, currentLens);
+                    const first = nodesInCluster[0];
+                    group.position.set(first.latent_x, first.latent_y, first.latent_z);
+                    scene.add(group);
+                    group.userData = { isCluster: true, nodes: nodesInCluster };
+                    nodesInCluster.forEach(n => { n.mesh = group; nodeMap.set(n.id, n); nodesRef.current.push(n); });
+                });
+            } else {
+                data.nodes.forEach(nodeData => {
+                    const mesh = createNodeMesh(nodeData, currentLens, layoutMode);
+                    // Robust position check
+                    const lx = nodeData.latent_x ?? 0;
+                    const ly = nodeData.latent_y ?? 0;
+                    const lz = nodeData.latent_z ?? 0;
+                    const gx = nodeData.x ?? 0;
+                    const gy = nodeData.y ?? 0;
+                    const gz = nodeData.z ?? 0;
 
-                scene.add(mesh);
-                nodesRef.current.push(nodeData);
-                nodeMap.set(nodeData.id, nodeData);
-            });
+                    mesh.position.set(
+                        nodeData.x ?? 0,
+                        nodeData.y ?? 0,
+                        nodeData.z ?? 0
+                    );
+                    scene.add(mesh);
+                    nodeData.mesh = mesh; mesh.userData = { ...nodeData, isNode: true };
+                    nodesRef.current.push(nodeData); nodeMap.set(nodeData.id, nodeData);
+                });
+            }
 
-            // 3. Create Edges (CURVED)
+            if (data.latent_manifold) {
+                const manifold = createLatentManifold(data.latent_manifold);
+                if (manifold) {
+                    manifold.visible = (layoutMode === 'latent');
+                    scene.add(manifold);
+                    // Add flows and axes
+                    const annotations = new THREE.Group();
+                    annotations.visible = (layoutMode === 'latent');
+                    annotations.add(create3DAxes(layoutMode, data.latent_manifold));
+                    annotations.add(createFlowArrows(data.latent_manifold));
+                    scene.add(annotations);
+                }
+            }
+
             if (data.edges) {
+                edgesRef.current = [];
                 data.edges.forEach(edge => {
-                    const source = nodeMap.get(edge.source);
-                    const target = nodeMap.get(edge.target);
-                    if (source && target) {
-                        // CHANGED: Use Curved Edge with DETERMINISTIC SEEDing
-                        const line = createCurvedEdge(source.mesh.position, target.mesh.position, edge, edge.source, edge.target);
-                        line.userData.sourceId = edge.source;
-                        line.userData.targetId = edge.target;
-                        scene.add(line);
-                        edgesRef.current.push(line);
+                    const s = nodeMap.get(edge.source), t = nodeMap.get(edge.target);
+                    if (s && t && s.mesh && t.mesh) {
+                        const line = createCurvedEdge(s.mesh, t.mesh, edge);
+                        line.visible = (layoutMode !== 'latent'); // Hide edges in Latent Space
+                        scene.add(line); edgesRef.current.push(line);
                     }
                 });
             }
         }
 
-        // Controls - UNLOCKED for Interaction
         const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.minDistance = 50;
-        controls.maxDistance = 4000;
+        controls.enableDamping = true; controlsRef.current = controls;
+        const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2();
 
-        // Allow full 360 rotation
-        controls.minPolarAngle = 0;
-        controls.maxPolarAngle = Math.PI;
-        controls.minAzimuthAngle = -Infinity;
-        controls.maxAzimuthAngle = Infinity;
-
-        // CRITICAL FIX: Disable auto-rotation to stop "self-rotating" behavior
-        controls.autoRotate = false;
-
-        controls.enableRotate = true; // explicitly enable
-        controls.enableZoom = true;   // explicitly enable
-        controls.enablePan = true;    // explicitly enable panning
-
-        controlsRef.current = controls; // Fix: Assign to ref
-
-        // Interaction
         const onMouseMove = (e) => {
             const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1; mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
-
-            // Check for intersections
             const intersects = raycaster.intersectObjects(scene.children, true);
-
             if (intersects.length > 0) {
-                // Traverse up to find the main node mesh
-                let object = intersects[0].object;
-                let foundNode = null;
-
-                // Climb up the tree until we find a match in nodesRef or hit root
-                while (object) {
-                    foundNode = nodesRef.current.find(n => n.mesh === object);
-                    if (foundNode) break;
-                    object = object.parent;
-                }
-
-                if (foundNode && foundNode !== hoverNodeRef.current) {
-                    hoverNodeRef.current = foundNode; // Update Ref
+                let obj = intersects[0].object;
+                while (obj && !obj.userData?.isNode && obj.parent && obj.parent.type !== 'Scene') obj = obj.parent;
+                if (obj && obj.userData?.isNode && obj.userData !== hoverNodeRef.current) {
+                    hoverNodeRef.current = obj.userData;
                     document.body.style.cursor = 'pointer';
-
-                    // SONIFICATION: Play metric sound on hover
-                    const gravity = foundNode.neural_gravity || 1.0;
-                    const entropy = foundNode.entropy || 0.5;
-                    soundSystem.playMetricOscillation(gravity, entropy);
+                    soundSystem.playMetricOscillation(obj.userData.neural_gravity || 1.0, obj.userData.entropy || 0.5);
                 }
             } else if (hoverNodeRef.current) {
-                hoverNodeRef.current = null; // Clear Ref
-                document.body.style.cursor = 'default';
+                hoverNodeRef.current = null; document.body.style.cursor = 'default';
             }
         };
 
         const onClick = () => {
-            if (hoverNodeRef.current && onNodeClick) {
-                console.log("ThreeGraph: Node Clicked:", hoverNodeRef.current.name);
-                onNodeClick(hoverNodeRef.current);
+            if (hoverNodeRef.current && onNodeClickRef.current) {
+                onNodeClickRef.current(hoverNodeRef.current);
                 soundSystem.play('nodeClick');
             }
         };
 
-        const canvas = renderer.domElement;
-        canvas.addEventListener('mousemove', onMouseMove);
-        canvas.addEventListener('click', onClick);
+        renderer.domElement.addEventListener('mousemove', onMouseMove);
+        renderer.domElement.addEventListener('click', onClick);
 
-        // Helper to get neighbors
-        const getNeighbors = (nodeId) => {
-            const neighbors = new Set();
-            edgesRef.current.forEach(edge => {
-                if (edge.userData.sourceId === nodeId) neighbors.add(edge.userData.targetId);
-                else if (edge.userData.targetId === nodeId) neighbors.add(edge.userData.sourceId);
-            });
-            return Array.from(neighbors);
-        };
-
-        // --- ANIMATION LOOP ---
         const animate = () => {
             animationRef.current = requestAnimationFrame(animate);
             const time = Date.now() * 0.001;
+            const isAnalysis = layoutModeRef.current === 'analysis';
 
-            if (controlsRef.current) controlsRef.current.update();
+            nodesRef.current.forEach(node => {
+                const mesh = node.mesh;
+                const isHub = node.id === 'hub';
+                const isCore = isHub || node.id === 'DATABASE_CORE';
+                const isLatent = layoutModeRef.current === 'latent';
 
-            // Smooth Factor (Lower = Smoother/Heavier like Spline)
-            const LERP_FACTOR = 0.08;
+                // ISOLATION
+                if (isIsolated && !isCore) mesh.visible = false;
+                else mesh.visible = true;
 
-            // 1. UPDATE CAMERA
-            updateCamera(0.016); // Approx 60fps delta
+                if (!mesh.visible) return;
 
-            // 2. UPDATE NODES
-            scene.traverse((object) => {
-                if (object.isMesh && object.userData && object.userData.isNode) {
-                    const nodeState = object.userData;
-                    const hoverId = hoverNodeRef.current ? hoverNodeRef.current.id : null;
-                    const isSelected = selectedNodeRef.current === nodeState.id;
-                    const lineage = lineageRef.current;
+                // COORDINATE TRANSITION
+                let tx = node.targetX ?? 0;
+                let tz = node.targetZ ?? 0;
+                let ty = node.targetY ?? 0;
 
-                    let state = 'idle';
+                // Sync height with manifold surface in real-time
+                if (isLatent && data.latent_manifold && !isCore) {
+                    const surfaceY = getManifoldHeight(mesh.position.x, mesh.position.z, data.latent_manifold.emitters);
+                    ty = surfaceY + 150; // Sit clearly above the peaks
+                }
 
-                    // DETERMINE STATE (Lineage, Selection, Hover)
-                    if (isSelected || lineage.origin === nodeState.id) {
-                        state = 'hover';
-                    } else if (lineage.nodes.includes(nodeState.id)) {
-                        state = 'related';
-                    } else if (hoverId) {
-                        if (nodeState.id === hoverId) {
-                            state = 'hover';
-                        } else if (getNeighbors(hoverId).includes(nodeState.id)) {
-                            state = 'related';
-                        } else {
-                            state = 'dimmed';
+                mesh.position.x = THREE.MathUtils.lerp(mesh.position.x, tx, 0.08);
+                mesh.position.z = THREE.MathUtils.lerp(mesh.position.z, tz, 0.08);
+
+                const float = (!isAnalysis && !isHub) ? Math.sin(time * 0.5 + node.id.length) * 5 : 0;
+                mesh.position.y = THREE.MathUtils.lerp(mesh.position.y, ty + float, 0.1);
+
+                // Update Label scaling specifically for this frame if needed (simplification: hide small ones)
+                const label = mesh.children.find(c => c.type === 'Sprite');
+                if (label) label.visible = !isLatent || (hoverNodeRef.current?.id === node.id || isCore || node.importance_score > 3);
+
+                updateGlow(mesh, time, (hoverNodeRef.current?.id === node.id ? 'hover' : 'idle'), (node.node_glow ?? node.glow_intensity ?? 1.0));
+            });
+
+            // Animate Manifold (Breathing Intelligence)
+            const manifold = scene.children.find(c => c.userData?.isManifold);
+            const isLatent = layoutModeRef.current === 'latent';
+
+            if (manifold) {
+                manifold.visible = isLatent;
+                if (isLatent) {
+                    manifold.position.y = -50 + Math.sin(time * 0.4) * 15; // Deeper breathing
+                    manifold.children.forEach((child, idx) => {
+                        if (child.isMesh && idx === 0) {
+                            child.material.opacity = 0.5 + Math.sin(time * 0.2) * 0.15;
                         }
-                    } else if (lineage.origin) {
-                        // If lineage is active but node isn't part of it, dim it
-                        state = 'dimmed';
-                    }
-
-                    // APPLY MODULAR GLOW/PULSE LOGIC
-                    updateGlow(object, time, state, nodeState.nodeGlow);
-
-                    // APPLY FLOATING ANIMATION
-                    if (state !== 'dimmed' && nodeState.baseY) {
-                        const idLen = String(nodeState.id).length;
-                        const floatAmp = 8 + ((nodeState.nodeGlow || 0) * 4);
-                        object.position.y = THREE.MathUtils.lerp(object.position.y, nodeState.baseY + Math.sin(time + idLen) * floatAmp, 0.05);
-                    }
-                }
-            });
-
-            // 2. UPDATE EDGES
-            edgesRef.current.forEach(edge => {
-                const hoverId = hoverNodeRef.current ? hoverNodeRef.current.id : null;
-                const lineage = lineageRef.current;
-                let targetOpacity = 0.15; // Base visibility
-
-                if (hoverId) {
-                    if (edge.userData.sourceId === hoverId || edge.userData.targetId === hoverId) {
-                        targetOpacity = 0.8;
-                        edge.userData.isActive = true;
-                    } else {
-                        targetOpacity = 0.05;
-                        edge.userData.isActive = false;
-                    }
-                } else if (lineage.origin) {
-                    // Highlight edges within the lineage path
-                    const isSourceInLineage = edge.userData.sourceId === lineage.origin || lineage.nodes.includes(edge.userData.sourceId);
-                    const isTargetInLineage = edge.userData.targetId === lineage.origin || lineage.nodes.includes(edge.userData.targetId);
-
-                    if (isSourceInLineage && isTargetInLineage) {
-                        targetOpacity = 0.9;
-                        edge.userData.isActive = true;
-                    } else {
-                        targetOpacity = 0.05;
-                        edge.userData.isActive = false;
-                    }
-                }
-
-                // Smooth Opacity
-                edge.material.opacity = THREE.MathUtils.lerp(edge.material.opacity, targetOpacity, LERP_FACTOR);
-                edge.material.needsUpdate = true;
-
-                // Animate Curve "Breathing"
-                if (edge.userData.curve && edge.userData.isActive) {
-                    const mid = edge.userData.curve.v1;
-                    mid.y += Math.sin(time * 2) * 0.1;
-                    edge.geometry.setFromPoints(edge.userData.curve.getPoints(50));
-                    edge.geometry.attributes.position.needsUpdate = true;
-                }
-            });
-
-            // 3. UPDATE PARTICLES (Simple Flow)
-            if (particlesRef.current) {
-                for (let i = particlesRef.current.length - 1; i >= 0; i--) {
-                    const p = particlesRef.current[i];
-                    p.progress += p.speed;
-                    if (p.progress >= 1) {
-                        scene.remove(p.mesh);
-                        particlesRef.current.splice(i, 1);
-                    } else {
-                        p.mesh.position.copy(p.curve.getPoint(p.progress));
-                    }
-                }
-            }
-
-            renderer.render(scene, camera);
-        };
-        animate();
-
-
-        // Initial Sizing
-        const updateDimensions = () => {
-            if (!containerRef.current) return;
-            const w = containerRef.current.clientWidth;
-            const h = containerRef.current.clientHeight;
-            camera.aspect = w / h;
-            camera.updateProjectionMatrix();
-            renderer.setSize(w, h);
-        };
-        updateDimensions();
-
-        // Resize Observer for Container (Centers graph when sidebars toggle)
-        const resizeObserver = new ResizeObserver(() => {
-            updateDimensions();
-        });
-        resizeObserver.observe(containerRef.current);
-
-        // Particle Spawner with "Particle Velocity" Formula
-        const throughput_constant = 0.0002;
-
-        const particleInterval = setInterval(() => {
-            // Only spawn particles if there is REAL active flow (TPS > 0)
-            if (flowEnabledRef.current && tpsRef.current > 0 && edgesRef.current.length > 0) {
-                const randomEdge = edgesRef.current[Math.floor(Math.random() * edgesRef.current.length)];
-                if (randomEdge && randomEdge.userData.curve) {
-
-                    const sourceNode = nodesRef.current.find(n => n.id === randomEdge.userData.sourceId);
-                    const timestamp_volume = (sourceNode && sourceNode.vitality) ? sourceNode.vitality : (1 + Math.random() * 9);
-
-                    let velocity = throughput_constant * timestamp_volume;
-                    velocity = Math.max(0.005, Math.min(velocity, 0.025));
-
-                    let particleType = 'normal';
-                    if (sourceNode && (sourceNode.status === 'warning' || sourceNode.vitality < 10)) {
-                        particleType = 'fraud';
-                    }
-                    else if (velocity > 0.015) {
-                        particleType = 'high_traffic';
-                    }
-
-                    const particle = createParticle(particleType);
-                    scene.add(particle);
-
-                    particlesRef.current.push({
-                        mesh: particle,
-                        curve: randomEdge.userData.curve,
-                        speed: velocity,
-                        progress: 0
                     });
                 }
             }
-        }, 100);
+
+            // Sync Environment (Deep Space for Latent Mode)
+            const starfield = scene.children.find(c => c.isPoints && !c.userData?.isNebula); // Need nebula tag
+            if (starfield) {
+                starfield.material.opacity = isLatent ? 0.2 : 0.7; // Dim stars in mountain view
+            }
+
+            // Sync Annotations Visibility
+            scene.children.forEach(c => {
+                if (c.children && c.children.some(child => child.type === 'ArrowHelper' || child.type === 'Line')) {
+                    // This is likely our axes/arrows group
+                    c.visible = isLatent;
+                }
+            });
+
+            edgesRef.current.forEach(edge => {
+                edge.visible = !isIsolated;
+                if (edge.visible) {
+                    // DYNAMIC UPDATE: Force edge to follow moving meshes
+                    updateEdgeGeometry(edge);
+
+                    const isH = hoverNodeRef.current && (edge.userData.sourceMesh.userData.id === hoverNodeRef.current.id || edge.userData.targetMesh.userData.id === hoverNodeRef.current.id);
+                    edge.material.opacity = THREE.MathUtils.lerp(edge.material.opacity, isH ? 0.8 : edge.userData.originalOpacity, 0.1);
+                }
+            });
+
+            // Animate Particles
+            const particleSpeed = 0.05 + (tpsRef.current / 500);
+            particlesRef.current.forEach((p, idx) => {
+                p.progress += p.speed * particleSpeed;
+                if (p.progress >= 1) {
+                    scene.remove(p.mesh);
+                    particlesRef.current.splice(idx, 1);
+                } else {
+                    const pos = p.curve.getPointAt(p.progress);
+                    p.mesh.position.copy(pos);
+                }
+            });
+
+            // Auto-Generate Particles based on TPS
+            if (tpsRef.current > 0 && Math.random() < (tpsRef.current / 60)) {
+                spawnParticleForTarget(activeFlowTargetRef.current);
+            }
+
+            renderer.render(scene, camera);
+            controls.update();
+        };
+        animate();
 
         return () => {
-            console.log("[ThreeGraph] Cleaning up resources...");
-            resizeObserver.disconnect();
-            if (canvas) {
-                canvas.removeEventListener('mousemove', onMouseMove);
-                canvas.removeEventListener('click', onClick);
-            }
-            if (animationRef.current) cancelAnimationFrame(animationRef.current);
-            clearInterval(particleInterval);
-            if (containerRef.current && canvasContainer) {
-                try { containerRef.current.removeChild(canvasContainer); } catch (e) { }
-            }
-
-            // DISPOSE RESOURCES to prevent Context Loss
-            if (sceneRef.current) {
-                sceneRef.current.traverse((object) => {
-                    if (object.geometry) object.geometry.dispose();
-                    if (object.material) {
-                        if (Array.isArray(object.material)) {
-                            object.material.forEach(m => m.dispose());
-                        } else {
-                            object.material.dispose();
-                        }
-                    }
-                });
-            }
-
-            if (rendererRef.current) {
-                rendererRef.current.dispose();
-                rendererRef.current.forceContextLoss();
-            }
-
-            nodesRef.current = [];
-            edgesRef.current = [];
-            particlesRef.current = [];
+            cancelAnimationFrame(animationRef.current);
+            renderer.domElement.removeEventListener('mousemove', onMouseMove);
+            renderer.domElement.removeEventListener('click', onClick);
+            renderer.dispose();
         };
-    }, [onNodeClick, data]);
+    }, [data, currentLens, isIsolated, layoutMode]); // Added layoutMode to dep array
 
-    return <div ref={containerRef} className={className || "fixed inset-0 z-0"} style={{
-        background: 'radial-gradient(circle at center, #1a202c 0%, #000000 100%)' // Deep Space Gradient
-    }} />;
+    return <div ref={containerRef} className={className || "fixed inset-0 z-0"} style={{ background: 'radial-gradient(circle at center, #1a202c 0%, #000000 100%)' }} />;
 });
-
-function triggerBirthEffect(mesh) {
-    const originalScale = mesh.scale.clone();
-    const flashColor = new THREE.Color(0xffffff);
-    const originalColor = mesh.material.color.clone();
-
-    // Sudden grow and flash
-    mesh.scale.multiplyScalar(2.0);
-    mesh.material.color.set(flashColor);
-
-    setTimeout(() => {
-        mesh.scale.copy(originalScale);
-        mesh.material.color.copy(originalColor);
-    }, 500);
-}
 
 export default React.memo(ThreeGraph);

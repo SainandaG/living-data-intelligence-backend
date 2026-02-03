@@ -192,7 +192,16 @@ async def get_business_insights(connection_id: str, table_name: str):
             raise HTTPException(status_code=404, detail="Connection not found")
         
         # Get full intelligence hub data for this table
-        insights = await intelligence_engine.get_comprehensive_intelligence(db_connector, connection_id, table_name)
+        # Proactively enriched nodes are required for the projection
+        from app.services.schema_analyzer import schema_analyzer
+        schema = schema_analyzer.get_analysis_result(connection_id)
+        nodes = []
+        if schema:
+            for t in schema.tables:
+                coords = latent_space_service.calculate_latent_coordinates(t.__dict__, {}, [])
+                nodes.append({**t.__dict__, **coords})
+
+        insights = await intelligence_engine.project_current_state(connection_id, nodes)
         return insights
         
     except Exception as e:
@@ -352,7 +361,15 @@ async def get_recommendations(connection_id: str, table_name: str):
             raise HTTPException(status_code=404, detail="Connection not found")
         
         # Get comprehensive intelligence for context
-        intelligence_data = await intelligence_engine.get_comprehensive_intelligence(db_connector, connection_id, table_name)
+        from app.services.schema_analyzer import schema_analyzer
+        schema = schema_analyzer.get_analysis_result(connection_id)
+        nodes = []
+        if schema:
+            for t in schema.tables:
+                coords = latent_space_service.calculate_latent_coordinates(t.__dict__, {}, [])
+                nodes.append({**t.__dict__, **coords})
+
+        intelligence_data = await intelligence_engine.project_current_state(connection_id, nodes)
         
         # Generate recommendations
         recommendations = await recommendation_engine.generate_recommendations(intelligence_data)

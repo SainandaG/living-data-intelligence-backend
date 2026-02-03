@@ -68,6 +68,10 @@ const MainDashboard = () => {
   const [showIntelligenceHub, setShowIntelligenceHub] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [showSystemNexus, setShowSystemNexus] = useState(true);
+  const [layoutMode, setLayoutMode] = useState('galaxy'); // 'galaxy' (Universe) or 'latent' (Latent Space)
+  const [currentLens, setCurrentLens] = useState('ops'); // 'exec', 'ops', 'security'
+  const [showIntelligenceStream, setShowIntelligenceStream] = useState(true);
+  const [isIsolated, setIsIsolated] = useState(false);
 
   const handleSeed = async () => {
     if (!connectionId) return;
@@ -176,10 +180,21 @@ const MainDashboard = () => {
         pos: [node.x || Math.cos(i * 0.5) * (150 + i * 10), node.y || (Math.random() - 0.5) * 200, node.z || Math.sin(i * 0.5) * (150 + i * 10)],
         entity: node.entity || 'TABLE', rows: node.row_count ? node.row_count.toLocaleString() + ' Records' : 'Empty', metrics: node.metrics || [],
         columns: node.columns || [], vitality: node.vitality || 50, pulse_rate: node.pulse_rate || 1.0, glow_intensity: node.glow_intensity || 0.5,
-        customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' }
+        customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' },
+        latent_x: node.latent_x, latent_y: node.latent_y, latent_z: node.latent_z,
+        vx: node.vx, vy: node.vy, vz: node.vz, motion_pattern: node.motion_pattern,
+        intelligence: node.intelligence, shadow_projection: node.shadow_projection,
+        row_count: node.row_count, importance_score: node.importance_score,
+        neural_gravity: node.neural_gravity, entropy: node.entropy, cluster: node.cluster,
+        x: node.x, y: node.y, z: node.z
       }));
       const edgesTransformed = (rawData.edges || []).map(e => ({ source: e.source, target: e.target, type: e.type, confidence: e.confidence, trafficIntensity: e.traffic_intensity || 0.3 }));
-      setGraphData({ nodes: nodesTransformed, edges: edgesTransformed });
+      setGraphData({
+        nodes: nodesTransformed,
+        edges: edgesTransformed,
+        latent_manifold: rawData.latent_manifold,
+        intelligence_stream: rawData.intelligence_stream
+      });
       setLiveStats(prev => ({ ...prev, activeNodes: nodesTransformed.length }));
       setTimeout(() => setAiStatus(null), 5000);
     } catch (e) { console.error('Error fetching graph data:', e); setAiStatus("Neural Core: Analysis Failed"); } finally { setLoading(false); }
@@ -270,9 +285,18 @@ const MainDashboard = () => {
   const handleRecalculateGravity = () => { if (connectionId) { setAiStatus("Recalculating Intelligence Weights..."); fetchGravitySuggestions(connectionId); setTimeout(() => setAiStatus(null), 3000); } };
 
   const sidebarProps = {
-    actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity },
+    actions: {
+      loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); },
+      toggleRL: handleToggleRL,
+      rlActive,
+      clusteringMethod,
+      toggleClusteringMethod,
+      recalculateGravity: handleRecalculateGravity,
+      handleSeed: handleSeed,
+      seeding: seeding
+    },
     clusters: [{ name: 'Accounts Cluster', nodeCount: 15, active: true }, { name: 'Transaction Cluster', nodeCount: 42, active: false }],
-    onClusterClick: console.log, selectedNode, mlInsights, liveStats, flows: []
+    onClusterClick: console.log, selectedNode, mlInsights, liveStats, flows: [], connectionId
   };
 
   // REPLACED: Handle Agent Action with Dynamic Registry Execution
@@ -294,48 +318,39 @@ const MainDashboard = () => {
 
   return (
     <DashboardLayout sidebarProps={sidebarProps}>
-      <NavigationBar currentView={showIntelligenceHub ? 'intelligence' : viewMode} onNavigate={handleNavigate} breadcrumbs={breadcrumbs} onToggleChat={() => setIsChatOpen(!isChatOpen)} isChatOpen={isChatOpen} />
+      <NavigationBar
+        currentView={showIntelligenceHub ? 'intelligence' : viewMode}
+        onNavigate={handleNavigate}
+        breadcrumbs={breadcrumbs}
+        onToggleChat={() => setIsChatOpen(!isChatOpen)}
+        isChatOpen={isChatOpen}
+        layoutMode={layoutMode}
+        onChangeLayout={setLayoutMode}
+        currentLens={currentLens}
+        onChangeLens={setCurrentLens}
+        isIsolated={isIsolated}
+        onToggleIsolation={() => setIsIsolated(!isIsolated)}
+      />
 
-      {/* Absolute Overlays for Headers/Stats */}
-      <div className="absolute top-0 left-0 w-full p-6 z-[100] flex justify-between pointer-events-none">
-        <div className="flex flex-col gap-4 pointer-events-auto items-start">
-          <Header onConnect={() => setShowConnectModal(true)} onShowIntelligenceHub={() => setShowIntelligenceHub(true)} />
+      {/* Floating Status Bar (Minimal) */}
+      <AnimatePresence>
+        {aiStatus && (
+          <motion.div initial={{ opacity: 0, y: -50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] px-4 py-2 bg-slate-900/80 backdrop-blur-md border border-cyan-500/30 rounded-full flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-[10px] font-bold text-white uppercase tracking-wider">{aiStatus}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <div className="relative flex flex-col items-start gap-3 mt-44">
-            <AnimatePresence mode="wait">
-              {showSystemNexus && (
-                <motion.div
-                  key="system-nexus"
-                  initial={{ x: -20, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -20, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                >
-                  <SystemControls
-                    connectionId={connectionId}
-                    onConnect={() => setShowConnectModal(true)}
-                    seeding={seeding}
-                    handleSeed={handleSeed}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <div className="nexus-toggle-container">
-              <span className="nexus-toggle-label">System Nexus</span>
-              <div
-                className={`sliding-switch ${showSystemNexus ? 'active' : ''}`}
-                onClick={() => setShowSystemNexus(!showSystemNexus)}
-                title={showSystemNexus ? "Minimize Control Panel" : "Expand Control Panel"}
-              >
-                <div className="switch-handle" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <ThreeGraph ref={graphRef} className="absolute inset-0 z-0" data={graphData} onNodeClick={handleNodeClick} />
+      <ThreeGraph
+        ref={graphRef}
+        className="absolute inset-0 z-0"
+        data={graphData}
+        onNodeClick={handleNodeClick}
+        layoutMode={layoutMode}
+        currentLens={currentLens}
+        isIsolated={isIsolated}
+      />
       <AgentStatusPanel />
       <VoiceControl
         onActionTriggered={handleAgentAction}
@@ -352,6 +367,71 @@ const MainDashboard = () => {
       />
 
       <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
+        {/* Narrative Console (Intelligence Stream) */}
+        <AnimatePresence>
+          {layoutMode === 'latent' && showIntelligenceStream && graphData.intelligence_stream?.length > 0 && (
+            <motion.div
+              initial={{ x: 400, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 400, opacity: 0 }}
+              className="fixed bottom-32 right-6 w-80 glass-panel border border-cyan-500/30 overflow-hidden z-40 pointer-events-auto"
+            >
+              <div className="p-3 border-b border-white/10 bg-cyan-900/10 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400">🧠</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-400">Intelligence Stream</span>
+                </div>
+                <button onClick={() => setShowIntelligenceStream(false)} className="text-slate-500 hover:text-white text-xs">×</button>
+              </div>
+              <div className="max-h-64 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                {graphData.intelligence_stream.map((item, i) => (
+                  <div key={i} className="bg-white/5 p-2 rounded border border-white/5 animate-slide-in">
+                    <div className="flex justify-between items-start">
+                      <span className="text-[8px] font-mono text-cyan-500/60 uppercase">{item.node_id}</span>
+                      <span className="text-[7px] text-slate-500 font-mono">{new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-200 leading-relaxed mt-1">{item.narrative}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Stabilization Console (Simulated Interventions) */}
+        <AnimatePresence>
+          {layoutMode === 'latent' && graphData.nodes?.some(n => n.shadow_projection) && (
+            <motion.div
+              initial={{ x: -400, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -400, opacity: 0 }}
+              className="fixed bottom-32 left-6 w-80 glass-panel border border-cyan-500/30 overflow-hidden z-40 pointer-events-auto"
+            >
+              <div className="p-3 border-b border-white/10 bg-cyan-900/10 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400">🛡️</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Stabilization Hooks</span>
+                </div>
+              </div>
+              <div className="max-h-64 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+                {graphData.nodes.filter(n => n.shadow_projection).map((node, i) => (
+                  <div key={i} className="bg-white/5 p-2 rounded border border-amber-500/20 animate-pulse">
+                    <div className="flex justify-between items-start">
+                      <span className="text-[8px] font-mono text-amber-500/60 uppercase">{node.name}</span>
+                      <span className="text-[7px] text-emerald-400 font-bold uppercase">Simulation Active</span>
+                    </div>
+                    <p className="text-[10px] text-white font-bold mt-1">{node.shadow_projection.action}</p>
+                    <p className="text-[9px] text-slate-400 leading-tight mt-1">{node.shadow_projection.reason}</p>
+                    <div className="mt-2 text-[8px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full inline-block">
+                      Expected Recovery: +{node.shadow_projection.expected_improvement} Y-Stability
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="w-full h-full">
           {viewMode === 'overview' && (
             <>
@@ -365,6 +445,7 @@ const MainDashboard = () => {
               tableName={drillDownTable}
               onBack={handleBackToOverview}
               initialShowSimulation={autoSimulate}
+              layoutMode={layoutMode}
             />
           )}
           {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
@@ -380,14 +461,7 @@ const MainDashboard = () => {
         {windows.length > 0 && <Taskbar />}
       </div>
 
-      <AnimatePresence>
-        {aiStatus && (
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[4001] px-6 py-3 bg-[var(--bg-elevated)] border border-[var(--primary-cyan)]/30 rounded-full shadow-[0_0_30px_rgba(34,211,238,0.2)] flex items-center gap-3 backdrop-blur-md">
-            <div className="w-2 h-2 rounded-full bg-[var(--primary-cyan)] animate-ping" />
-            <span className="text-xs font-bold tracking-wider text-white uppercase font-mono">{aiStatus}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Modal/Global Overlays moved below for clean tree */}
 
       <AnimatePresence>
         {evolutionMode && (

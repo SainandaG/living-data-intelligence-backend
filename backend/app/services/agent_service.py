@@ -53,9 +53,7 @@ class AgentService:
                     self.findings.append(finding)
                     
                     # Feed finding into Neural Core for learning
-                    from app.services.neural_core import neural_core
-                    # Map sector to a potential node or just use 'hub' for general growth
-                    await neural_core.process_signal(sector, intensity=finding["confidence"], metadata=finding)
+                    await neural_core.process_signal("agent_signal", intensity=finding["confidence"], metadata=finding)
                     
                     # print(f" Agent Insight: {finding['description']}")
 
@@ -81,7 +79,8 @@ class AgentService:
             
             # Feed intensity based on table scale and importance
             intensity = (importance / 100.0) + (min(row_count, 100000) / 200000.0)
-            await neural_core.process_signal(name, intensity=intensity, metadata={"event": "initial_scan"})
+            # Use 'schema_scan' as connection_id placeholder if needed, or better, pass session ID
+            await neural_core.process_signal("schema_scan", intensity=intensity, metadata={"event": "initial_scan"})
         
         # Trigger an initial retraining cycle
         await neural_core.trigger_retraining()

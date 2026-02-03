@@ -50,6 +50,7 @@ class DatabaseConnector:
                     f.write(f"AUTO-FIX: Forced Neon DB type for SSL.\n")
                 print(f"[SSL] Forced Neon SSL mode (sslmode=require) for {config['host']}")
         
+        try:
             # Enforce application-level timeout
             async def _connect_wrapper():
                 nonlocal db_type

@@ -14,10 +14,21 @@ const LeftSidebar = ({ actions, clusters, onClusterClick }) => {
                 <div className="space-y-2">
                     <button
                         onClick={actions.loadSystem}
-                        className="w-full p-3 bg-gradient-to-br from-[var(--primary-cyan)] to-[var(--primary-green)] rounded-lg text-black font-bold text-sm hover:translate-y-[-2px] hover:shadow-[0_8px_20px_rgba(0,212,255,0.3)] transition-all flex items-center gap-2"
+                        className="flex-1 p-3 bg-gradient-to-br from-[var(--primary-cyan)] to-[var(--primary-green)] rounded-lg text-black font-bold text-sm hover:translate-y-[-2px] hover:shadow-[0_8px_20px_rgba(0,212,255,0.3)] transition-all flex items-center justify-center gap-2"
                     >
-                        <Database size={16} /> Load Connected System
+                        <Database size={16} /> Load System
                     </button>
+                    {actions.handleSeed && actions.connectionId && (
+                        <button
+                            onClick={actions.handleSeed}
+                            disabled={actions.seeding}
+                            className={`p-3 bg-white/5 border border-white/10 rounded-lg text-white font-bold text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2 ${actions.seeding ? 'opacity-50 animate-pulse' : ''}`}
+                            title="Inject Temporal Data"
+                        >
+                            <Zap size={16} className="text-amber-400" />
+                            {actions.seeding ? 'Seeding...' : 'Inject'}
+                        </button>
+                    )}
                 </div>
             </div>
 

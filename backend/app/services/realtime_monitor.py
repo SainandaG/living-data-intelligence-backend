@@ -20,11 +20,16 @@ class RealtimeMonitor:
             db_metrics = await self._get_db_metrics(connection_id)
             
             # 2. Tick the Neural Core (Active Scanning)
-            await neural_core.process_signal("heartbeat", 1.0)
+            await neural_core.process_signal(connection_id, 1.0)
+            
+            # Ensure Memory Hydration (Lazy)
+            if connection_id not in anomaly_detector.baseline_metrics:
+                await anomaly_detector.hydrate_memory(db_connector, connection_id)
+            
             ai_stats = neural_core.get_core_metrics()
             
             # 3. Real anomaly detection based on those metrics
-            anomalies = anomaly_detector.detect_anomalies(connection_id, db_metrics)
+            anomalies = await anomaly_detector.detect_anomalies(connection_id, db_metrics)
             
             # 4. Real health analysis (Global)
             health_status = await self._analyze_graph_health(connection_id, db_metrics)
@@ -219,7 +224,7 @@ class RealtimeMonitor:
                 issues.append(f"Elevated Failure Rate ({fail_pct:.1f}%)")
 
         # 3. Anomaly Integration
-        anomalies = anomaly_detector.detect_anomalies(connection_id, metrics)
+        anomalies = await anomaly_detector.detect_anomalies(connection_id, metrics)
         high_risk = [a for a in anomalies if a['severity'] == 'High']
         if high_risk:
             health_score -= 20 * len(high_risk)

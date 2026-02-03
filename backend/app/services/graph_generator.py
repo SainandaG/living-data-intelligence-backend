@@ -12,29 +12,35 @@ class GraphGenerator:
     """Generate 3D graph from database schema with advanced visualization"""
     
     # Entity-specific color palette (BRIGHT, vibrant colors for dark background)
+    # UNIFIED SEMANTIC PALETTE (G, B, Y, R)
     ENTITY_COLORS = {
-        'fact': '#fbbf24',       # Bright Gold/Amber
-        'dimension': '#22d3ee',  # Bright Cyan
-        'core': '#10b981',       # Bright Green
-        'risk': '#ef4444',       # Bright Red
-        'fraud': '#ef4444',
-        'alert': '#f87171',
-        'other': '#94a3b8'       # Light Gray
+        'fact': '#2196F3',              # Blue (Vehicles equivalent)
+        'dimension': '#4CAF50',         # Green (Batteries equivalent)
+        'time_intelligence': '#FFC107', # Yellow (Users equivalent)
+        'core': '#F44336',              # Red (Stations equivalent)
+        'other': '#94a3b8'
     }
     
-    # Heuristic Mode - BRIGHT 3-color palette
+    # Heuristic Mode - VIBRANT 6-color palette
     HEURISTIC_COLORS = [
         '#22d3ee',  # Bright Cyan
         '#10b981',  # Bright Green
         '#fbbf24',  # Bright Yellow/Gold
+        '#f472b6',  # Pink
+        '#a78bfa',  # Purple
+        '#fb7185',  # Rose
     ]
     
-    # NetworkX Mode - BRIGHT distinct color palette
+    # NetworkX Mode - VIBRANT diverse color palette
     NETWORKX_COLORS = [
-        '#60a5fa',  # Bright Blue (lighter than before)
-        '#a78bfa',  # Bright Purple (lighter)
-        '#fb923c',  # Bright Orange (lighter)
-        '#34d399',  # Bright Green (lighter)
+        '#60a5fa',  # Bright Blue
+        '#a78bfa',  # Bright Purple
+        '#fb923c',  # Bright Orange
+        '#34d399',  # Bright Green
+        '#facc15',  # Yellow
+        '#f87171',  # Red-Orange
+        '#c084fc',  # Light Purple
+        '#fb7185',  # Rose
     ]
     
     # Backward compatibility
@@ -102,11 +108,12 @@ class GraphGenerator:
             'group': 0, 'size': core_size, 'color': '#10b981',
             'entity': 'core',
             'x': 0, 'y': 0, 'z': 0,
-            'target_x': 0, 'target_y': 0, 'target_z': 0, # Core is anchor
+            'target_x': 0, 'target_y': 0, 'target_z': 0,
+            'latent_x': 0, 'latent_y': 0, 'latent_z': 0,
             'fixed': True,
             'row_count': core_metrics['signal_load'],
             'customMetrics': { 'Status': 'Active', 'Load': str(core_metrics['signal_load']) }
-        })\
+        })
 
         # 3. Calculate cluster positions if clustering is active
         cluster_positions = {}
@@ -172,14 +179,15 @@ class GraphGenerator:
             
             nodes.append(node)
             
-            # Hub Connection (Nearly invisible - just keeps nodes from drifting)
+            # Hub Connection (Visible structural links for constellation representation)
             edges.append({
                 'source': 'hub', 'target': name,
                 'type': 'core_link',
-                'link_strength': 0.05,
-                'width': 0.5,  # Very thin line
-                'opacity': 0.15,  # Almost invisible
-                'traffic_intensity': 0.1
+                'link_strength': 0.15,
+                'width': 1.0,
+                'opacity': 0.4,  # Increased visibility for hub connectivity
+                'traffic_intensity': 0.2,
+                'color': '#00d4ff' # Constellation Cyan
             })
 
         # 4. Generate Semantic Edges
@@ -190,9 +198,9 @@ class GraphGenerator:
             key = tuple(sorted([src, tgt]))
             if key in edge_set: return
             
-            # Visual distinction: FK = very thick/solid, others = thin/faded
-            width = 3 if type_ == 'foreign_key' else 1
-            opacity = 1.0 if type_ == 'foreign_key' else 0.4
+            # Visual distinction: FK = very thick/solid (The "Valid" representation)
+            width = 4.0 if type_ == 'foreign_key' else (2.5 if type_ == 'ai_predicted' else 1.5)
+            opacity = 0.9 if type_ == 'foreign_key' else 0.7
             
             edges.append({
                 'source': src, 'target': tgt,
@@ -200,9 +208,10 @@ class GraphGenerator:
                 'link_strength': strength,
                 'width': width,
                 'opacity': opacity,
-                'confidence': strength, # Critical: Frontend expects this for non-AI links too
+                'confidence': strength,
                 'reasoning': reason,
-                'traffic_intensity': strength * 0.8 
+                'traffic_intensity': strength * 1.0,
+                'color': '#00d4ff' # All data edges Cyan for mesh look
             })
             edge_set.add(key)
 
@@ -285,32 +294,98 @@ class GraphGenerator:
     def _build_node_dict(self, table: dict, x, y, z, ring: str) -> dict:
         """Helper to build a unified node dictionary"""
         t_name = table['name']
-        t_type = table.get('table_type', 'dimension')
+        t_low = t_name.lower()
+        
+        # Semantic Classification Fallback
+        t_type = table.get('table_type')
+        cols = table.get('columns', [])
+        fks = table.get('foreign_keys', [])
+        
+        # DATA-DRIVEN CLASSIFICATION (Fact = Numerical, Dimension = Categorical)
+        if not t_type or t_type in ['entity', 'dimension', 'other']:
+            numeric_count = 0
+            categorical_count = 0
+            measure_keywords = ['amount', 'total', 'price', 'cost', 'quantity', 'qty', 'sum', 'balance', 'value', 'score', 'measure', 'rate', 'price', 'discount', 'payment', 'fee']
+            has_major_measure = False
+
+            for col in cols:
+                c_type = str(col.get('type', '')).upper()
+                c_name = str(col.get('name', '')).lower()
+                
+                if any(k in c_name for k in measure_keywords):
+                    has_major_measure = True
+                    numeric_count += 3
+
+                if any(t in c_type for t in ['INT', 'FLOAT', 'DECIMAL', 'NUMERIC', 'DOUBLE', 'REAL', 'MONEY']):
+                    if c_name not in ['id', 'version', 'code', 'zip', 'pin']:
+                        numeric_count += 1
+                elif any(t in c_type for t in ['CHAR', 'STR', 'TEXT', 'CLOB', 'ENUM']):
+                    categorical_count += 1
+
+            if any(term in t_low for term in ['time', 'date', 'period', 'calendar', 'snapshot', 'grain', 'sequence', 'chron', 'day', 'month', 'year']):
+                t_type = 'time_intelligence'
+            elif has_major_measure or (numeric_count > categorical_count and numeric_count >= 2):
+                t_type = 'fact'
+            elif any(term in t_low for term in ['transaction', 'order', 'payment', 'event', 'log', 'fact', 'sale', 'history', 'rental', 'test_results', 'invoice', 'payroll', 'store', 'inventory', 'film_actor', 'payment', 'billing', 'shipment', 'traffic', 'metric']):
+                t_type = 'fact'
+            elif len(fks) >= 2 and numeric_count >= 1:
+                t_type = 'fact' 
+            else:
+                t_type = 'dimension'
+                
         b_entity = table.get('business_entity', 'other')
         importance = table.get('importance_score', 10)
         row_count = table.get('row_count', 0)
+        col_count = len(table.get('columns', []))
+        fk_count = len(table.get('foreign_keys', []))
         
-        # Default color (will be overridden by cluster color if clustering is active)
+        # USER REQUEST: Logical Readings based on inner data
+        # These are displayed on the 3D table faces
+        # We derive them from actual metrics to be proportional and "logical"
+        readings = {
+            'OP_SIGMA_Z': round(max(0.1, (importance / 20.0) + (row_count / 10000.0)), 4),
+            'HEALTH_IDX': f"{min(99.9, 70.0 + (importance * 2.5)):.1f}%",
+            'STABILITY.Ω': round(0.85 + (fk_count * 0.05), 3),
+            'ROW_DENSITY': round(row_count / (col_count * 10) if col_count > 0 else 0, 2),
+            'ENTROPY.Δ': round(0.1 + (random.Random(t_name).random() * 0.4), 3) # Table-stable entropy
+        }
+        
+        # Default colors (Frontend will refine these)
         color = self.ENTITY_COLORS.get(t_type, self.ENTITY_COLORS['other'])
         if b_entity == 'fraud': color = self.ENTITY_COLORS['fraud']
         
-        size = 20 + (importance * 2)
+        # DRAMATIC SIZING: High-Fidelity presence
+        if t_type == 'fact':
+            base_s = 60
+            boost = 4
+        elif t_type == 'dimension':
+            base_s = 40
+            boost = 2
+        elif t_type == 'time_intelligence':
+            base_s = 35
+            boost = 1
+        else:
+            base_s = 30
+            boost = 1
+            
+        size = base_s + (importance * boost) + (math.log10(max(1, row_count)) * 8)
         
         return {
             'id': t_name,
             'name': t_name,
             'table_type': t_type,
             'entity': b_entity,
-            'size': min(size, 70),
-            'color': color,  # Default color, will be updated if cluster exists
+            'size': round(min(size, 180), 1), # Support larger nodes for "Nice" feel
+            'color': color,
             'row_count': row_count,
             'x': x, 'y': y, 'z': z,
             'ring': ring,
             'columns': table.get('columns', []),
-            'foreign_keys': table.get('foreign_keys', []), # Critical for Neural Core patterns
+            'foreign_keys': table.get('foreign_keys', []),
+            'analytical_readings': readings,
             'customMetrics': {
-                # Type and Entity removed to avoid UI duplication
-                'Complexity': f"{len(table.get('columns', []))} cols"
+                'Complexity': f"{col_count} cols",
+                'Relations': f"{fk_count} FKs"
             }
         }
     

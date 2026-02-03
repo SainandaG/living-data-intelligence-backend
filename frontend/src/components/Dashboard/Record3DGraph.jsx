@@ -12,8 +12,8 @@ const Record3DGraph = ({ table, column, onClose }) => {
     const animationRef = useRef(null);
 
     const CLASSIFICATION_COLORS = {
-        'fact': 0xff4444,      // Red
-        'dimension': 0x22d3ee, // Cyan
+        'fact': 0xff4757,      // Pink
+        'dimension': 0x00d4ff, // Cyan
         'entity': 0x22c55e,    // Green
         'other': 0x94a3b8      // Slate
     };
@@ -78,15 +78,12 @@ const Record3DGraph = ({ table, column, onClose }) => {
         pointLight.position.set(500, 500, 500);
         scene.add(pointLight);
 
-        // Create Starfield
-        const starGeo = new THREE.BufferGeometry();
-        const starVerts = [];
-        for (let i = 0; i < 1000; i++) {
-            starVerts.push((Math.random() - 0.5) * 2000, (Math.random() - 0.5) * 2000, (Math.random() - 0.5) * 2000);
-        }
-        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
-        const starMat = new THREE.PointsMaterial({ color: 0x888888, size: 1.5 });
-        scene.add(new THREE.Points(starGeo, starMat));
+        // Create Structured Grid (Align with Hyper-Latent Aesthetic)
+        const grid = new THREE.GridHelper(1500, 15, 0x00d4ff, 0x1e293b);
+        grid.position.y = -200;
+        grid.material.opacity = 0.15;
+        grid.material.transparent = true;
+        scene.add(grid);
 
         // Create Nodes
         const nodes = [];

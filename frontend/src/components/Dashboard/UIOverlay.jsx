@@ -139,14 +139,14 @@ const HealthItem = ({ name, value, percent, color }) => (
     </div>
 );
 
-export const Legend = () => (
+export const Legend = ({ layoutMode }) => (
     <div className="legend glass-card">
-        <div className="legend-title">Node Types</div>
+        <div className="legend-title">{layoutMode === 'latent' ? 'Hyper-Latent Domains' : 'Node Intelligence Zones'}</div>
         <div className="legend-items">
-            <LegendItem color="#fbbf24" label="Fact Tables (Transactions)" />
-            <LegendItem color="#34d399" label="Dimension Tables (Entities)" />
-            <LegendItem color="#f87171" label="Risk/Alert Nodes" />
-            <LegendItem color="#22d3ee" label="Network Core" />
+            <LegendItem color="#4CAF50" label="Dimensions (Entities)" />
+            <LegendItem color="#2196F3" label="Fact Tables (Operational)" />
+            <LegendItem color="#FFC107" label="Temporal (Time Activity)" />
+            <LegendItem color="#F44336" label="System Core (Hub)" />
         </div>
     </div>
 );

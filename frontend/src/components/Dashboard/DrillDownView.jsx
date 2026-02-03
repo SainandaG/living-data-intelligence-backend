@@ -9,7 +9,7 @@ import NodeFormationSimulation from '../Evolution/NodeFormationSimulation';
 import soundSystem from '../../utils/SoundSystem';
 
 // Intelligence Panel Integration - Deep Analysis Feature
-export default function DrillDownView({ connectionId, tableName, onBack, initialShowSimulation = false }) {
+export default function DrillDownView({ connectionId, tableName, onBack, initialShowSimulation = false, layoutMode = 'galaxy' }) {
     const [flowData, setFlowData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -265,6 +265,7 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
                         columns={recordData?.columns}
                         onNodeHover={setHoveredNode}
                         onNodeClick={handleNodeClick}
+                        layoutMode={layoutMode}
                     />
 
                     <OrbitControls
@@ -288,7 +289,7 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
     );
 }
 
-function FlowGraph({ data, tableName, columns, onNodeHover, onNodeClick }) {
+function FlowGraph({ data, tableName, columns, onNodeHover, onNodeClick, layoutMode }) {
     const groupRef = useRef();
 
     if (!data || !data.nodes || data.nodes.length === 0) {
@@ -357,12 +358,16 @@ function FlowGraph({ data, tableName, columns, onNodeHover, onNodeClick }) {
                         onPointerOut={() => onNodeHover(null)}
                         onClick={() => onNodeClick(centerNode.id)}
                     >
-                        <sphereGeometry args={[Math.min(25 + ((centerNode.row_count || 0) / 10000), 50), 32, 32]} />
+                        {layoutMode === 'analysis' ? (
+                            <boxGeometry args={[40, 80, 40]} onUpdate={(self) => self.translate(0, 40, 0)} />
+                        ) : (
+                            <sphereGeometry args={[Math.min(25 + ((centerNode.row_count || 0) / 10000), 50), 32, 32]} />
+                        )}
                         <meshPhysicalMaterial
                             color="#00d9ff"
                             emissive="#00d9ff"
-                            emissiveIntensity={0.8}
-                            metalness={0.2}
+                            emissiveIntensity={1.2}
+                            metalness={0.8}
                             roughness={0.1}
                             clearcoat={1.0}
                         />
@@ -432,11 +437,18 @@ function FlowGraph({ data, tableName, columns, onNodeHover, onNodeClick }) {
                             onPointerOut={() => onNodeHover(null)}
                             onClick={() => onNodeClick(node.id)}
                         >
-                            <sphereGeometry args={[size, 32, 32]} />
-                            <meshStandardMaterial
+                            {layoutMode === 'analysis' ? (
+                                <boxGeometry args={[20, 40, 20]} onUpdate={(self) => self.translate(0, 20, 0)} />
+                            ) : (
+                                <sphereGeometry args={[size, 32, 32]} />
+                            )}
+                            <meshPhysicalMaterial
                                 color={color}
                                 emissive={color}
-                                emissiveIntensity={0.4}
+                                emissiveIntensity={0.8}
+                                metalness={0.8}
+                                roughness={0.1}
+                                clearcoat={1.0}
                             />
                         </mesh>
                         <Billboard>
