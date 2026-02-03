@@ -30,13 +30,26 @@ class RealtimeMonitor:
             # 4. Real health analysis
             health_status = self._analyze_graph_health(db_metrics)
             
+            # Core Intelligence Telemetry
+            core_metrics = await neural_core.get_core_metrics(connection_id)
+            
+            telemetry = {
+                "timestamp": datetime.now().isoformat(),
+                "connection_id": connection_id,
+                "metrics": {
+                    "growth": core_metrics['growth'],
+                    "patterns": core_metrics['patterns'],
+                    "load": core_metrics['signal_load']
+                }
+            }
+            
             data = {
                 'type': 'metrics_update',
                 'timestamp': datetime.now().isoformat(),
                 'data': db_metrics,
                 'health': health_status,
                 'anomalies': anomalies,
-                'ai_stats': ai_stats # Broadcast AI progress to frontend
+                'ai_stats': telemetry # Broadcast AI progress to frontend
             }
             
             # 5. MOCK Animation Logic REMOVED

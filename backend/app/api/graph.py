@@ -25,11 +25,8 @@ async def get_graph(connection_id: str):
         # 1. Feed the Schema for Active Scanning
         neural_core.update_schema_context({'tables': graph.get('nodes', [])}, connection_id=connection_id)
         
-        # FORCE: Run immediate analysis cycle to populate stats
-        # Tick the core once for every table (or max 50) so "Patterns" are counted instantly
-        import asyncio
-        for i in range(min(50, len(graph.get('nodes', [])))):
-             await neural_core.process_signal(f"init_tick_{i}", 1.0)
+        # REMOVED: Synchronous init ticks that block graph generation.
+        # The core will evolve naturally via background signals.
         
         # 2. Get Real-Time Metrics (DB Traffic)
         real_metrics_data = await realtime_monitor.get_realtime_data(connection_id)
@@ -37,7 +34,7 @@ async def get_graph(connection_id: str):
         health_report = real_metrics_data.get('health', {'state': 'unknown'})
         
         # 3. Get Neural Core Status (Schema Intelligence)
-        core_metrics = neural_core.get_core_metrics()
+        core_metrics = await neural_core.get_core_metrics(connection_id)
         
         # 4. Enrich Nodes & Edges via GlowCalculator Service
         from visualization.glow_calculator import GlowCalculator
@@ -52,7 +49,8 @@ async def get_graph(connection_id: str):
         for n in nodes_for_calc:
             n.setdefault('record_count', n.get('row_count', 0))
             # Inject neural importance if available
-            raw_imp = neural_core.gravity_store.get(n.get('name'), 1.0)
+            gravity_map = neural_core.gravity_stores.get(connection_id, {})
+            raw_imp = gravity_map.get(n.get('name'), 1.0)
             if isinstance(raw_imp, str):
                  importance_map = {"critical": 3.0, "high": 2.2, "medium": 1.5, "low": 0.8}
                  n['centrality'] = importance_map.get(raw_imp.lower(), 1.0)
@@ -146,13 +144,24 @@ async def get_graph(connection_id: str):
         # Re-raise error to show real status
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/metrics/{connection_id}")
+async def get_neural_metrics(connection_id: str):
+    """Get real-time metrics from the neural core"""
+    try:
+        from app.services.neural_core import neural_core
+        metrics = await neural_core.get_core_metrics(connection_id)
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/recalculate-gravity")
 async def recalculate_gravity(payload: dict):
     """Manually trigger neural core recalculation"""
     try:
         from app.services.neural_core import neural_core
-        print("🔄 Manual Recalculation Triggered")
-        await neural_core.process_signal("manual_recalc", 1.0)
+        conn_id = payload.get("connection_id")
+        print(f"🔄 Manual Recalculation Triggered for {conn_id}")
+        await neural_core.process_signal("manual_recalc", 1.0, connection_id=conn_id)
         return {"status": "triggered", "message": "Neural Core recalculation started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

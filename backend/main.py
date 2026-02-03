@@ -34,6 +34,11 @@ async def lifespan(app: FastAPI):
     # Start background WebSocket streaming task
     from app.api.websocket import start_streaming_task
     await start_streaming_task()
+    
+    # Start Agentic AI Autonomous Loop
+    from app.services.agent_service import agent_service
+    await agent_service.start_autonomous_loop()
+    
     yield
     # Shutdown
     print("👋 Shutting down...")
@@ -49,6 +54,12 @@ app = FastAPI(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail}
+        )
+    
     import traceback
     print(f"🔥 GLOBAL ERROR: {exc}")
     traceback.print_exc()

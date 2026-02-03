@@ -3,37 +3,22 @@ import { BarChart3, TrendingUp, Activity, Brain, Download, Zap, AlertTriangle, N
 import { motion, AnimatePresence } from 'framer-motion';
 import ThreeGraph from './ThreeGraph';
 
-export default function AnalyticsView({ connectionId, mlInsights, gravitySuggestions }) {
-    const [analytics, setAnalytics] = useState(null);
-    const [tableData, setTableData] = useState([]);
+export default function AnalyticsView({ connectionId, graphData, mlInsights, gravitySuggestions }) {
     const [showGraphModal, setShowGraphModal] = useState(false);
     const [vizData, setVizData] = useState({ nodes: [], edges: [] });
 
-    useEffect(() => {
-        if (!connectionId) return;
+    const tableData = graphData?.nodes || [];
 
-        const fetchAnalytics = async () => {
-            try {
-                const response = await fetch(`/api/schema/${connectionId}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    const computed = {
-                        totalRecords: data.tables?.reduce((sum, t) => sum + (t.row_count || 0), 0) || 0,
-                        avgTableSize: Math.round((data.tables?.reduce((sum, t) => sum + (t.row_count || 0), 0) || 0) / (data.tables?.length || 1)),
-                        largestTable: data.tables?.reduce((max, t) => (t.row_count || 0) > (max.row_count || 0) ? t : max, {}),
-                        totalColumns: data.tables?.reduce((sum, t) => sum + (t.columns?.length || 0), 0) || 0,
-                        totalTables: data.tables?.length || 0,
-                    };
-                    setAnalytics(computed);
-                    setTableData(data.tables || []);
-                }
-            } catch (err) {
-                console.error('Failed to fetch analytics:', err);
-            }
+    const analytics = React.useMemo(() => {
+        if (!tableData.length) return null;
+        return {
+            totalRecords: tableData.reduce((sum, t) => sum + (t.row_count || 0), 0),
+            avgTableSize: Math.round(tableData.reduce((sum, t) => sum + (t.row_count || 0), 0) / tableData.length),
+            largestTable: tableData.reduce((max, t) => (t.row_count || 0) > (max.row_count || 0) ? t : max, {}),
+            totalColumns: tableData.reduce((sum, t) => sum + (t.columns?.length || 0), 0),
+            totalTables: tableData.length,
         };
-
-        fetchAnalytics();
-    }, [connectionId]);
+    }, [tableData]);
 
     const exportReport = () => {
         const report = {
@@ -133,7 +118,7 @@ export default function AnalyticsView({ connectionId, mlInsights, gravitySuggest
     };
 
     return (
-        <div className="w-full h-full overflow-auto bg-gradient-to-br from-[#0a0e1a] via-[#0f1419] to-[#0a0e1a] pointer-events-auto">
+        <div className="w-full h-full overflow-auto bg-black/40 backdrop-blur-md pointer-events-auto">
             {/* 3D Visualization Modal */}
             <AnimatePresence>
                 {showGraphModal && (

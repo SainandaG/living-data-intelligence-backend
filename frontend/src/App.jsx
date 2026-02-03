@@ -14,6 +14,7 @@ import DataFlowView from './components/Dashboard/DataFlowView';
 import AnalyticsView from './components/Dashboard/AnalyticsView';
 import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
+import { LatentWorld } from './components/Dashboard/LatentWorld';
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
 import { Legend, CirclePackOverlay, StatsDashboard } from './components/Dashboard/UIOverlay';
@@ -148,24 +149,71 @@ const MainDashboard = () => {
   // Navigation handlers (Same as before)
   const handleNavigate = React.useCallback((view) => {
     setViewMode(view);
-    if (view === 'overview') { setBreadcrumbs([]); setDrillDownTable(null); }
+    if (view === 'overview') {
+      setBreadcrumbs([]);
+      setDrillDownTable(null);
+      if (graphRef.current) {
+        console.log("[App] Resetting graph view on navigation to overview");
+        graphRef.current.resetView();
+      }
+    }
   }, []);
 
   const handleNodeDrillDown = React.useCallback((nodeId, shouldSimulate = false) => {
-    setViewMode('drilldown'); setDrillDownTable(nodeId);
-    setAutoSimulate(shouldSimulate);
+    // CINEMATIC TRANSITION: Zoom in first if we are in overview
+    if (viewMode === 'overview' && graphRef.current) {
+      graphRef.current.highlightNode(nodeId);
+      setAiStatus(`Neural Core: Drilling into ${nodeId}...`);
+
+      // Wait for camera to arrive (1.2s) before unmounting graph
+      setTimeout(() => {
+        setViewMode('drilldown');
+        setDrillDownTable(nodeId);
+        setAutoSimulate(shouldSimulate);
+        setAiStatus(null);
+      }, 1200);
+    } else {
+      // Direct switch if already in another view or graph not ready
+      setViewMode('drilldown');
+      setDrillDownTable(nodeId);
+      setAutoSimulate(shouldSimulate);
+    }
+
     setBreadcrumbs([{ label: 'Overview', onClick: () => handleNavigate('overview') }, { label: `Table: ${nodeId}` }]);
-  }, [handleNavigate]);
+  }, [handleNavigate, viewMode]);
+
+  // Effect to ensure graph is reset whenever we return to overview
+  useEffect(() => {
+    if (viewMode === 'overview' && graphRef.current) {
+      console.log("🔄 [App] Auto-resetting graph view for Overview");
+      graphRef.current.resetView();
+    }
+  }, [viewMode]);
 
   const handleBackToOverview = React.useCallback(() => {
     setViewMode('overview');
     setDrillDownTable(null);
     setBreadcrumbs([]);
-    if (graphRef.current) {
-      console.log("Returning to Overview -> Resetting Camera");
-      graphRef.current.resetView();
-    }
   }, []);
+
+  const handleToggleLatent = React.useCallback(() => {
+    const isReturning = viewMode === 'latent';
+    const nextView = isReturning ? 'drilldown' : 'latent';
+
+    // If moving to latent and selectedNode is missing, sync it
+    // This logic is now moved out of setViewMode call, but still within the handler.
+    if (nextView === 'latent' && !selectedNode && drillDownTable && graphData?.nodes) {
+      const node = Array.isArray(graphData.nodes)
+        ? graphData.nodes.find(n => n.id === drillDownTable || n.table_name === drillDownTable)
+        : graphData.nodes[drillDownTable];
+
+      if (node) {
+        setSelectedNode(node);
+      }
+    }
+
+    setViewMode(nextView);
+  }, [viewMode, drillDownTable, graphData, selectedNode]);
 
   const fetchGravitySuggestions = React.useCallback(async (connId) => {
     try {
@@ -176,7 +224,9 @@ const MainDashboard = () => {
   }, []);
 
   const fetchRealGraphData = React.useCallback(async (id) => {
-    setLoading(true); fetchGravitySuggestions(id);
+    // V17 Load Guard: Only show global loading on first mount or empty state
+    if (!graphData.nodes || graphData.nodes.length === 0) setLoading(true);
+    fetchGravitySuggestions(id);
     try {
       const resp = await fetch(`/api/graph/${id}`);
       if (!resp.ok) throw new Error('Failed to fetch graph');
@@ -194,7 +244,6 @@ const MainDashboard = () => {
 
       const nodesTransformed = (rawData.nodes || []).map((node, i) => {
         // Dynamic Size Calculation based on Neural Importance
-        // Base size (25) + (Importance * 20) + (Row Count Factor)
         const importance = node.importance_score || 1.0;
         const rowBonus = node.record_count ? Math.log10(node.record_count + 1) * 5 : 0;
         const calculatedSize = 20 + (importance * 15) + rowBonus;
@@ -203,18 +252,19 @@ const MainDashboard = () => {
           id: node.id,
           name: node.name,
           color: node.color || (node.group === 1 ? 0xfbbf24 : 0x22d3ee),
-          size: calculatedSize, // Use Calculated Size
+          size: calculatedSize,
           pos: [node.x || Math.cos(i * 0.5) * (150 + i * 10), node.y || (Math.random() - 0.5) * 200, node.z || Math.sin(i * 0.5) * (150 + i * 10)],
           entity: node.entity || 'TABLE',
           rows: node.row_count ? node.row_count.toLocaleString() + ' Records' : 'Empty',
-          metrics: node.metrics || node.foreign_keys || [], // Map FKs to metrics if empty
+          row_count: node.row_count || 0,
+          metrics: node.metrics || node.foreign_keys || [],
           columns: node.columns || [],
           vitality: node.vitality || 50,
           pulse_rate: node.pulse_rate || 1.0,
-          glow_intensity: node.node_glow || 0.5, // Use Backend Glow
-          node_glow: node.node_glow || 1.0,      // Pass raw value too
-          importance_score: node.importance_score || 1.0, // EXPLICIT MAP
-          foreign_keys: node.foreign_keys || [], // Pass explicitly for counts
+          glow_intensity: node.node_glow || 0.5,
+          node_glow: node.node_glow || 1.0,
+          importance_score: node.importance_score || 1.0,
+          foreign_keys: node.foreign_keys || [],
           customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' }
         };
       });
@@ -224,13 +274,13 @@ const MainDashboard = () => {
         type: e.type,
         confidence: e.confidence,
         trafficIntensity: e.traffic_intensity || 0.3,
-        edge_glow: e.edge_glow || 1.0 // Pass edge glow
+        edge_glow: e.edge_glow || 1.0
       }));
       setGraphData({ nodes: nodesTransformed, edges: edgesTransformed });
       setLiveStats(prev => ({ ...prev, activeNodes: nodesTransformed.length }));
       setTimeout(() => setAiStatus(null), 5000);
     } catch (e) { console.error('Error fetching graph data:', e); setAiStatus("Neural Core: Analysis Failed"); } finally { setLoading(false); }
-  }, [fetchGravitySuggestions]);
+  }, [fetchGravitySuggestions, graphData.nodes.length]);
 
   const handleNodeClick = React.useCallback((node) => {
     setSelectedNode(node);
@@ -350,7 +400,21 @@ const MainDashboard = () => {
     <DashboardLayout sidebarProps={sidebarProps}>
       <NavigationBar currentView={viewMode} onNavigate={handleNavigate} breadcrumbs={breadcrumbs} onToggleChat={() => setIsChatOpen(!isChatOpen)} isChatOpen={isChatOpen} />
 
-      <ThreeGraph ref={graphRef} className="absolute inset-0 z-0" data={graphData} onNodeClick={handleNodeClick} />
+      {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
+      <div
+        className={`fixed inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics'
+          ? 'opacity-100'
+          : 'opacity-0 pointer-events-none'
+          }`}
+        style={{ zIndex: 0 }}
+      >
+        <ThreeGraph
+          ref={graphRef}
+          data={graphData}
+          tps={liveStats.tps}
+          onNodeClick={handleNodeClick}
+        />
+      </div>
       <AgentStatusPanel />
       <VoiceControl
         onActionTriggered={handleAgentAction}
@@ -368,25 +432,35 @@ const MainDashboard = () => {
 
       <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
         <div className="w-full h-full">
-          {viewMode === 'overview' && (
-            <>
-              <CirclePackOverlay node={selectedNode} visible={showDrillDown} onClose={() => setShowDrillDown(false)} onColumnClick={handleColumnClick} />
-              {showRecordGravity && <Record3DGraph table={selectedNode?.name} column={selectedColumn} onClose={() => setShowRecordGravity(false)} />}
-            </>
-          )}
+          {/* These overlays are now always rendered, but their visibility is controlled by their own props */}
+          <CirclePackOverlay node={selectedNode} visible={showDrillDown && viewMode === 'overview'} onClose={() => setShowDrillDown(false)} onColumnClick={handleColumnClick} />
+          {showRecordGravity && <Record3DGraph table={selectedNode?.name} column={selectedColumn} onClose={() => setShowRecordGravity(false)} />}
+
           {viewMode === 'drilldown' && drillDownTable && (
             <DrillDownView
               connectionId={connectionId}
               tableName={drillDownTable}
               onBack={handleBackToOverview}
+              onToggleLatent={handleToggleLatent}
               initialShowSimulation={autoSimulate}
             />
           )}
           {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
-          {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
+          {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
           {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
         </div>
       </div>
+
+      {/* Latent World rendered outside the pointer-events-none container for full interactivity */}
+      {viewMode === 'latent' && (
+        <LatentWorld
+          key={`latent-${selectedNode?.id || 'none'}`}
+          targetNode={selectedNode}
+          onClose={handleToggleLatent}
+          schemaData={graphData}
+          connectionId={connectionId}
+        />
+      )}
 
       <div className="relative z-[3000]">
         <AnimatePresence>
@@ -417,7 +491,7 @@ const MainDashboard = () => {
 
       <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
       {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
-    </DashboardLayout>
+    </DashboardLayout >
   );
 };
 

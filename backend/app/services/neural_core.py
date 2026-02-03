@@ -19,24 +19,20 @@ class NeuralCore:
     def __init__(self):
         self.model_state = "initializing"
         
-        # Intelligence Metrics (Deterministic)
-        self.patterns_learned = 0 
-        self.signal_count = 0 
+        # Multi-connection State
+        self.snapshots: Dict[str, Dict] = {} # connection_id -> snapshot
+        self.adjacency_maps: Dict[str, Dict] = {} 
+        self.in_degrees: Dict[str, Dict] = {} 
+        self.out_degrees: Dict[str, Dict] = {}
+        self.gravity_stores: Dict[str, Dict[str, float]] = {} # conn_id -> table -> gravity
+        self.hub_scores: Dict[str, Dict[str, float]] = {}
+        self.patterns_learned: Dict[str, int] = {}
+        self.signal_counts: Dict[str, int] = {}
+        self.analyzed_tables: Dict[str, set] = {}
+        self.scan_cursors: Dict[str, int] = {}
+        
+        # Metrics & Status
         self.growth_factor = 1.0 
-        
-        # Graph Structural Data
-        self.adjacency_map = {} # node -> [neighbors]
-        self.in_degree = {} # node -> count
-        self.out_degree = {} # node -> count
-        self.hub_scores = {} # node -> centrality
-        
-        # Scanning State
-        self.schema_snapshot = None
-        self.scan_cursor = 0 # Index of current table being analyzed
-        self.analyzed_tables = set()
-        
-        # Insights
-        self.gravity_store = {} # node_id -> importance_score
         self.agent_status = "IDLE"
         self.active_connection_id = None
 
@@ -45,56 +41,86 @@ class NeuralCore:
         self.model_state = "ready"
         print("Neural Core: Visual Intelligence Engine Ready.")
 
-    def update_schema_context(self, schema: Dict, connection_id: str = None):
+    def update_schema_context(self, schema: Dict, connection_id: str):
         """Receive the latest schema snapshot to analyze"""
-        self.schema_snapshot = schema
-        if connection_id:
-            self.active_connection_id = connection_id
+        if not connection_id: return
+        
+        self.snapshots[connection_id] = schema
+        self.active_connection_id = connection_id
             
-        # Reset if new schema
-        if not self.analyzed_tables:
-            self.agent_status = "ACTIVE_SCANNING"
+        # Initialize connection-specific metrics if not present
+        if connection_id not in self.analyzed_tables:
+            self.analyzed_tables[connection_id] = set()
+            self.gravity_stores[connection_id] = {}
+            self.hub_scores[connection_id] = {}
+            self.patterns_learned[connection_id] = 0
+            self.signal_counts[connection_id] = 0
+            self.scan_cursors[connection_id] = 0
+        else:
+            # If connection exists, clear analyzed tables for a fresh scan
+            self.analyzed_tables[connection_id].clear()
+            self.patterns_learned[connection_id] = 0 # Reset metrics for re-scan
+            self.signal_counts[connection_id] = 0
+            self.scan_cursors[connection_id] = 0
             
-        # Global Topology Analysis (Pre-calc)
-        self.adjacency_map = {}
-        self.in_degree = {} 
-        self.out_degree = {}
+        self.agent_status = "ACTIVE_SCANNING"
+            
+        # Per-connection Topology
+        adj = {}
+        in_deg = {}
+        out_deg = {}
         
         tables = schema.get('tables', [])
         for t in tables:
             t_name = t['name']
-            if t_name not in self.adjacency_map: self.adjacency_map[t_name] = []
-            if t_name not in self.in_degree: self.in_degree[t_name] = 0
-            if t_name not in self.out_degree: self.out_degree[t_name] = len(t.get('foreign_keys', []))
+            if t_name not in adj: adj[t_name] = []
+            if t_name not in in_deg: in_deg[t_name] = 0
             
-            for fk in t.get('foreign_keys', []):
-                target = fk.get('target_table')
+            fks = t.get('foreign_keys', [])
+            out_deg[t_name] = len(fks)
+            
+            for fk in fks:
+                target = fk.get('referenced_table', fk.get('target_table'))
                 if target:
-                    if target not in self.in_degree: self.in_degree[target] = 0
-                    self.in_degree[target] += 1
+                    if target not in in_deg: in_deg[target] = 0
+                    in_deg[target] += 1
+        
+        self.adjacency_maps[connection_id] = adj
+        self.in_degrees[connection_id] = in_deg
+        self.out_degrees[connection_id] = out_deg
 
-    async def process_signal(self, node_id: str, intensity: float, metadata: Dict = None):
+    async def process_signal(self, node_id: str, intensity: float, connection_id: str = None, metadata: Dict = None):
         """
-        Advance the analysis cursor. 
+        Advance the analysis cursor for a specific connection. 
         Each 'signal' (tick) processes the next part of the real schema.
         """
-        if not self.schema_snapshot or not self.schema_snapshot.get('tables'):
+        conn_id = connection_id or self.active_connection_id
+        if not conn_id: return
+        
+        schema = await self._get_context(conn_id)
+        if not schema or not schema.get('tables'):
             return
 
-        tables = self.schema_snapshot['tables']
+        tables = schema['tables']
         if not tables: return
+        
+        # Get connection state
+        analyzed = self.analyzed_tables.get(conn_id, set())
+        cursor = self.scan_cursors.get(conn_id, 0)
 
         # OPTIMIZATION: Stop scanning if we are done
-        if len(self.analyzed_tables) >= len(tables):
+        if len(analyzed) >= len(tables):
             # If this is just a heartbeat, do nothing
             if node_id == "heartbeat" and self.agent_status != "ACTIVE_SCANNING":
                 self.agent_status = "IDLE (Optimized)" 
                 return
             
             # If manual re-calc specifically requested
-            if node_id == "manual_recalc" and self.agent_status != "ACTIVE_SCANNING":
-                self.analyzed_tables.clear()
-                self.patterns_learned = 0 # Reset metrics for re-scan
+            if node_id == "manual_recalc":
+                analyzed.clear()
+                self.patterns_learned[conn_id] = 0 # Reset metrics for re-scan
+                self.signal_counts[conn_id] = 0
+                self.scan_cursors[conn_id] = 0
                 self.agent_status = "ACTIVE_SCANNING"
             elif node_id == "heartbeat":
                 # Fallback: if we were stuck in active but done, idle now
@@ -102,86 +128,65 @@ class NeuralCore:
                 return
 
         # Active Scanning Logic (1 tick = 1 table analysis step)
-        current_idx = self.scan_cursor % len(tables)
+        current_idx = cursor % len(tables)
         target_table = tables[current_idx]
+        t_name = target_table['name']
         
-        # Analyze this real table
-        if target_table['name'] not in self.analyzed_tables:
-            # 1. Calculate Patterns (Foreign Keys)
+        if t_name not in analyzed:
+            # 1. Update Signal Data
             fks = len(target_table.get('foreign_keys', []))
-            self.patterns_learned += fks
+            self.patterns_learned[conn_id] += fks
             
-            # 2. Update Signal Load (Columns)
             cols = len(target_table.get('columns', []))
-            self.signal_count += cols
+            self.signal_counts[conn_id] += cols
             
-            # 3. Calculate Weight/Gravity (Advanced)
-            # Fetch Centrality
-            in_deg = self.in_degree.get(target_table['name'], 0)
-            out_deg = self.out_degree.get(target_table['name'], 0)
+            # 2. Calculate Gravity (Structural Weight)
+            in_deg_map = self.in_degrees.get(conn_id, {})
+            out_deg_map = self.out_degrees.get(conn_id, {})
             
-            # Structural Centrality Score (normalized approx 0-1)
-            struct_centrality = (in_deg * 1.5) + (out_deg * 0.5)
+            in_deg = in_deg_map.get(t_name, 0)
+            out_deg = out_deg_map.get(t_name, 0)
+            
+            # Centrality Score
+            struct_centrality = (in_deg * 2.0) + (out_deg * 1.0)
             norm_struct = min(1.0, struct_centrality / 10.0)
-            self.hub_scores[target_table['name']] = norm_struct
+            self.hub_scores.setdefault(conn_id, {})[t_name] = norm_struct
 
             # Weighted Sigmoid Importance
-            # Inputs: Row Count (Log), Structural Score, Column Count
-            row_factor = math.log10(max(1, target_table.get('row_count', 0) or 1)) * 0.3
-            col_factor = cols * 0.05
+            row_count = target_table.get('row_count', 0) or 1
+            row_factor = math.log10(max(1, row_count)) * 0.4
+            col_factor = cols * 0.1
             
-            raw_imp = row_factor + (norm_struct * 5.0) + col_factor
-            # Sigmoid with offset to center interesting nodes
-            sigmoid_imp = 1 / (1 + math.exp(-(raw_imp - 3.0)))
+            raw_imp = row_factor + (norm_struct * 6.0) + col_factor
+            sigmoid_imp = 1 / (1 + math.exp(-(raw_imp - 4.0)))
             base_gravity = 1.0 + (sigmoid_imp * 4.0)
 
-            # 4. Interaction Simulation (Liveness)
-            # Default "last active" if missing, based on size (larger tables imply more generic activity)
-            last_interaction = target_table.get('last_interaction')
-            if not last_interaction:
-                # Simulate activity: bigger tables = more recent
-                days_ago = max(0, 30 - math.log(max(1, target_table.get('row_count', 0))))
-                last_interaction = (datetime.now() - timedelta(days=days_ago)).isoformat()
-                # Update back to source (optional, but good for consistency)
-                target_table['last_interaction'] = last_interaction
+            # Decay based on Interaction
+            last_int = target_table.get('last_interaction')
+            final_gravity = base_gravity
+            if last_int:
+                try:
+                    dt = datetime.fromisoformat(str(last_int).replace('Z', '+00:00'))
+                    now = datetime.now().astimezone() if dt.tzinfo else datetime.now()
+                    hours_since = (now - dt).total_seconds() / 3600
+                    decay = 1.0 / (1.0 + (hours_since / 168.0)) # 1 week half-life
+                    final_gravity = (base_gravity * 0.5) + (base_gravity * 0.5 * decay)
+                except: pass
 
-            # Calculate Time Decay
-            try:
-                dt = datetime.fromisoformat(str(last_interaction).replace('Z', '+00:00'))
-                # Handle offset-naive vs aware
-                if dt.tzinfo is None:
-                    now = datetime.now()
-                else:
-                    now = datetime.now().astimezone()
-                
-                hours_since = (now - dt).total_seconds() / 3600
-                # Decay: Full strength at 0 hours, 50% at 24 hours
-                decay_factor = 1.0 / (1.0 + (hours_since / 24.0)) 
-                
-                # Apply decay but keep a static floor (don't let important nodes vanish)
-                final_gravity = (base_gravity * 0.4) + (base_gravity * 0.6 * decay_factor)
-                
-            except Exception:
-                final_gravity = base_gravity
+            self.gravity_stores[conn_id][t_name] = final_gravity
+            analyzed.add(t_name)
+            self.analyzed_tables[conn_id] = analyzed
 
-            self.gravity_store[target_table['name']] = final_gravity
-            
-            self.analyzed_tables.add(target_table['name'])
-            
-            # Log for debug visibility
-            # print(f"🧠 Neural Core: Analyzed {target_table['name']} | Complexity: {complexity:.2f}")
-
-        # Update Growth Factor (Global Complexity)
-        # Logarithmic scale of total knowledge
-        total_complexity = self.patterns_learned + (self.signal_count * 0.1)
+        # Update global growth factor based on total connection knowledge
+        total_complexity = sum(self.patterns_learned.values()) + (sum(self.signal_counts.values()) * 0.1)
         self.growth_factor = 1.0 + math.log10(max(1, total_complexity))
 
         # Advance Cursor
-        self.scan_cursor += 1
-        self.agent_status = "ANALYZING_RELATIONSHIPS" if self.scan_cursor % 2 == 0 else "COMPUTING_GRAVITY"
+        self.scan_cursors[conn_id] = cursor + 1
+        self.agent_status = "COMPUTING_CENTRALITY" if cursor % 2 == 0 else "SIGMOID_GRAVITY_SYNC"
 
-        # AUTO-SAVE: If we just finished a full scan cycle, persist to DB
-        if len(self.analyzed_tables) == len(tables) and self.scan_cursor % len(tables) == 0:
+        # AUTO-SAVE: If we just finished a full scan cycle
+        if len(analyzed) == len(tables) and self.scan_cursors[conn_id] % len(tables) == 0:
             # Trigger Latent Space Update
             # Extract basic node/edge structure for the GNN
             gnn_nodes = [{"id": t['name'], "metadata": t} for t in tables]
@@ -199,13 +204,13 @@ class NeuralCore:
             except Exception as e:
                 print(f"Neural Core: Failed to update Latent Space: {e}")
 
-            # Prioritize stored connection ID over signal origin
-            persist_id = self.active_connection_id or node_id
-            asyncio.create_task(self.save_snapshot(persist_id))
+            print(f"🧠 Neural Core: Completed full sync for {conn_id}. Persisting state...")
+            asyncio.create_task(self.save_snapshot(conn_id))
 
     async def save_snapshot(self, connection_id: str):
         """Persist the current neural state to the database"""
-        if not self.schema_snapshot: 
+        current_snapshot = self.snapshots.get(connection_id)
+        if not current_snapshot: 
             print("Neural Core: No schema snapshot to save.")
             return
         
@@ -248,11 +253,14 @@ class NeuralCore:
             return
 
         # 2. Prepare Data
-        metrics = self.get_core_metrics()
+        metrics = await self.get_core_metrics(connection_id)
         
         # Detailed Node State
         nodes = {}
-        for t in self.schema_snapshot.get('tables', []):
+        gravity_store = self.gravity_stores.get(connection_id, {})
+        hub_scores = self.hub_scores.get(connection_id, {})
+        
+        for t in current_snapshot.get('tables', []):
             name = t['name']
             nodes[name] = {
                 "node_id": name,
@@ -260,16 +268,16 @@ class NeuralCore:
                 "row_count": t.get('row_count', 0),
                 "column_count": len(t.get('columns', [])),
                 "fk_count": len(t.get('foreign_keys', [])),
-                "gravity": self.gravity_store.get(name, 1.0),
-                "hub_score": self.hub_scores.get(name, 0.0),
+                "gravity": gravity_store.get(name, 1.0),
+                "hub_score": hub_scores.get(name, 0.0),
                 "last_interaction": t.get('last_interaction')
             }
 
         # Detailed Edge State
         edges = {}
-        for t in self.schema_snapshot.get('tables', []):
+        for t in current_snapshot.get('tables', []):
             for fk in t.get('foreign_keys', []):
-                target = fk.get('target_table')
+                target = fk.get('referenced_table', fk.get('target_table'))
                 if not target: continue
                 edge_id = f"{t['name']}_{target}"
                 edges[edge_id] = {
@@ -293,41 +301,76 @@ class NeuralCore:
         except Exception as e:
             print(f"FAIL: Failed to save neural snapshot to {table_name}: {e}")
 
-    def get_core_metrics(self) -> Dict[str, Any]:
-        """Return the current DETERMINISTIC state of intelligence"""
+    async def _get_context(self, connection_id: str) -> Dict:
+        """Helper to get snapshot for connection, with fallback to schema_analyzer"""
+        if not connection_id: return None
+        
+        # 1. Check local cache
+        schema = self.snapshots.get(connection_id)
+        if schema: return schema
+        
+        # 2. Fallback to Schema Analyzer
+        try:
+            from app.services.schema_analyzer import schema_analyzer
+            schema_obj = schema_analyzer.get_analysis_result(connection_id)
+            if schema_obj:
+                # Convert to dict if model
+                schema_dict = schema_obj.dict() if hasattr(schema_obj, 'dict') else schema_obj.model_dump()
+                self.update_schema_context(schema_dict, connection_id) # Cache it
+                return schema_dict
+        except Exception as e:
+            print(f"Neural Core: Context recovery failed for {connection_id}: {e}")
+            
+        return None
+
+    async def get_core_metrics(self, connection_id: str = None) -> Dict[str, Any]:
+        """Return system health and intelligence metrics"""
+        conn_id = connection_id or self.active_connection_id
+        schema = await self._get_context(conn_id) if conn_id else None
+        
+        gravity_store = self.gravity_stores.get(conn_id, {})
+        patterns = self.patterns_learned.get(conn_id, 0)
+        signal_load = self.signal_counts.get(conn_id, 0)
+        analyzed = self.analyzed_tables.get(conn_id, set())
+        
         return {
+            "model_state": self.model_state,
             "growth": float(f"{self.growth_factor:.2f}"),
-            "patterns": self.patterns_learned,
-            "signal_load": self.signal_count,
-            "avg_gravity": sum(self.gravity_store.values()) / max(len(self.gravity_store), 1) if self.gravity_store else 1.0,
+            "patterns": patterns,
+            "signal_load": signal_load,
+            "avg_gravity": sum(gravity_store.values()) / max(len(gravity_store), 1) if gravity_store else 1.0,
             
             # Status
             "status": self.agent_status,
-            "scanned_nodes": len(self.analyzed_tables),
-            "total_nodes": len(self.schema_snapshot['tables']) if self.schema_snapshot else 0
+            "scanned_nodes": len(analyzed),
+            "total_nodes": len(schema['tables']) if schema and 'tables' in schema else 0
         }
 
-    async def trigger_retraining(self):
-        """Re-scan the entire schema from scratch"""
-        print("Neural Core: Re-initiating full schema scan...")
-        self.agent_status = "RECALCULATING"
-        await asyncio.sleep(1) # Brief pause for UI feedback
+    async def trigger_retraining(self, connection_id: str = None):
+        """Re-scan the entire schema from scratch for a specific connection"""
+        conn_id = connection_id or self.active_connection_id
+        if not conn_id: return
         
-        # Reset but keep gravity cache for stability
-        self.scan_cursor = 0
-        self.analyzed_tables.clear()
-        self.patterns_learned = 0
-        self.signal_count = 0
-        self.growth_factor = 1.0
+        print(f"Neural Core: Re-initiating full schema scan for {conn_id}...")
+        self.agent_status = "RECALCULATING"
+        await asyncio.sleep(0.5) # Brief pause for UI feedback
+        
+        # Reset connection-specific metrics
+        self.scan_cursors[conn_id] = 0
+        if conn_id in self.analyzed_tables:
+            self.analyzed_tables[conn_id].clear()
+            
+        self.patterns_learned[conn_id] = 0
+        self.signal_counts[conn_id] = 0
         
         self.agent_status = "ACTIVE_SCANNING"
 
-    async def predict_links(self, node_id: str, context_nodes: List[str]) -> List[Dict[str, Any]]:
+    async def predict_links(self, connection_id: str, node_id: str, context_nodes: List[str]) -> List[Dict[str, Any]]:
         """
         Identify POTENTIAL relationships based on name similarity.
-        (e.g. table "user_logs" might relate to "users" even if no FK exists)
         """
-        if not self.schema_snapshot: return []
+        schema = await self._get_context(connection_id)
+        if not schema: return []
         
         predictions = []
         # Simple heuristic: Name containment
@@ -358,6 +401,111 @@ class NeuralCore:
                 })
                 
         return predictions
+
+    async def get_column_intelligence(self, connection_id: str, table_name: str, column_name: str) -> Dict[str, Any]:
+        """
+        Calculate granular intelligence for a specific column.
+        Includes bidirectional impact and propagation paths using formal and semantic links.
+        """
+        schema = await self._get_context(connection_id)
+        if not schema: return {}
+
+        target_table_clean = table_name.lower().strip()
+        target_col_clean = column_name.lower().strip()
+
+        # 1. IDENTIFY DIRECT IMPACT (Formal Foreign Keys)
+        formal_downstream = []
+        formal_upstream = []
+        
+        current_table_obj = next((t for t in schema.get('tables', []) if t['name'].lower() == target_table_clean), None)
+        
+        # Find who points TO us (Consumers)
+        for t in schema.get('tables', []):
+            if t['name'].lower() == target_table_clean: continue
+            for fk in t.get('foreign_keys', []):
+                if fk.get('referenced_table', fk.get('target_table', '')).lower().strip() == target_table_clean:
+                    formal_downstream.append(t['name'])
+        
+        # Find who WE point to (Origins)
+        if current_table_obj:
+            for fk in current_table_obj.get('foreign_keys', []):
+                formal_upstream.append(fk.get('referenced_table', fk.get('target_table', '')))
+
+        # 2. SEMANTIC BRIDGING (Heuristics for Loose Connections)
+        # If we have no formal links, we look for tables that share this column name
+        semantic_neighbors = []
+        for t in schema.get('tables', []):
+            if t['name'].lower() == target_table_clean: continue
+            for c in t.get('columns', []):
+                if c['name'].lower().strip() == target_col_clean:
+                    semantic_neighbors.append(t['name'])
+
+        # 3. WEAVE THE PROPAGATION PATH (The Lifecycle)
+        # We build a path: [Origin] -> [Table] -> [Consumer] -> [Hub]
+        path_nodes = []
+        
+        # Determine likely Origin (Upstream)
+        origin = "SOURCE"
+        if formal_upstream:
+            origin = formal_upstream[0]
+        elif semantic_neighbors and (target_col_clean.endswith('_id') or target_col_clean.endswith('id')):
+            # Improved parent guess: handle film_id -> film, filmid -> film
+            parent_guess = target_col_clean.replace('_id', '').replace('id', '')
+            for sn in semantic_neighbors:
+                if sn.lower() == parent_guess or parent_guess in sn.lower():
+                    origin = sn
+                    break
+        
+        path_nodes.append(origin)
+        path_nodes.append(table_name)
+        
+        # Determine likely Consumer (Downstream)
+        consumers = []
+        visited = {target_table_clean, origin.lower()}
+        
+        # First use formal dependents
+        for ds in formal_downstream:
+            if ds.lower() not in visited:
+                consumers.append(ds)
+                visited.add(ds.lower())
+                break # Just pick the primary one for the linear path
+                
+        # If no formal dependents, use semantic siblings
+        if not consumers:
+            for sn in semantic_neighbors:
+                if sn.lower() not in visited:
+                    consumers.append(sn)
+                    visited.add(sn.lower())
+                    break
+                    
+        path_nodes.extend(consumers)
+
+        # Find one more hop if possible to reach a "HUB" or "END"
+        if consumers:
+            last = consumers[-1]
+            for t in schema.get('tables', []):
+                if t['name'].lower() in visited: continue
+                # Is there a bridge from 'last' to 't'?
+                linked = False
+                for fk in t.get('foreign_keys', []):
+                    if fk.get('referenced_table', fk.get('target_table', '')).lower() == last.lower():
+                        linked = True; break
+                if linked:
+                    path_nodes.append(t['name'])
+                    break
+                    
+        if len(path_nodes) < 4:
+            path_nodes.append("EXIT")
+
+        # 4. PREDICT SIGNATURE STRENGTH
+        signature_strength = len(semantic_neighbors)
+
+        return {
+            "impact": list(set(formal_downstream + semantic_neighbors)) or ["Isolated System"],
+            "propagation_path": path_nodes,
+            "signature_strength": signature_strength,
+            "complexity_score": (len(formal_downstream) * 3.0) + (signature_strength * 2.0) + (len(path_nodes) * 1.0)
+        }
 
 # Global Instance
 neural_core = NeuralCore()

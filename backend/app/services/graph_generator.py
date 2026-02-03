@@ -91,10 +91,13 @@ class GraphGenerator:
         edges = []
         
         # 2. Add the Neural Core Hub (Dynamic size based on database)
-        core_metrics = neural_core.get_core_metrics()
+        core_metrics = await neural_core.get_core_metrics(connection_id)
         num_tables = len(tables)
         # Scale core size: 70 for small DBs, 100 for large DBs (prominent central hub)
         core_size = min(100, max(70, 70 + (num_tables / 10)))
+        
+        # Pull real gravity maps
+        gravity_store = neural_core.gravity_stores.get(connection_id, {})
         
         nodes.append({
             'id': 'hub',
@@ -134,7 +137,7 @@ class GraphGenerator:
             name = table['name']
             
             # Get neural gravity for all tables (needed for node metadata)
-            neural_gravity = neural_core.gravity_store.get(name, 1.0)
+            neural_gravity = gravity_store.get(name, 1.0)
             
             # Determine positioning based on clustering
             if cluster_assignments and name in cluster_assignments:
@@ -232,7 +235,7 @@ class GraphGenerator:
         valid_targets = [n['id'] for n in nodes if n['id'] != 'hub']
         for table in tables:
             t_name = table['name']
-            predictions = await neural_core.predict_links(t_name, valid_targets)
+            predictions = await neural_core.predict_links(connection_id, t_name, valid_targets)
             for pred in predictions:
                 if pred['confidence'] > 0.6: 
                     add_edge(t_name, pred['target_id'], 'ai_predicted', pred['confidence'], pred.get('reasoning'))

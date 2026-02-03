@@ -17,11 +17,12 @@ class DatabaseConnector:
         try:
             connection = self.get_connection(connection_id)
             db_type = connection['type'].lower()
-            if db_type == 'mysql':
+            if 'mysql' in db_type or 'mariadb' in db_type:
                 return f"`{identifier}`"
             # Default to double quotes for Postgres, SQLite, etc.
             return f'"{identifier}"'
-        except:
+        except Exception as e:
+            # Silently default to standard quotes but log if possible
             return f'"{identifier}"'
 
     async def connect(self, config: Dict[str, Any]) -> Dict[str, str]:

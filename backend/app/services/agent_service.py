@@ -29,40 +29,52 @@ class AgentService:
         print("🕵️ Agentic AI: Explorer stopped.")
 
     async def _exploration_worker(self):
-        """Main loop for the autonomous agent"""
+        """Main loop for the autonomous agent - Uses real schema data"""
+        from app.services.neural_core import neural_core
+        from app.services.schema_analyzer import schema_analyzer
+
         while self.is_running:
             try:
-                # 1. Select a random sector to analyze
-                sector = random.choice(["Transactions", "User Logins", "System Health"])
-                self.current_focus = sector
-                
-                # 2. Simulate analysis time
-                analysis_time = random.uniform(2, 5)
-                # print(f"🕵️ Agentic AI: Analyzing {sector} sector...")
-                await asyncio.sleep(analysis_time)
+                conn_id = neural_core.active_connection_id
+                if not conn_id:
+                    await asyncio.sleep(10)
+                    continue
 
-                # 3. Generate Insight (Simulated)
-                if random.random() > 0.7:
-                    finding = {
-                        "timestamp": datetime.now().isoformat(),
-                        "sector": sector,
-                        "type": "anomaly",
-                        "description": f"Unusual velocity detected in {sector}. Variance > 3σ.",
-                        "confidence": 0.92
-                    }
-                    self.findings.append(finding)
-                    
-                    # Feed finding into Neural Core for learning
-                    from app.services.neural_core import neural_core
-                    # Map sector to a potential node or just use 'hub' for general growth
-                    await neural_core.process_signal(sector, intensity=finding["confidence"], metadata=finding)
-                    
-                    # print(f"💡 Agent Insight: {finding['description']}")
+                # 1. Select a real table to analyze
+                schema = schema_analyzer.get_analysis_result(conn_id)
+                if not schema or not schema.tables:
+                    await asyncio.sleep(5)
+                    continue
+
+                target_table = random.choice(schema.tables)
+                t_name = target_table.name
+                self.current_focus = t_name
+                
+                # 2. Simulate deep cognitive analysis (processing time)
+                # Smaller tables are analyzed faster
+                row_count = target_table.row_count or 0
+                analysis_time = 2.0 + (math.log10(max(1, row_count)) * 0.5)
+                await asyncio.sleep(min(analysis_time, 10))
+
+                # 3. Generate Insight Signal
+                # Feed findings into Neural Core
+                # Intensity is high if the table has row data or relationships
+                intensity = 0.5 + (min(row_count, 100000) / 200000.0)
+                if target_table.foreign_keys:
+                    intensity += 0.2
+                
+                intensity = min(1.0, intensity)
+                
+                await neural_core.process_signal(t_name, intensity=intensity, connection_id=conn_id, metadata={
+                    "event": "autonomous_exploration",
+                    "focus": t_name,
+                    "rows_scanned": row_count
+                })
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Agent Error: {e}")
+                print(f"Agent Worker Error: {e}")
                 await asyncio.sleep(5)
 
     async def analyze_new_connection(self, schema_data: Dict, connection_id: str = None):
@@ -84,10 +96,10 @@ class AgentService:
             
             # Feed intensity based on table scale and importance
             intensity = (importance / 100.0) + (min(row_count, 100000) / 200000.0)
-            await neural_core.process_signal(name, intensity=intensity, metadata={"event": "initial_scan"})
+            await neural_core.process_signal(name, intensity=intensity, connection_id=connection_id, metadata={"event": "initial_scan"})
         
         # Trigger an initial retraining cycle
-        await neural_core.trigger_retraining()
+        await neural_core.trigger_retraining(connection_id=connection_id)
         print(f"🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
 
     async def get_gravity_suggestions(self, schema_data: Dict) -> List[Dict]:
@@ -102,9 +114,10 @@ class AgentService:
         
         # 1. Check Neural Core for high-gravity nodes
         # If the core has learned that a certain node is important, we suggest it
-        core_metrics = neural_core.get_core_metrics()
+        core_metrics = await neural_core.get_core_metrics()
         # Access internal gravity store directly if needed or via a method
-        top_gravity_nodes = sorted(neural_core.gravity_store.items(), key=lambda x: x[1], reverse=True)[:3]
+        gravity_store = neural_core.gravity_stores.get(neural_core.active_connection_id, {})
+        top_gravity_nodes = sorted(gravity_store.items(), key=lambda x: x[1], reverse=True)[:3]
         
         for node_id, score in top_gravity_nodes:
             suggestions.append({

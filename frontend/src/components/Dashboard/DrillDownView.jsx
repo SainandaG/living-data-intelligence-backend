@@ -2,14 +2,15 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useRegisterCommand } from '../../context/CommandRegistryContext';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Text, Billboard } from '@react-three/drei';
-import { ArrowLeft, Loader, Database, GitBranch, Binary, BrainCircuit, Play } from 'lucide-react';
+import { ArrowLeft, Loader, Database, GitBranch, Binary, BrainCircuit, Play, Layers, Activity } from 'lucide-react';
 import * as THREE from 'three';
 import IntelligencePanel from './IntelligencePanel';
+import SemanticDiscoveryPanel from './SemanticDiscoveryPanel';
 import NodeFormationSimulation from '../Evolution/NodeFormationSimulation';
 import soundSystem from '../../utils/SoundSystem';
 
 // Intelligence Panel Integration - Deep Analysis Feature
-export default function DrillDownView({ connectionId, tableName, onBack, initialShowSimulation = false }) {
+export default function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initialShowSimulation = false }) {
     const [flowData, setFlowData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -17,6 +18,7 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
     const [selectedNode, setSelectedNode] = useState(null);
     const [recordData, setRecordData] = useState(null);
     const [showSimulation, setShowSimulation] = useState(initialShowSimulation);
+    const [canvasKey, setCanvasKey] = useState(0);
 
     useEffect(() => {
         if (initialShowSimulation) {
@@ -24,6 +26,13 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
             setShowSimulation(true);
         }
     }, [initialShowSimulation, tableName]);
+
+    // Increment canvas key when simulation closes to force remount
+    useEffect(() => {
+        if (!showSimulation) {
+            setCanvasKey(prev => prev + 1);
+        }
+    }, [showSimulation]);
 
     // --- VOICE COMMAND REGISTRATION ---
     const handleNav = useCallback(({ instruction, target }) => {
@@ -146,6 +155,20 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
                     <span className="font-mono text-xs uppercase">Back to Overview</span>
                 </button>
 
+                {onToggleLatent && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            soundSystem.play('nodeClick');
+                            onToggleLatent();
+                        }}
+                        className="px-4 py-2 bg-[var(--primary-cyan)]/10 backdrop-blur-md border border-[var(--primary-cyan)]/30 rounded-lg hover:bg-[var(--primary-cyan)]/20 transition-all flex items-center gap-2 cursor-pointer text-[var(--primary-cyan)]"
+                    >
+                        <Layers size={16} />
+                        <span className="font-mono text-xs uppercase">Explore Internal Node</span>
+                    </button>
+                )}
+
                 <button
                     onClick={(e) => {
                         e.stopPropagation(); // Prevent event bubbling
@@ -198,6 +221,19 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
                         tableName={tableName}
                         onSimulate={() => setShowSimulation(true)}
                     />
+
+                    <div className="mt-6 pt-6 border-t border-white/10">
+                        <SemanticDiscoveryPanel
+                            connectionId={connectionId}
+                            tableName={tableName}
+                            onNodeClick={(id) => {
+                                // Potentially drill into the discovered node
+                                // This would require updating the state in DrillDownView
+                                // For now, we'll just log or we can implement a reload logic.
+                                console.log(`Selected semantic target: ${id}`);
+                            }}
+                        />
+                    </div>
                 </div>
 
                 {hoveredNode && (
@@ -252,29 +288,31 @@ export default function DrillDownView({ connectionId, tableName, onBack, initial
                 </div>
             )}
 
-            {/* 3. 3D Canvas Layer (Background) */}
-            <div className="absolute inset-0 z-0">
-                <Canvas camera={{ position: [0, 0, 500], fov: 75 }}>
-                    <color attach="background" args={['#0a0e1a']} />
-                    <ambientLight intensity={0.5} />
-                    <pointLight position={[10, 10, 10]} intensity={1} />
+            {/* 3. 3D Canvas Layer (Background) - Only render when NOT in simulation */}
+            {!showSimulation && (
+                <div key={`canvas-${tableName}-${canvasKey}`} className="absolute inset-0 z-0">
+                    <Canvas camera={{ position: [0, 0, 500], fov: 75 }}>
+                        <color attach="background" args={['#0a0e1a']} />
+                        <ambientLight intensity={0.5} />
+                        <pointLight position={[10, 10, 10]} intensity={1} />
 
-                    <FlowGraph
-                        data={flowData}
-                        tableName={tableName}
-                        columns={recordData?.columns}
-                        onNodeHover={setHoveredNode}
-                        onNodeClick={handleNodeClick}
-                    />
+                        <FlowGraph
+                            data={flowData}
+                            tableName={tableName}
+                            columns={recordData?.columns}
+                            onNodeHover={setHoveredNode}
+                            onNodeClick={handleNodeClick}
+                        />
 
-                    <OrbitControls
-                        enableDamping
-                        dampingFactor={0.05}
-                        minDistance={100}
-                        maxDistance={1000}
-                    />
-                </Canvas>
-            </div>
+                        <OrbitControls
+                            enableDamping
+                            dampingFactor={0.05}
+                            minDistance={100}
+                            maxDistance={1000}
+                        />
+                    </Canvas>
+                </div>
+            )}
 
             {showSimulation && (
                 <NodeFormationSimulation

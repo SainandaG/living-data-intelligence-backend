@@ -1,716 +1,534 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass';
-import { intelligenceService } from '../../services/intelligenceService';
+import {
+    OrbitControls,
+    TransformControls,
+    EffectComposer,
+    RenderPass,
+    UnrealBloomPass
+} from 'three-stdlib';
 
 const ControlRow = ({ label, value, min, max, step, onChange }) => (
     <div className="flex flex-col gap-1">
-        <div className="flex justify-between text-xs text-gray-400">
+        <div className="flex justify-between text-[9px] text-gray-400 font-black uppercase tracking-widest">
             <span>{label}</span>
-            <span>{value}</span>
+            <span className="text-cyan-400">{typeof value === 'number' ? value.toFixed(2) : value}</span>
         </div>
-        <input
-            type="range" min={min} max={max} step={step} value={value}
-            onChange={e => onChange(Number(e.target.value))}
-            className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-        />
+        <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-cyan-500 transition-all hover:accent-cyan-400" />
     </div>
 );
 
-const Toggle = ({ checked, onChange }) => (
-    <div
-        onClick={() => onChange(!checked)}
-        className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-700'}`}
-    >
-        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${checked ? 'left-6' : 'left-1'}`} />
+const Toggle = ({ checked, onChange, label }) => (
+    <div className="flex justify-between items-center text-[9px] text-gray-500 font-black uppercase tracking-widest">
+        <span>{label}</span>
+        <div onClick={() => onChange(!checked)} className={`w-8 h-4 rounded-full relative cursor-pointer transition-colors ${checked ? 'bg-cyan-500/50' : 'bg-white/10'}`}>
+            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${checked ? 'left-4.5' : 'left-0.5'}`} />
+        </div>
     </div>
 );
 
-export const LatentWorld = ({ onClose, schemaData }) => {
+export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) => {
     const mountRef = useRef(null);
-    const [loading, setLoading] = useState(true);
-    const [data, setData] = useState(null);
-    const [selectedNode, setSelectedNode] = useState(null);
-    const [overrides, setOverrides] = useState({}); // { id: { color, size, shape } }
-
-    // Internal View State
-    const [internalViewTarget, setInternalViewTarget] = useState(null); // Node ID being explored
-
-    // Controls State
-    const [settings, setSettings] = useState({
-        spread: 1.5,
-        glow: 0.8,
-        bgColor: '#050505',
-        autoRotate: true,
-        colorMode: 'role', // 'role', 'activity'
-        nodeColor: '#ffffff',
-        nodeSize: 1.0,
-        sizeMode: 'rows', // 'rows', 'manual'
-        shapeMode: 'role', // 'role', 'manual'
-        nodeShape: 'sphere',
-        showGrid: true,
-        showAxes: false,
-        bloomStrength: 1.5
-    });
-
-    useEffect(() => {
-        console.log("[LatentWorld] Fetching data...");
-        intelligenceService.getLatentProjection().then(res => {
-            // ENRICH DATA with Mock Database Metrics if missing AND Schema Columns
-            const enrichedNodes = {};
-            if (res.nodes) {
-                Object.entries(res.nodes).forEach(([id, node], index) => {
-                    // Find matching schema node if available (Robust Lookup)
-                    let schemaNode = null;
-                    if (schemaData?.nodes) {
-                        if (Array.isArray(schemaData.nodes)) {
-                            schemaNode = schemaData.nodes.find(n => n.id === id || n.table_name === id);
-                        } else {
-                            // Assume Object/Map keyed by ID
-                            schemaNode = schemaData.nodes[id];
-                        }
-                    }
-
-                    enrichedNodes[id] = {
-                        ...node,
-                        // Mock Row Count: Exponential distribution
-                        rowCount: node.rowCount || Math.floor(Math.pow(10, 2 + Math.random() * 4)),
-                        // Mock Activity: 0.0 - 1.0 (Hotspot detection)
-                        activity: node.activity || Math.random(),
-                        // Mock Role: Based on name or random
-                        role: node.role || (id.includes('_id') ? 'link' : (Math.random() > 0.7 ? 'fact' : 'dim')),
-                        // NEW: Merge Schema Columns
-                        columns: schemaNode?.columns || []
-                    };
-                });
-            }
-            res.nodes = enrichedNodes;
-
-            console.log("[LatentWorld] Data received & Enriched:", res);
-            setData(res);
-            setLoading(false);
-        }).catch(err => {
-            console.error("[LatentWorld] Fetch error:", err);
-            setLoading(false);
-        });
-    }, [schemaData]); // Re-run if Schema arrives late
-
-    // Refs for Scene Objects to avoid re-creation
-    const sceneRef = useRef(null);
+    const sceneRef = useRef(new THREE.Scene());
+    const cameraRef = useRef(null);
     const rendererRef = useRef(null);
     const composerRef = useRef(null);
     const bloomPassRef = useRef(null);
-    const nodesGroupRef = useRef(null);
-    const geometryRef = useRef(null); // { sphere, box, tetra }
-    const meshMapRef = useRef(new Map());
     const controlsRef = useRef(null);
-    const gridRef = useRef(null);
-    const axesRef = useRef(null);
+    const transformRef = useRef(null);
+    const satellitesGroupRef = useRef(new THREE.Group());
 
-    const handleNodeClick = (nodeId) => {
-        console.log("[LatentWorld] Clicked Node ID:", nodeId);
+    const [loading, setLoading] = useState(true);
+    const [columns, setColumns] = useState([]);
+    const [selectedSatellite, setSelectedSatellite] = useState(null);
+    const [intelligence, setIntelligence] = useState(null);
+    const [overrides, setOverrides] = useState({});
+    const [hoveredId, setHoveredId] = useState(null);
+    const [webglError, setWebglError] = useState(null);
+    const [retryCount, setRetryCount] = useState(0);
 
-        // Debug: Log what we found in data
-        const targetNode = data?.nodes[nodeId];
-        console.log("[LatentWorld] Lookup Result:", targetNode);
+    const [settings, setSettings] = useState({
+        bgColor: '#010101',
+        glow: 3.5,
+        speed: 0.04,
+        autoRotate: true,
+        levitation: true,
+        sizeBy: 'ROWS',
+        editMode: false
+    });
 
-        if (internalViewTarget === nodeId) {
-            // Exit internal view
-            console.log("[LatentWorld] Exiting Internal View");
-            setInternalViewTarget(null);
-            setSelectedNode(targetNode);
-        } else {
-            // Enter internal view
-            console.log("[LatentWorld] Entering Internal View for:", nodeId);
-            setInternalViewTarget(nodeId);
-            setSelectedNode(targetNode);
-        }
-    };
+    const geoms = useMemo(() => ({
+        sphere: new THREE.SphereGeometry(1, 32, 32),
+        box: new THREE.BoxGeometry(1.6, 1.6, 1.6),
+        bar: new THREE.BoxGeometry(2, 4, 2),
+        octa: new THREE.OctahedronGeometry(1.6),
+        tetra: new THREE.TetrahedronGeometry(1.6),
+        pillar: new THREE.CylinderGeometry(5, 5, 140, 6),
+        pedestal: new THREE.TorusGeometry(3.5, 0.12, 16, 64)
+    }), []);
 
-    // 1. INITIAL SETUP & DATA LOAD (Runs once per data change)
+    // 1. DATA INITIALIZATION
     useEffect(() => {
-        if (!mountRef.current || !data) return;
-        console.log("[LatentWorld] Initializing Scene...");
+        if (!targetNode) return;
+        let cols = targetNode.columns || [];
+        if (cols.length === 0 && schemaData?.nodes) {
+            const sn = Array.isArray(schemaData.nodes) ? schemaData.nodes.find(n => n.id === targetNode.id) : schemaData.nodes[targetNode.id];
+            cols = sn?.columns || [];
+        }
+        if (cols.length === 0) {
+            cols = Array.from({ length: 14 }, (_, i) => ({
+                name: `field_${i}`,
+                is_pk: i === 0,
+                is_fk: i > 11,
+                rows: Math.floor(Math.random() * 900000) + 10000,
+                type: i === 0 ? 'SERIAL' : i > 11 ? 'INTEGER' : 'VARCHAR(255)',
+                impact: i === 0 ? ['Payment_Processor', 'Receipt_Sync'] : i === 1 ? ['User_Profile', 'Auth_Audit'] : [],
+                samples: ['Fragment_A', 'Fragment_B', 'Fragment_C', 'Fragment_D']
+            }));
+        }
+        setColumns([...cols].sort((a, b) => a.is_pk ? -1 : b.is_pk ? 1 : a.is_fk ? 1 : b.is_fk ? -1 : 0));
+        setLoading(false);
+    }, [targetNode, schemaData]);
 
-        // --- SCENE ---
-        const scene = new THREE.Scene();
-        sceneRef.current = scene;
-        scene.background = new THREE.Color(settings.bgColor);
-        scene.fog = new THREE.FogExp2(new THREE.Color(settings.bgColor).getHex(), 0.002);
+    // NEW: FETCH GRANULAR INTELLIGENCE
+    useEffect(() => {
+        if (!selectedSatellite || !connectionId || !targetNode) {
+            setIntelligence(null);
+            return;
+        }
 
-        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
-        camera.position.set(200, 200, 400);
-        camera.lookAt(0, 0, 0);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        rendererRef.current = renderer;
-
-        mountRef.current.innerHTML = '';
-        mountRef.current.appendChild(renderer.domElement);
-
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controlsRef.current = controls;
-
-        // --- LIGHTING ---
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(100, 200, 100);
-        scene.add(dirLight);
-        scene.add(new THREE.PointLight(0x3b82f6, 5, 500)); // Blue Tint
-
-        // --- HELPERS ---
-        const gh = new THREE.GridHelper(2000, 100, 0x333333, 0x111111);
-        scene.add(gh);
-        gridRef.current = gh;
-
-        const ah = new THREE.AxesHelper(100);
-        scene.add(ah);
-        axesRef.current = ah;
-
-        // --- REUSABLE GEOMETRIES ---
-        geometryRef.current = {
-            sphere: new THREE.SphereGeometry(1, 16, 16), // Reduced poly for perf
-            box: new THREE.BoxGeometry(1.5, 1.5, 1.5),
-            tetra: new THREE.TetrahedronGeometry(1.5)
+        const fetchIntel = async () => {
+            try {
+                const resp = await fetch(`/api/drilldown/${connectionId}/column-intelligence/${targetNode.name}/${selectedSatellite.name}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    setIntelligence(data.intelligence);
+                }
+            } catch (err) {
+                console.error("Failed to fetch column intelligence:", err);
+            }
         };
 
-        const material = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            roughness: 0.2,
-            metalness: 0.7,
-            emissiveIntensity: 0.2
+        fetchIntel();
+    }, [selectedSatellite, connectionId, targetNode]);
+
+    // 2. STABLE ENGINE SETUP
+    useEffect(() => {
+        if (!mountRef.current || loading) return;
+
+        let frame;
+        let renderer, composer;
+
+        try {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+
+            const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
+            camera.position.set(150, 100, 150);
+            cameraRef.current = camera;
+
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance",
+                failIfMajorPerformanceCaveat: false
+            });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            mountRef.current.appendChild(renderer.domElement);
+            rendererRef.current = renderer;
+
+            const onContextLost = (e) => {
+                e.preventDefault();
+                setWebglError("CRITICAL: WebGL Context Lost. Reallocating resources...");
+            };
+            renderer.domElement.addEventListener('webglcontextlost', onContextLost, false);
+
+            const orbit = new OrbitControls(camera, renderer.domElement);
+            orbit.enableDamping = true;
+            controlsRef.current = orbit;
+
+            const transform = new TransformControls(camera, renderer.domElement);
+            transform.addEventListener('dragging-changed', (e) => orbit.enabled = !e.value);
+            transform.addEventListener('change', () => {
+                if (transform.object) {
+                    const o = transform.object;
+                    setOverrides(prev => ({
+                        ...prev,
+                        [o.userData.id]: {
+                            ...(prev[o.userData.id] || {}),
+                            pos: o.position.clone()
+                        }
+                    }));
+                }
+            });
+            transformRef.current = transform;
+            sceneRef.current.add(transform);
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(new RenderPass(sceneRef.current, camera));
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), settings.glow, 0.4, 0.85);
+            composer.addPass(bloomPass);
+            composerRef.current = composer;
+            bloomPassRef.current = bloomPass;
+
+            sceneRef.current.add(satellitesGroupRef.current);
+            sceneRef.current.add(new THREE.AmbientLight(0xffffff, 0.4));
+            const sky = new THREE.PointLight(0x00f2ff, 1000, 300); sky.position.set(0, 150, 0);
+            sceneRef.current.add(sky);
+
+            const grid = new THREE.GridHelper(600, 50, 0x111111, 0x080808);
+            grid.position.y = -70;
+            sceneRef.current.add(grid);
+
+            const animate = () => {
+                frame = requestAnimationFrame(animate);
+                const t = Date.now() * 0.001;
+
+                satellitesGroupRef.current.children.forEach((c, i) => {
+                    if (c.userData.type === 'core') c.rotation.y += 0.005;
+                    if (c.userData.type === 'satellite') {
+                        const isSelected = selectedSatellite && selectedSatellite.name === c.userData.id;
+
+                        if (!overrides[c.userData.id]?.pos && !transform.dragging) {
+                            const { r, y, angle, speed } = c.userData.orbit;
+                            const moveSlowdown = isSelected ? 0 : (hoveredId === c.userData.id ? 0.2 : 1.0);
+                            const a = angle + t * speed * (settings.speed * 20) * moveSlowdown;
+
+                            c.position.x = Math.cos(a) * r;
+                            c.position.z = Math.sin(a) * r;
+                            if (settings.levitation) c.position.y = y + Math.sin(t * 1.8 + i) * 1.5;
+                        }
+                        c.rotation.y += 0.015;
+                    }
+                    if (c.userData.type === 'pedestal') {
+                        const p = satellitesGroupRef.current.children.find(o => o.userData.id === c.userData.parentId && o.userData.type === 'satellite');
+                        if (p) c.position.set(p.position.x, p.position.y - (p.scale.y / 2) - 1.5, p.position.z);
+                    }
+                });
+
+                orbit.update();
+                composer.render();
+            };
+            animate();
+
+            const onResize = () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                composer.setSize(window.innerWidth, window.innerHeight);
+            };
+            window.addEventListener('resize', onResize);
+
+            setWebglError(null);
+
+        } catch (err) {
+            console.error("LATENT_WORLD_ENGINE_FAILURE:", err);
+            setWebglError("WEBGL_BLOCKED: Browser context allocation failed.");
+        }
+
+        return () => {
+            if (frame) cancelAnimationFrame(frame);
+            if (renderer) {
+                renderer.dispose();
+                renderer.forceContextLoss();
+                if (renderer.domElement && mountRef.current) {
+                    try { mountRef.current.removeChild(renderer.domElement); } catch (e) { }
+                }
+            }
+            if (composer) composer.dispose();
+            sceneRef.current.clear();
+        };
+    }, [loading, retryCount]);
+
+    // 3. STRUCTURAL BUILD LAYER
+    useEffect(() => {
+        if (!columns.length || !sceneRef.current) return;
+
+        const group = satellitesGroupRef.current;
+        group.clear();
+
+        const pillarMat = new THREE.MeshBasicMaterial({ color: 0x00f2ff, wireframe: true, transparent: true, opacity: 0.4 });
+        const pillarCoreMat = new THREE.MeshStandardMaterial({ color: 0x050505, metalness: 1, roughness: 0 });
+        const pillar = new THREE.Mesh(geoms.pillar, pillarMat);
+        const pillarCore = new THREE.Mesh(geoms.pillar, pillarCoreMat);
+        pillarCore.scale.set(0.95, 1, 0.95);
+        pillar.add(pillarCore);
+        pillar.userData = { type: 'core' };
+        group.add(pillar);
+
+        columns.forEach((col, i) => {
+            let y = 0, r = 60;
+            if (col.is_pk) { y = 50; r = 30; }
+            else if (col.is_fk) { y = -45; r = 50; }
+            else {
+                const mids = columns.filter(c => !c.is_pk && !c.is_fk);
+                const midIdx = mids.findIndex(c => c.name === col.name);
+                y = 30 - (midIdx / (mids.length || 1)) * 60;
+                r = 60;
+            }
+
+            const angle = (i / columns.length) * Math.PI * 2;
+            const ov = overrides[col.name] || {};
+            const neonColor = ov.color || (col.is_pk ? 0xfacc15 : col.is_fk ? 0xa855f7 : 0x00f2ff);
+
+            const mat = new THREE.MeshStandardMaterial({
+                color: neonColor, emissive: neonColor, emissiveIntensity: 1.8, metalness: 0.9, roughness: 0.1
+            });
+
+            const mesh = new THREE.Mesh(geoms.box, mat);
+
+            let scaleY = 4;
+            if (settings.sizeBy === 'ROWS' && col.rows) {
+                scaleY = 2 + (Math.log10(col.rows / 1000 + 1) * 3);
+            }
+            if (ov.height) scaleY = ov.height;
+
+            const scaleXZ = 1.4; // V16: Reduced from 2.5 for sleeker profile
+            mesh.scale.set(scaleXZ, scaleY, scaleXZ);
+
+            if (ov.pos) mesh.position.copy(ov.pos);
+            else mesh.position.set(Math.cos(angle) * r, y, Math.sin(angle) * r);
+
+            mesh.userData = { id: col.name, type: 'satellite', data: col, orbit: { r, y, angle, speed: 0.05 + Math.random() * 0.1 } };
+
+            const ped = new THREE.Mesh(geoms.pedestal, new THREE.MeshBasicMaterial({ color: neonColor, transparent: true, opacity: 0.25 }));
+            ped.scale.set(0.6, 0.6, 0.6); // Scale down pedestal to match thinner bars
+            ped.rotation.x = Math.PI / 2;
+            ped.userData = { type: 'pedestal', parentId: col.name };
+            group.add(ped);
+            group.add(mesh);
         });
+    }, [columns, settings.sizeBy, overrides, geoms]);
 
-        // --- NODES ---
-        const nodeGroup = new THREE.Group();
-        scene.add(nodeGroup);
-        nodesGroupRef.current = nodeGroup;
+    // 4. OPTICS & SYNC LAYER
+    useEffect(() => {
+        if (sceneRef.current) sceneRef.current.background = new THREE.Color(settings.bgColor);
+        if (bloomPassRef.current) bloomPassRef.current.strength = settings.glow;
+        if (controlsRef.current) controlsRef.current.autoRotate = settings.autoRotate;
 
-        const meshMap = new Map();
-        meshMapRef.current = meshMap;
+        if (selectedSatellite && settings.editMode && transformRef.current) {
+            const mesh = satellitesGroupRef.current.children.find(o => o.userData.id === selectedSatellite.name && o.userData.type === 'satellite');
+            if (mesh) transformRef.current.attach(mesh);
+        } else if (transformRef.current) {
+            transformRef.current.detach();
+        }
+    }, [settings.bgColor, settings.glow, settings.autoRotate, selectedSatellite, settings.editMode]);
 
-        // Create Mesh Pool
-        const nodesList = Object.entries(data.nodes || {}).map(([key, val]) => ({ id: key, ...val }));
-        nodesList.forEach(node => {
-            const mesh = new THREE.Mesh(geometryRef.current.sphere, material.clone());
-            mesh.userData = node;
-            nodeGroup.add(mesh);
-            meshMap.set(node.id, mesh);
-        });
-
-        // --- POST PROCESSING ---
-        const renderScene = new RenderPass(scene, camera);
-        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        bloomPass.threshold = 0.2;
-        bloomPassRef.current = bloomPass;
-
-        const composer = new EffectComposer(renderer);
-        composer.addPass(renderScene);
-        composer.addPass(bloomPass);
-        composerRef.current = composer;
-
-        // --- INTERACTION ---
+    // 5. INTERACTION SYNC
+    useEffect(() => {
+        if (!rendererRef.current) return;
+        const renderer = rendererRef.current;
+        const camera = cameraRef.current;
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
-        const onMouseMove = (event) => {
-            // Calculate mouse position relative to CANVAS, not Window
-            const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-        };
-
-        const onClick = (event) => {
-            event.preventDefault();
-            event.stopPropagation(); // Stop bubbling
-
+        const onMM = (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(nodeGroup.children);
-
-            if (intersects.length > 0) {
-                const hit = intersects[0].object;
-
-                // If clicking a Satellite column, show details (don't exit view)
-                if (hit.userData?.type === 'column') {
-                    const col = hit.userData.data;
-                    setSelectedNode({
-                        id: col.name,
-                        name: col.name,
-                        role: col.is_pk ? 'Primary Key' : col.is_fk ? 'Foreign Key' : col.type,
-                        rowCount: data.nodes[internalViewTarget]?.rowCount || 0, // Parent rows
-                        ...col
-                    });
-                    return;
-                }
-
-                // If clicking Center Node in Internal View -> Keep Selection
-                if (hit.userData?.type === 'centerNode') {
-                    setSelectedNode(hit.userData);
-                    return;
-                }
-
-                // Galaxy Node Click -> Drill Down
-                handleNodeClick(hit.userData.id);
-
-            } else {
-                // Clicked Empty Space -> Deselect / Exit Internal View
-                console.log("[LatentWorld] Clicked Empty Space (Canvas)");
-                setSelectedNode(null);
-                if (internalViewTarget) setInternalViewTarget(null);
-            }
+            const hits = raycaster.intersectObjects(satellitesGroupRef.current.children.filter(o => o.userData.type === 'satellite'));
+            setHoveredId(hits.length > 0 ? hits[0].object.userData.id : null);
+        };
+        const onCK = () => {
+            if (transformRef.current?.dragging) return;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(satellitesGroupRef.current.children.filter(o => o.userData.type === 'satellite'));
+            if (hits.length > 0) setSelectedSatellite(hits[0].object.userData.data);
+            else setSelectedSatellite(null);
         };
 
-        // Attach to CANVAS instead of WINDOW for scoped interaction
         const canvas = renderer.domElement;
-        canvas.addEventListener('mousemove', onMouseMove);
-        canvas.addEventListener('click', onClick);
-
-        // --- ANIMATION ---
-        let requestId;
-        const animate = () => {
-            requestId = requestAnimationFrame(animate);
-
-            if (settings.autoRotate && !internalViewTarget && nodeGroup) {
-                nodeGroup.rotation.y += 0.002;
-            }
-
-            // Animate Orbiting Satellites (Internal View)
-            if (internalViewTarget && nodeGroup) {
-                const time = Date.now() * 0.001;
-                nodeGroup.children.forEach(child => {
-                    if (child.userData?.orbit) {
-                        const { radius, speed, angle } = child.userData.orbit;
-                        const currentAngle = angle + (time * speed);
-                        child.position.x = Math.cos(currentAngle) * radius;
-                        child.position.z = Math.sin(currentAngle) * radius;
-                        child.lookAt(camera.position);
-                    }
-                    if (child.userData?.type === 'centerNode') {
-                        child.rotation.y = time * 0.2;
-                        child.material.opacity = 0.3 + Math.sin(time) * 0.1;
-                    }
-                });
-            }
-
-            controls.update();
-            renderer.render(scene, camera);
-            // composer.render(); // Optional: swapping to standard render for perf testing, use composer if needed
-        };
-
-        animate();
-
+        canvas.addEventListener('mousemove', onMM);
+        canvas.addEventListener('click', onCK);
         return () => {
-            cancelAnimationFrame(requestId);
-            canvas.removeEventListener('mousemove', onMouseMove);
-            canvas.removeEventListener('click', onClick);
-            renderer.dispose();
-            scene.clear();
+            canvas.removeEventListener('mousemove', onMM);
+            canvas.removeEventListener('click', onCK);
         };
+    }, [loading, webglError]);
 
-    }, [data, internalViewTarget]); // Re-bind when View Target changes
-
-    // 2. REACTIVE UPDATES
-    useEffect(() => {
-        if (!sceneRef.current || !meshMapRef.current.size) return;
-
-        const scene = sceneRef.current;
-        const meshMap = meshMapRef.current;
-        const geos = geometryRef.current;
-        const clusterColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899];
-
-        // Global Updates
-        scene.background.set(settings.bgColor);
-        scene.fog.color.set(settings.bgColor);
-        if (gridRef.current) gridRef.current.visible = settings.showGrid;
-        if (axesRef.current) axesRef.current.visible = settings.showAxes;
-        if (bloomPassRef.current) bloomPassRef.current.strength = settings.bloomStrength;
-        if (controlsRef.current) controlsRef.current.autoRotate = settings.autoRotate;
-
-        // Node Updates
-        meshMap.forEach((mesh, id) => {
-            const baseGeometry = geos.sphere;
-            const boxGeometry = geos.box;
-            const tetraGeometry = geos.tetra;
-
-            if (internalViewTarget && data?.nodes[internalViewTarget]) {
-                // --- INTERNAL VIEW: ORBITING SATELLITES ---
-                // Skip the loop if we've already set up the internal view to avoid re-adding meshes
-                // But we need to ensure the scene is clean first.
-                // The cleaning happens via 'nodesGroupRef' clearing or visibility toggling.
-                // Here we will use a naive approach: If internal view, we create satellites.
-                // NOTE: This effect runs on [settings], so it might re-run on slider change.
-                // We should only Create Satellites if they don't exist? 
-
-                // Better approach for stability:
-                // 1. Hide all galaxy nodes
-                nodesGroupRef.current.children.forEach(child => {
-                    // Check if it's a galaxy node (has 'id' in userData)
-                    if (child.userData?.id && !child.userData.type) {
-                        child.visible = false;
-                    }
-                });
-
-                // 2. Check if satellites exist for this target, if not, create them.
-                // We'll use a specific naming convention or group for satellites?
-                // Or just add them to group and check user data type.
-                const existingSatellites = nodesGroupRef.current.children.filter(c => c.userData?.type === 'column' || c.userData?.type === 'centerNode');
-
-                if (existingSatellites.length === 0) {
-                    const centerNode = data.nodes[internalViewTarget];
-                    const columns = centerNode.columns || [];
-
-                    // A. Render Center Node (Ghostly)
-                    const centerMesh = new THREE.Mesh(geos.sphere, new THREE.MeshStandardMaterial({
-                        color: settings.nodeColor || 0xffffff,
-                        transparent: true,
-                        opacity: 0.3,
-                        wireframe: true
-                    }));
-                    centerMesh.scale.set(4, 4, 4);
-                    centerMesh.userData = { ...centerNode, type: 'centerNode' };
-                    nodesGroupRef.current.add(centerMesh);
-
-                    // B. Render Orbiting Columns
-                    columns.forEach((col, i) => {
-                        let radius = 20;
-                        let color = 0x3b82f6;
-                        let size = 1.0;
-                        let shapeGeom = geos.sphere;
-
-                        // Ring 1: PKs
-                        if (col.is_pk) {
-                            radius = 10;
-                            color = 0xffd700;
-                            size = 1.5;
-                            shapeGeom = geos.box;
-                        }
-                        // Ring 2: FKs
-                        else if (col.is_fk) {
-                            radius = 15;
-                            color = 0xc0c0c0;
-                            size = 1.2;
-                            shapeGeom = geos.tetra;
-                        }
-                        // Ring 3: Data
-                        else {
-                            if (['varchar', 'text'].some(t => col.type?.includes(t))) color = 0x22c55e;
-                            if (['date', 'time'].some(t => col.type?.includes(t))) color = 0xf97316;
-                        }
-
-                        const angle = (i / columns.length) * Math.PI * 2;
-                        const x = Math.cos(angle) * radius;
-                        const z = Math.sin(angle) * radius;
-
-                        const mesh = new THREE.Mesh(shapeGeom, new THREE.MeshStandardMaterial({
-                            color: color,
-                            roughness: 0.3,
-                            metalness: 0.8
-                        }));
-                        mesh.position.set(x, 0, z);
-                        mesh.scale.set(size, size, size);
-                        mesh.userData = { type: 'column', data: col, orbit: { radius, speed: (0.2 + Math.random() * 0.2) * (i % 2 === 0 ? 1 : -1), angle } };
-                        nodesGroupRef.current.add(mesh);
-                    });
-                }
-                return;
-            } else {
-                // Remove Satellites if switching back to Galaxy
-                for (let i = nodesGroupRef.current.children.length - 1; i >= 0; i--) {
-                    const child = nodesGroupRef.current.children[i];
-                    if (child.userData?.type === 'column' || child.userData?.type === 'centerNode') {
-                        nodesGroupRef.current.remove(child);
-                    }
-                }
-            }
-
-            // --- GALAXY VIEW (Only if NO internal target) ---
-            if (!internalViewTarget) {
-                // Clean up satellites if any? (We need a way to clear them).
-                // For now, let's just make sure galaxy nodes are visible.
-                mesh.visible = true;
-
-                // ... (Update logic) ...
-                const node = data.nodes[id];
-                if (!node) return;
-
-                const ov = overrides[node.id] || {};
-                const isSelected = selectedNode?.id === node.id;
-
-                // A. SHAPE
-                let currentGeometry = geos.sphere; // Default
-                const targetShape = ov.shape || (settings.shapeMode === 'role' ?
-                    (node.role === 'fact' ? 'box' : node.role === 'link' ? 'tetra' : 'sphere')
-                    : settings.nodeShape);
-
-                if (targetShape === 'box') currentGeometry = geos.box;
-                else if (targetShape === 'tetra') currentGeometry = geos.tetra;
-                else if (targetShape === 'sphere') currentGeometry = geos.sphere;
-
-                mesh.geometry = currentGeometry; // Swap geom
-
-                // B. COLOR
-                let c = new THREE.Color();
-                if (ov.color) c.set(ov.color);
-                else if (settings.colorMode === 'manual' && settings.nodeColor) c.set(settings.nodeColor);
-                else if (settings.colorMode === 'activity') c.setHSL(0.6 - (node.activity * 0.6), 1.0, 0.5);
-                else c.setHex(clusterColors[(node.cluster || 0) % clusterColors.length]);
-
-                mesh.material.color.copy(c);
-
-                // Highlight Logic
-                if (isSelected) {
-                    mesh.material.emissive.setHex(0xffffff);
-                    mesh.material.emissiveIntensity = 1.0;
-                } else {
-                    mesh.material.emissive.copy(c);
-                    mesh.material.emissiveIntensity = 0.2;
-                }
-
-                // C. SCALE
-                let targetScale = ov.size || settings.nodeSize;
-                if (!ov.size && settings.sizeMode === 'rows') {
-                    targetScale = Math.max(0.2, Math.log10(node.rowCount || 1) * 0.6);
-                }
-                if (isSelected) targetScale *= 1.5;
-
-                mesh.scale.setScalar(targetScale);
-
-                // D. POSITION (Spread)
-                mesh.position.set(node.x * settings.spread, node.y * settings.spread, node.z * settings.spread);
-            } else {
-                // If internal view active, HIDE galaxy nodes?
-                mesh.visible = false;
-            }
-        });
-
-        // --- SATELLITE RENDER (Moved outside loop) ---
-        if (internalViewTarget && data?.nodes[internalViewTarget]) {
-            // Basic implementation: Clear group and render ONLY target + satellites?
-            // Since we share 'nodeGroup', clearing it removes galaxy nodes too.
-            // We hid galaxy nodes above. Now we add satellites.
-
-            // BUT, we shouldn't add them every frame/update.
-            // They should be added in the [internalViewTarget] effect?
-            // The previous code had a mess.
-
-            // IMPORTANT: To fix syntax I must provide valid code.
-            // I will leave the galaxy update logic (cleaned) and assume the "useEffect([data, internalViewTarget])"
-            // handles the creation/destruction of the scene content.
-            // In that first effect, we should handle the View Switch.
-
-            // Let's look at the first effect again.
-            // It clears scene: `mountRef.current.innerHTML = '';` -> This rebuilds everything.
-            // And it depends on `[data, internalViewTarget]`.
-            // SO: When `internalViewTarget` changes, the ENTIRE SCENE is rebuilt.
-            // Galaxy nodes are created (lines 163+) OR... wait.
-
-            // In the first effect (lines 97+), it creates nodes unconditionally.
-            // If I want to support Internal View, I should modify THAT effect.
-
-            // I will modify the first effect (Scene Init) to check `internalViewTarget`.
-            // If set, build satellites. Else, build galaxy.
-        }
-
-    }, [settings, overrides, selectedNode, data, internalViewTarget]);
+    if (loading) return null;
 
     return (
-        <div className="fixed inset-0 z-50 bg-black text-white font-mono">
-            {/* 3D CANVAS */}
-            <div ref={mountRef} className="absolute inset-0" />
+        <div className="fixed inset-0 z-[9999] bg-[#010101] text-white font-mono overflow-hidden select-none">
+            <div ref={mountRef} className="absolute inset-0 z-0" />
 
-            {/* HEADER */}
-            <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-                <div>
-                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-500">
-                        LATENT EXPLORER
-                    </h1>
-                    <div className="text-xs text-gray-400">Semantic Vector Space • {data?.nodes ? Object.keys(data.nodes).length : 0} Entities</div>
+            {/* Error Overlay */}
+            {webglError && (
+                <div className="absolute inset-0 z-[10020] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center gap-8 text-center px-12">
+                    <div className="w-24 h-24 rounded-full border-4 border-red-500/50 flex items-center justify-center animate-pulse">
+                        <span className="text-4xl">⚠️</span>
+                    </div>
+                    <div className="space-y-3">
+                        <h2 className="text-2xl font-black uppercase tracking-tighter text-red-500 italic">Core Buffer Overload</h2>
+                        <button onClick={() => setRetryCount(prev => prev + 1)} className="px-8 py-3 bg-red-500 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-xl">Force Engine Reboot</button>
+                    </div>
                 </div>
-                <button
-                    onClick={onClose}
-                    className="pointer-events-auto px-6 py-2 bg-red-500/10 border border-red-500/50 hover:bg-red-500/30 text-red-400 rounded-full transition-all"
-                >
-                    EXIT
+            )}
+
+            {/* Navigation */}
+            <div className="absolute top-8 left-8 flex items-center gap-6 z-[10010]">
+                <button onClick={onClose} className="group p-4 bg-black/50 border border-white/10 rounded-3xl backdrop-blur-3xl hover:bg-black transition-all">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-cyan-500 flex items-center justify-center text-black font-black italic">←</div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white underline underline-offset-4">Topology View</span>
+                    </div>
                 </button>
-            </div>
-
-            {/* CONTROLS (Spline Style - Right Sidebar) */}
-            <div className="absolute top-20 right-4 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-4 flex flex-col gap-4 shadow-2xl">
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Metrics Visualization</div>
-
-                {/* 1. SIZE CONTROLS */}
-                <div className="flex flex-col gap-2 mb-3">
-                    <div className="flex justify-between text-xs text-gray-300">
-                        <span>Size By</span>
-                        <div className="flex bg-black/50 rounded p-0.5">
-                            <button
-                                onClick={() => setSettings({ ...settings, sizeMode: 'manual' })}
-                                className={`px-2 py-0.5 rounded text-[10px] ${settings.sizeMode === 'manual' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                            >MANUAL</button>
-                            <button
-                                onClick={() => setSettings({ ...settings, sizeMode: 'rows' })}
-                                className={`px-2 py-0.5 rounded text-[10px] ${settings.sizeMode === 'rows' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                            >ROWS</button>
-                        </div>
-                    </div>
-                    {settings.sizeMode === 'manual' && (
-                        <ControlRow label="Scale" value={settings.nodeSize} min={0.1} max={5} step={0.1} onChange={v => setSettings({ ...settings, nodeSize: v })} />
-                    )}
-                </div>
-
-                {/* 2. SHAPE CONTROLS */}
-                <div className="flex flex-col gap-2 mb-3">
-                    <div className="flex justify-between text-xs text-gray-300">
-                        <span>Shape By</span>
-                        <div className="flex bg-black/50 rounded p-0.5">
-                            <button
-                                onClick={() => setSettings({ ...settings, shapeMode: 'manual' })}
-                                className={`px-2 py-0.5 rounded text-[10px] ${settings.shapeMode === 'manual' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                            >FIXED</button>
-                            <button
-                                onClick={() => setSettings({ ...settings, shapeMode: 'role' })}
-                                className={`px-2 py-0.5 rounded text-[10px] ${settings.shapeMode === 'role' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                            >ROLE</button>
-                        </div>
-                    </div>
-                    {settings.shapeMode === 'manual' && (
-                        <div className="flex gap-1 bg-black/50 p-1 rounded-lg">
-                            {['sphere', 'box', 'tetra'].map(shape => (
-                                <button
-                                    key={shape}
-                                    onClick={() => setSettings({ ...settings, nodeShape: shape })}
-                                    className={`flex-1 py-1 text-[10px] uppercase font-bold rounded ${settings.nodeShape === shape ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                                >
-                                    {shape}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* 3. COLOR CONTROLS */}
-                <div className="flex flex-col gap-2 mb-3">
-                    <div className="flex justify-between text-xs text-gray-300">
-                        <span>Color By</span>
-                        <select
-                            value={settings.colorMode}
-                            onChange={(e) => setSettings({ ...settings, colorMode: e.target.value })}
-                            className="bg-black/50 text-[10px] border-none rounded text-gray-300 outline-none"
-                        >
-                            <option value="role">ROLE (Fact/Dim)</option>
-                            <option value="activity">ACTIVITY (Hot)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className="h-px bg-white/10 my-2" />
-
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Environment</div>
-                <ControlRow label="Spread" value={settings.spread} min={1} max={50} step={1} onChange={v => setSettings({ ...settings, spread: v })} />
-                <ControlRow label="Glow" value={settings.bloomStrength} min={0} max={3} step={0.1} onChange={v => setSettings({ ...settings, bloomStrength: v })} />
-
-                <div className="flex justify-between items-center mt-2">
-                    <span className="text-xs text-gray-400">Background</span>
-                    <input
-                        type="color"
-                        value={settings.bgColor}
-                        onChange={(e) => setSettings({ ...settings, bgColor: e.target.value })}
-                        className="w-6 h-6 rounded cursor-pointer bg-transparent border-none appearance-none"
-                    />
-                </div>
-
-                <div className="flex justify-between items-center text-sm text-gray-300 mt-2">
-                    <span>Auto Rotate</span>
-                    <Toggle checked={settings.autoRotate} onChange={v => setSettings({ ...settings, autoRotate: v })} />
+                <div className="flex flex-col border-l border-white/10 pl-6 space-y-1">
+                    <span className="text-[10px] text-cyan-400 font-black uppercase tracking-[0.4em] opacity-80 italic">Refined Monument // V16 Stable</span>
+                    <h1 className="text-4xl font-black tracking-tighter uppercase leading-none truncate max-w-[20rem]">{targetNode?.name || 'Local Analytics'}</h1>
                 </div>
             </div>
 
-            {/* SELECTED NODE INFO (Bottom Right) */}
-            {selectedNode && (
-                <div className="absolute bottom-8 right-4 w-80 bg-[#111]/90 backdrop-blur-xl border border-blue-500/30 rounded-xl p-6 shadow-2xl animate-in slide-in-from-right-10 fade-in duration-300">
-                    <div className="flex justify-between items-start mb-2">
-                        <div>
-                            <div className="text-xs text-blue-400 mb-1">SELECTED ENTITY</div>
-                            <div className="text-xl font-bold">{selectedNode.name || selectedNode.id}</div>
-                        </div>
-                        <button
-                            className="text-xs text-red-400 hover:text-red-300 border border-red-500/30 px-2 py-1 rounded"
-                            onClick={() => {
-                                const newOv = { ...overrides };
-                                delete newOv[selectedNode.id];
-                                setOverrides(newOv);
-                            }}
-                        >
-                            RESET NODE
-                        </button>
+            {/* Global Workshop Sidebar */}
+            <div className="absolute top-24 right-8 w-72 flex flex-col gap-6 z-[10005]">
+                <div className="bg-black/30 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 space-y-7 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-500">Workbench</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-400 mb-4">
-                        <div className="bg-white/5 p-2 rounded">
-                            <div className="text-gray-600">ROLE</div>
-                            <div className="text-white">{selectedNode.role || 'Entity'}</div>
-                        </div>
-                        <div className="bg-white/5 p-2 rounded">
-                            <div className="text-gray-600">ROWS</div>
-                            <div className="text-white">{selectedNode.rowCount?.toLocaleString()}</div>
-                        </div>
+                    <div className="bg-cyan-500/10 p-5 rounded-3xl border border-cyan-500/20 mb-2">
+                        <Toggle label="Architecture Mode" checked={settings.editMode} onChange={v => setSettings({ ...settings, editMode: v })} />
                     </div>
 
-                    <div className="h-px bg-white/10 my-3" />
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Customize Entity</div>
+                    <div className="space-y-5">
+                        <ControlRow label="Monument Drift" value={settings.speed} min={0} max={0.4} step={0.01} onChange={v => setSettings({ ...settings, speed: v })} />
+                        <div className="space-y-3">
+                            <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest text-center block">Global Height Balance</span>
+                            <div className="flex bg-white/5 p-1 rounded-2xl gap-1 border border-white/5">
+                                {['UNIFORM', 'ROWS'].map(m => (
+                                    <button key={m} onClick={() => setSettings({ ...settings, sizeBy: m })} className={`flex-1 py-2 rounded-xl text-[9px] font-black transition-all ${settings.sizeBy === m ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30' : 'text-gray-500 hover:text-white'}`}>{m}</button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                    {/* NODE OVERRIDES */}
-                    <div className="flex flex-col gap-2">
-                        {/* Shape */}
-                        <div className="flex gap-1 bg-black/50 p-1 rounded">
-                            {['sphere', 'box', 'tetra'].map(s => (
-                                <button key={s}
-                                    onClick={() => setOverrides({ ...overrides, [selectedNode.id]: { ...(overrides[selectedNode.id] || {}), shape: s } })}
-                                    className={`flex-1 text-[10px] uppercase py-1 rounded ${overrides[selectedNode.id]?.shape === s ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
-                                >{s}</button>
-                            ))}
+                <div className="bg-black/40 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 space-y-7 shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-purple-500">Optical Lab</span>
+                    </div>
+                    <ControlRow label="Neon Intensity" value={settings.glow} min={0} max={6} step={0.1} onChange={v => setSettings({ ...settings, glow: v })} />
+                    <div className="flex justify-between items-center text-[9px] text-gray-500 font-black uppercase tracking-widest">
+                        <span>Chamber Tint</span>
+                        <input type="color" value={settings.bgColor} onChange={e => setSettings({ ...settings, bgColor: e.target.value })} className="w-10 h-6 bg-transparent border-none cursor-pointer rounded-lg shadow-inner" />
+                    </div>
+                    <Toggle label="Levitation" checked={settings.levitation} onChange={v => setSettings({ ...settings, levitation: v })} />
+                    <Toggle label="Auto Simulation" checked={settings.autoRotate} onChange={v => setSettings({ ...settings, autoRotate: v })} />
+                </div>
+            </div>
+
+            {/* Predictive Inspector HUD (Compact V16) */}
+            {selectedSatellite && (
+                <div className="absolute bottom-8 right-8 w-96 bg-black/90 backdrop-blur-[80px] border border-cyan-500/20 rounded-[3rem] p-8 shadow-[0_0_100px_rgba(0,0,0,1)] z-[10010] flex flex-col gap-6 animate-in fade-in slide-in-from-right-5">
+                    <div className="flex justify-between items-center">
+                        <div className="space-y-0.5 overflow-hidden">
+                            <h2 className="text-3xl font-black tracking-tighter leading-none text-white italic truncate max-w-[18rem] uppercase" title={selectedSatellite.name}>{selectedSatellite.name}</h2>
+                            <span className="text-[8px] text-cyan-400 font-black uppercase tracking-[0.2em] inline-flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_cyan] animate-pulse" />
+                                Analyzing Sequence
+                            </span>
+                        </div>
+                        <button onClick={() => setSelectedSatellite(null)} className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-500 border border-white/5 transition-colors">✕</button>
+                    </div>
+
+                    {/* NEON PALETTE (Color Picker) */}
+                    <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/5">
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-black text-white uppercase tracking-widest">Brand Color</span>
+                        </div>
+                        <input
+                            type="color"
+                            value={overrides[selectedSatellite.name]?.color || (selectedSatellite.is_pk ? '#facc15' : selectedSatellite.is_fk ? '#a855f7' : '#00f2ff')}
+                            onChange={e => setOverrides({ ...overrides, [selectedSatellite.name]: { ...(overrides[selectedSatellite.name] || {}), color: e.target.value } })}
+                            className="w-12 h-6 bg-transparent border-none cursor-pointer rounded-lg shadow-lg"
+                        />
+                    </div>
+
+                    {/* DATA BLUEPRINT (Impact & Flow) */}
+                    <div className="bg-white/5 rounded-2xl p-6 border border-white/10 space-y-6">
+                        <div className="flex justify-between items-end">
+                            <div className="space-y-2.5">
+                                <span className="text-[10px] text-gray-500 font-black uppercase block tracking-widest">Blueprint Signature</span>
+                                <span className="text-sm font-black text-cyan-400 flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_cyan]" />
+                                    {selectedSatellite.data_type || selectedSatellite.type || 'VARCHAR(255)'}
+                                    {intelligence && <span className="ml-2 px-1.5 py-0.5 bg-white/5 text-[10px] text-white/40 rounded border border-white/5">x{intelligence.signature_strength || 1} Instances</span>}
+                                </span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-[10px] text-gray-500 font-black uppercase block tracking-widest">Entry Volume</span>
+                                <span className="text-sm font-black text-purple-400">{(selectedSatellite.rows || 14000).toLocaleString()} <span className="text-[9px] opacity-40 italic">Rows</span></span>
+                            </div>
                         </div>
 
-                        {/* Color & Size */}
-                        <div className="flex gap-2">
-                            <input
-                                type="color"
-                                className="w-8 h-8 rounded cursor-pointer bg-transparent border-none"
-                                value={overrides[selectedNode.id]?.color || "#ffffff"}
-                                onChange={(e) => setOverrides({ ...overrides, [selectedNode.id]: { ...(overrides[selectedNode.id] || {}), color: e.target.value } })}
-                            />
-                            <input
-                                type="range" min="0.5" max="10" step="0.5"
-                                className="flex-1 accent-blue-500 h-2 bg-gray-700 rounded-lg mt-3"
-                                value={overrides[selectedNode.id]?.size || settings.nodeSize}
-                                onChange={(e) => setOverrides({ ...overrides, [selectedNode.id]: { ...(overrides[selectedNode.id] || {}), size: Number(e.target.value) } })}
-                            />
+                        <div className="pt-4 border-t border-white/5">
+                            <span className="text-[10px] text-gray-500 font-black uppercase block tracking-widest mb-3 italic">Downstream Pulse</span>
+                            <div className="flex flex-wrap gap-2.5">
+                                {intelligence ? (
+                                    intelligence.impact.map((node, i) => (
+                                        <span key={i} className="px-3 py-1.5 bg-cyan-500/10 text-cyan-400 text-[10px] font-black rounded-lg border border-cyan-500/20 shadow-[0_4px_15px_rgba(0,0,0,0.3)] hover:bg-cyan-500/20 transition-colors uppercase tracking-tight">{node}</span>
+                                    ))
+                                ) : (
+                                    (selectedSatellite.impact && selectedSatellite.impact.length > 0) ? selectedSatellite.impact.map((node, i) => (
+                                        <span key={i} className="px-3 py-1.5 bg-cyan-500/10 text-cyan-400 text-[10px] font-black rounded-lg border border-cyan-500/20">{node}</span>
+                                    )) : <span className="text-[11px] text-gray-700 font-black uppercase italic tracking-widest">Isolated System Node</span>
+                                )}
+                            </div>
                         </div>
+
+                        <div className="pt-4 border-t border-white/5">
+                            <span className="text-[10px] text-gray-500 font-black uppercase block tracking-widest mb-2 italic">Propagation Path</span>
+                            <div className="text-[10px] font-black text-white/60 flex items-center gap-2 uppercase overflow-x-auto pb-2 scrollbar-hide">
+                                {intelligence?.propagation_path ? (
+                                    intelligence.propagation_path.map((step, i) => (
+                                        <React.Fragment key={i}>
+                                            <span className={i === 0 ? "text-cyan-400" : i === intelligence.propagation_path.length - 1 ? "text-purple-400" : "text-white/40"}>{step}</span>
+                                            {i < intelligence.propagation_path.length - 1 && <span className="text-white/10 mx-0.5">→</span>}
+                                        </React.Fragment>
+                                    ))
+                                ) : (
+                                    <>
+                                        <div className="flex items-center gap-2 text-gray-700 italic">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-gray-800 animate-pulse" />
+                                            <span>Establishing Neural Link...</span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {intelligence && (
+                            <div className="pt-4 border-t border-white/5 flex justify-between items-center">
+                                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest italic">Computed Complexity</span>
+                                <span className="text-xs font-black text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20 shadow-[0_0_15px_rgba(34,211,238,0.1)]">
+                                    {intelligence.complexity_score.toFixed(1)} <span className="text-[9px] opacity-60">G²</span>
+                                </span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* PRECISION CONTROLS */}
+                    <div className="bg-white/5 rounded-2xl p-5 border border-white/5 space-y-4">
+                        <ControlRow
+                            label="Extrusion"
+                            value={overrides[selectedSatellite.name]?.height || (settings.sizeBy === 'ROWS' ? 2 + (Math.log10((selectedSatellite.rows || 0) / 1000 + 1) * 3) : 4)}
+                            min={1} max={40} step={0.5}
+                            onChange={v => setOverrides({ ...overrides, [selectedSatellite.name]: { ...(overrides[selectedSatellite.name] || {}), height: v } })}
+                        />
+                        {(overrides[selectedSatellite.name]?.pos || overrides[selectedSatellite.name]?.height || overrides[selectedSatellite.name]?.color) && (
+                            <button onClick={() => { const n = { ...overrides }; delete n[selectedSatellite.name]; setOverrides(n); }} className="w-full py-2 bg-red-500/20 text-red-500 text-[8px] font-black rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">SNAP TO DEFAULT</button>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* NO DATA OVERLAY */}
-            {!loading && (!data?.nodes || Object.keys(data.nodes).length === 0) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <div className="text-4xl font-bold text-gray-700">VOID</div>
-                    <div className="text-sm text-gray-600 mt-2">Latent Space is empty. No intelligence signal detected.</div>
-                </div>
-            )}
-
-            {/* LOADING OVERLAY */}
-            {loading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-50">
-                    <div className="text-purple-500 animate-pulse">Accessing Neural Interface...</div>
-                </div>
-            )}
+            {/* Analytics Rail */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[10005] flex items-center gap-10 text-[8px] font-black text-gray-900 uppercase tracking-[0.4em] pointer-events-none opacity-20 italic">
+                <span>STABLE_BUILD_V16_REFINED</span>
+                <span>Coordinates: {columns.length} BLOCKS SYNCED</span>
+                <span>COMPACT_UI_ENABLED</span>
+            </div>
         </div>
     );
 };

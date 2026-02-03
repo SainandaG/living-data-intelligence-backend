@@ -7,7 +7,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { useGlowManager } from '../../hooks/useGlow';
 import { useCameraManager } from '../../hooks/useCamera';
 import * as d3 from 'd3';
-import { LatentWorld } from './LatentWorld';
 import { forceSimulation, forceManyBody, forceLink, forceX, forceY, forceZ } from 'd3-force-3d'; // 3D Physics
 
 /**
@@ -107,14 +106,14 @@ function createNodeMesh(nodeData) {
     }
 
     // 1. Inner Core Sphere (The Light Source)
-    const geometry = new THREE.SphereGeometry(size * 0.5, 32, 32);
+    const geometry = new THREE.SphereGeometry(size * 0.5, 24, 24);
     const material = new THREE.MeshBasicMaterial({ // Basic material = 100% unlit brightness
         color: color
     });
     const sphere = new THREE.Mesh(geometry, material);
 
     // 2. Outer Glass Shell (The Lens)
-    const shellGeo = new THREE.SphereGeometry(size, 64, 64);
+    const shellGeo = new THREE.SphereGeometry(size, 32, 32);
     const shellMat = new THREE.MeshPhysicalMaterial({
         color: color,
         transparent: true,
@@ -314,6 +313,10 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
     const flowTimeoutRef = useRef(null); // Timeout for auto-stopping flow
     const lineageRef = useRef({ origin: null, nodes: [] });
     const simulationRef = useRef(null);
+
+    // Refs for state setters to avoid closure issues in event handlers
+    const setViewModeRef = useRef(null);
+    const setDrilldownNodeRef = useRef(null);
 
     const { update: updateGlow } = useGlowManager();
     const { focusOn: cameraFocus, stopTransition: stopCameraTransition, update: updateCamera } = useCameraManager(cameraRef, controlsRef);
@@ -661,12 +664,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             console.log(`[ThreeGraph] Action: Stop Flow`);
             flowEnabledRef.current = false;
         },
-        resetView: () => {
-            console.log(`[ThreeGraph] Action: Reset View`);
-            resetCamera();
-        },
         highlightNode: (nodeName) => {
-            // Sanitize: Trim and remove trailing punctuation (common in Voice input)
             const cleanName = nodeName.toString().toLowerCase().replace(/[.,!?;:]$/, '').trim();
             console.log(`[ThreeGraph] Action: Highlight Node "${nodeName}" -> Sanitized: "${cleanName}"`);
 
@@ -676,10 +674,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             );
 
             if (target) {
-                focusOnNode(target); // Zoom to it
-                // REMOVED: onNodeClick(target) - User wants Zoom only, not drill-down
-
-                // Trigger birth effect for visual pop
+                focusOnNode(target);
                 if (sceneRef.current) {
                     sceneRef.current.traverse(obj => {
                         if (obj.userData && obj.userData.id === target.id) {
@@ -690,6 +685,14 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             } else {
                 console.warn(`[ThreeGraph] Node not found for highlight: "${cleanName}". Available:`, nodesRef.current.map(n => n.name).slice(0, 5));
             }
+        },
+        resetView: () => {
+            console.log('🔄 [ThreeGraph] IMPERATIVE RESET CALLED');
+            if (controlsRef.current) {
+                console.log('📸 [ThreeGraph] Resetting camera via controls');
+                controlsRef.current.reset();
+            }
+            resetCamera();
         }
     }));
 
@@ -871,9 +874,9 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
                     document.body.style.cursor = 'pointer';
 
                     // SONIFICATION: Play metric sound on hover
-                    const gravity = foundNode.neural_gravity || 1.0;
-                    const entropy = foundNode.entropy || 0.5;
-                    soundSystem.playMetricOscillation(gravity, entropy);
+                    const gravity = foundNode.importance_score || 1.0;
+                    const glowIntense = foundNode.node_glow || 0.5;
+                    soundSystem.playMetricOscillation(gravity, glowIntense);
                 }
             } else if (hoverNodeRef.current) {
                 hoverNodeRef.current = null; // Clear Ref
@@ -881,11 +884,18 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             }
         };
 
-        const onClick = () => {
-            if (hoverNodeRef.current && onNodeClick) {
-                console.log("ThreeGraph: Node Clicked:", hoverNodeRef.current.name);
-                onNodeClick(hoverNodeRef.current);
+        const onClick = (event) => {
+            if (hoverNodeRef.current) {
+                console.log("ThreeGraph: Node Clicked - Opening Latent Space for:", hoverNodeRef.current.name);
+                event.stopPropagation();
+                event.preventDefault();
+
                 soundSystem.play('nodeClick');
+
+                // Also call onNodeClick if provided - THIS IS THE ONLY NAVIGATION SOURCE
+                if (onNodeClick) {
+                    onNodeClick(hoverNodeRef.current);
+                }
             }
         };
 
@@ -1075,47 +1085,93 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
 
     // Deep comparison helper (Performance optimized)
     const hasDataChanged = (newData, oldData) => {
-        if (!oldData) return true;
-        if (!newData) return false;
+        if (!oldData) return 'structural';
+        if (!newData) return 'none';
 
-        // 1. Structural Changes
-        if (newData.nodes?.length !== oldData.nodes?.length) return true;
-        if (newData.edges?.length !== oldData.edges?.length) return true;
+        // 1. Structural Changes (Triggers full rebuild)
+        if (newData.nodes?.length !== oldData.nodes?.length) return 'structural';
+        if (newData.edges?.length !== oldData.edges?.length) return 'structural';
 
         // 2. Content Changes (Sample check for performance)
-        // We check the first, middle, and last node for critical property shifts
         const checkNode = (n1, n2) => {
-            if (!n1 || !n2) return false;
-            return n1.id !== n2.id ||
-                n1.cluster !== n2.cluster ||
-                n1.neural_gravity !== n2.neural_gravity ||
-                Math.abs(n1.x - n2.x) > 1.0 || // Significant position shift
-                n1.color !== n2.color;
+            if (!n1 || !n2) return true;
+            // Structural changes within a node
+            if (n1.id !== n2.id || n1.cluster !== n2.cluster) return true;
+            return false;
+        };
+
+        const checkProperties = (n1, n2) => {
+            if (!n1 || !n2) return true;
+            // Property changes that only need mesh updates
+            return n1.node_glow !== n2.node_glow ||
+                n1.color !== n2.color ||
+                n1.vitality !== n2.vitality ||
+                n1.size !== n2.size;
         };
 
         const len = newData.nodes.length;
         if (len > 0) {
-            // Check specific indices to catch bulk updates without scanning everything
-            if (checkNode(newData.nodes[0], oldData.nodes[0])) return true;
-            if (checkNode(newData.nodes[Math.floor(len / 2)], oldData.nodes[Math.floor(len / 2)])) return true;
-            if (checkNode(newData.nodes[len - 1], oldData.nodes[len - 1])) return true;
+            // Structural Check samples
+            if (checkNode(newData.nodes[0], oldData.nodes[0])) return 'structural';
+            if (checkNode(newData.nodes[Math.floor(len / 2)], oldData.nodes[Math.floor(len / 2)])) return 'structural';
+            if (checkNode(newData.nodes[len - 1], oldData.nodes[len - 1])) return 'structural';
+
+            // Property Check samples
+            if (checkProperties(newData.nodes[0], oldData.nodes[0])) return 'property';
+            if (checkProperties(newData.nodes[Math.floor(len / 2)], oldData.nodes[Math.floor(len / 2)])) return 'property';
+            if (checkProperties(newData.nodes[len - 1], oldData.nodes[len - 1])) return 'property';
         }
 
-        return false;
+        return 'none';
     };
     React.useEffect(() => {
         if (!sceneRef.current || !data) return;
 
-        // Prevent refresh if data hasn't meaningfully changed
-        if (!hasDataChanged(data, prevDataRef.current)) {
-            // console.log("[ThreeGraph] Skipping refresh - Data identical");
+        const changeType = hasDataChanged(data, prevDataRef.current);
+
+        // 1. No change - skip
+        if (changeType === 'none') return;
+
+        // 2. Property change - FAST PATH (No mesh disposal)
+        if (changeType === 'property') {
+            const scene = sceneRef.current;
+            console.log(`[ThreeGraph] ✨ Fast Property Sync... (Structural Integrity Maintained)`);
+            data.nodes.forEach(incoming => {
+                const existing = nodesRef.current.find(n => n.id === incoming.id);
+                if (existing && existing.mesh) {
+                    const mesh = existing.mesh;
+                    // Update Vitality/Glow
+                    mesh.userData.nodeGlow = incoming.node_glow || 1.0;
+
+                    // Update Color if shifted
+                    if (incoming.color && existing.color !== incoming.color) {
+                        const newColor = typeof incoming.color === 'string' ? new THREE.Color(incoming.color) : new THREE.Color(incoming.color);
+                        if (mesh.material) mesh.material.color.set(newColor);
+                        // Update shell too
+                        if (mesh.children[0]) mesh.children[0].material.color.set(newColor);
+                    }
+
+                    // Update Scale (Vitality/Size)
+                    const targetScale = incoming.size / (existing.size || 20);
+                    mesh.scale.setScalar(targetScale);
+
+                    // Sync local object state
+                    existing.node_glow = incoming.node_glow;
+                    existing.vitality = incoming.vitality;
+                    existing.color = incoming.color;
+                    existing.size = incoming.size;
+                }
+            });
+            prevDataRef.current = JSON.parse(JSON.stringify(data));
             return;
         }
+
+        // 3. Structural change - FULL REBUILD (Structural Integrity Shifted)
         prevDataRef.current = JSON.parse(JSON.stringify(data)); // Deep copy for reference
 
         const scene = sceneRef.current;
 
-        console.log(`[ThreeGraph] 🔄 Data Updated. Rebuilding Graph Content...`, data.nodes?.length);
+        console.log(`[ThreeGraph] 🔄 Structural Update. Rebuilding Universe...`, data.nodes?.length);
 
         // A. CLEANUP PREVIOUS CONTENT
         nodesRef.current.forEach(n => {
@@ -1196,9 +1252,10 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
         // C. START PHYSICS
         // D3 PHYSICS ENGINE INTEGRATION (3D)
         const simulation = forceSimulation(nodesRef.current)
-            .numDimensions(3) // Enable 3D Mode
-            .alphaDecay(0.02) // Slower decay for more float
-            .velocityDecay(0.3) // High friction for "underwater" feel
+            .stop() // STOP: Don't start recalculating until fully configured
+            .numDimensions(3)
+            .alphaDecay(0.02)
+            .velocityDecay(0.3)
 
             .force("charge", forceManyBody()
                 .strength(d => {
@@ -1211,54 +1268,49 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
                 .id(d => d.id)
                 .distance(d => {
                     const intensity = d.trafficIntensity || 0.5;
-                    // Prevent division by zero
                     if (intensity <= 0.01) return 200;
                     const dist = 100 / intensity;
-                    return isNaN(dist) ? 100 : Math.min(dist, 500); // Clamp max distance
+                    return isNaN(dist) ? 100 : Math.min(dist, 500);
                 })
+                .strength(0.1) // LOW INITIAL STRENGTH to prevent "clumping"
             )
-            // ANCHORED PHYSICS: Strong pull to Galaxy Spiral positions (Restored Rigidity)
-            .force("x", forceX(d => d.targetX || 0).strength(0.8)) // Strong anchor X
-            .force("y", forceY(d => d.targetY || 0).strength(0.8)) // Strong anchor Y
-            .force("z", forceZ(d => d.targetZ || 0).strength(0.8)) // Strong anchor Z
+            .force("x", forceX(d => d.targetX || 0).strength(0.8))
+            .force("y", forceY(d => d.targetY || 0).strength(0.8))
+            .force("z", forceZ(d => d.targetZ || 0).strength(0.8))
             .on("tick", () => {
-                // Update Three.js meshes from D3 simulation data
-                const currentScene = sceneRef.current; // access fresh Ref
+                const currentScene = sceneRef.current;
                 if (!currentScene) return;
 
-                // We iterate our tracked nodes, not the whole scene, for performance
                 nodesRef.current.forEach((d, i) => {
                     if (d.mesh) {
-                        // RECOVERY: If a node becomes NaN during simulation, reset it to target
                         if (isNaN(d.x) || isNaN(d.y) || isNaN(d.z)) {
-                            console.warn(`[ThreeGraph] 🩹 Recovering NaN node ${d.id}`);
                             d.x = d.targetX || 0;
                             d.y = d.targetY || 0;
                             d.z = d.targetZ || 0;
-                            d.vx = 0; d.vy = 0; d.vz = 0;
                         }
-                        d.mesh.position.lerp(new THREE.Vector3(d.x, d.y, d.z), 0.1);
+
+                        // If it's the very first tick and alpha is high, bypass lerp for instant positioning
+                        if (simulation.alpha() > 0.95) {
+                            d.mesh.position.set(d.x, d.y, d.z);
+                        } else {
+                            d.mesh.position.lerp(new THREE.Vector3(d.x, d.y, d.z), 0.1);
+                        }
                     }
                 });
 
-                // Update Edges
+                // ... same edge update logic ...
+
                 edgesRef.current.forEach(edge => {
                     const source = edge.userData.sourceNode;
                     const target = edge.userData.targetNode;
-
                     if (source && target) {
-                        // Recalculate curve based on new positions
                         const start = source.position;
                         const end = target.position;
-
                         const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-
-                        // Reuse the existing curve object to avoid GC
                         if (edge.userData.curve) {
                             edge.userData.curve.v0.copy(start);
-                            edge.userData.curve.v1.copy(mid).add(new THREE.Vector3(0, Math.sin(Date.now() * 0.001) * 10, 0)); // Breathing edge
+                            edge.userData.curve.v1.copy(mid).add(new THREE.Vector3(0, Math.sin(Date.now() * 0.001) * 10, 0));
                             edge.userData.curve.v2.copy(end);
-
                             edge.geometry.setFromPoints(edge.userData.curve.getPoints(50));
                             edge.geometry.attributes.position.needsUpdate = true;
                         }
@@ -1273,12 +1325,9 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             const mesh = node.mesh;
             if (mesh) {
                 mesh.userData.d3Node = node;
-                // Initialize D3 position to Galaxy position
                 node.x = node.targetX || 0;
                 node.y = node.targetY || 0;
                 node.z = node.targetZ || 0;
-
-                // Add reference to edges for efficient updates
                 edgesRef.current.forEach(edge => {
                     if (edge.userData.sourceId === node.id) edge.userData.sourceNode = mesh;
                     if (edge.userData.targetId === node.id) edge.userData.targetNode = mesh;
@@ -1286,7 +1335,14 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
             }
         });
 
-        // Restart simulation alpha
+        // 4. RAMP UP LINKS (Prevent Cold-Start Clumping)
+        setTimeout(() => {
+            if (simulationRef.current) {
+                simulationRef.current.force("link").strength(0.7);
+                simulationRef.current.alpha(1).restart();
+            }
+        }, 1000);
+
         simulation.alpha(1).restart();
 
     }, [data]);
@@ -1439,6 +1495,11 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
     // --- VIEW MODE SWITCHING (Logic Moved to LatentWorld Component) ---
     // We only keep the state to toggle the overlay
     const [viewMode, setViewMode] = React.useState('topology');
+    const [drilldownNode, setDrilldownNode] = React.useState(null);
+
+    // Store setters in refs so onClick handler can access them
+    setViewModeRef.current = setViewMode;
+    setDrilldownNodeRef.current = setDrilldownNode;
 
 
     return (
@@ -1456,33 +1517,14 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className }, ref) =
                 </div>
             </div>
 
-            {/* 1. TOPOLOGY VIEW (Always Mounted, Hidden when Latent) */}
-            <div ref={mountRef} className="absolute inset-0 z-0" style={{ display: viewMode === 'latent' ? 'none' : 'block' }} />
+            {/* TOPOLOGY VIEW (Always Mounted) */}
+            <div ref={mountRef} className="absolute inset-0 z-0" />
 
-            {/* 2. LATENT WORLD OVERLAY (Mounts when Active) */}
-            {viewMode === 'latent' && (
-                <LatentWorld
-                    onClose={() => setViewMode('topology')}
-                    schemaData={data} // Pass full schema for column details
-                />
-            )}
-
-            {/* 3. MAIN UI OVERLAY (Only visible in Topology Mode) */}
-            {viewMode === 'topology' && (
-                <div className="absolute bottom-6 left-6 z-50 flex gap-2">
-                    <button
-                        className="px-4 py-2 rounded border font-mono text-sm bg-cyan-500/20 border-cyan-400 text-cyan-300 pointer-events-none opacity-80"
-                    >
-                        TOPOLOGY ACTIVE
-                    </button>
-                    <button
-                        onClick={() => setViewMode('latent')}
-                        className="px-4 py-2 rounded border font-mono text-sm bg-black/50 border-gray-700 text-gray-500 hover:text-purple-300 hover:border-purple-500 transition-all"
-                    >
-                        ENTER LATENT SPACE
-                    </button>
+            <div className="absolute bottom-6 left-6 z-50 flex gap-2">
+                <div className="px-4 py-2 rounded border font-mono text-sm bg-cyan-500/20 border-cyan-400 text-cyan-300 pointer-events-none opacity-80">
+                    TOPOLOGY VIEW • Click any node to explore
                 </div>
-            )}
+            </div>
         </div>
     );
 });

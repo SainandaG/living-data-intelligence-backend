@@ -29,14 +29,16 @@ class AnalysisEngine:
         """
         try:
             # 1. Get Neural Core metrics
-            gravity = neural_core.gravity_store.get(table_name, 1.0)
-            in_deg = neural_core.in_degree.get(table_name, 0)
-            out_deg = neural_core.out_degree.get(table_name, 0)
-            hub_score = neural_core.hub_scores.get(table_name, 0.0)
+            gravity = neural_core.gravity_stores.get(connection_id, {}).get(table_name, 1.0)
+            in_deg = neural_core.in_degrees.get(connection_id, {}).get(table_name, 0)
+            out_deg = neural_core.out_degrees.get(connection_id, {}).get(table_name, 0)
+            hub_score = neural_core.hub_scores.get(connection_id, {}).get(table_name, 0.0)
             
             # 2. Structural Entropy Calculation
-            # H = -sum(p * log(p)) where p is the relative degree distribution
-            total_connections = sum(neural_core.in_degree.values()) + sum(neural_core.out_degree.values())
+            # p = relative significance of this node in the structural network
+            total_in = sum(neural_core.in_degrees.get(connection_id, {}).values())
+            total_out = sum(neural_core.out_degrees.get(connection_id, {}).values())
+            total_connections = total_in + total_out
             node_connections = in_deg + out_deg
             
             if total_connections > 0 and node_connections > 0:

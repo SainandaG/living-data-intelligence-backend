@@ -95,14 +95,15 @@ class SoundSystem {
         const lfo = this.ctx.createOscillator();
         const lfoGain = this.ctx.createGain();
 
-        // Map Gravity (1-5) to frequency (200Hz - 800Hz)
-        const freq = 200 + (gravity * 120);
+        // Map Gravity (1.0 - 5.0) to frequency (150Hz - 600Hz) - More bassy/premium
+        const freq = 150 + (gravity * 100);
         osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.8, t + 0.4); // Subtle pitch drop
         osc.type = 'sine';
 
-        // Map Entropy (0-1) to modulation speed and intensity
-        lfo.frequency.value = 5 + (entropy * 50);
-        lfoGain.gain.value = 10 + (entropy * 40);
+        // LFO for "Shimmer/Pulse" effect
+        lfo.frequency.value = 2 + (entropy * 20); // Pulse rate
+        lfoGain.gain.value = freq * 0.1 * entropy; // Modulation depth
 
         lfo.connect(lfoGain);
         lfoGain.connect(osc.frequency);
@@ -110,14 +111,17 @@ class SoundSystem {
         osc.connect(gain);
         gain.connect(this.ctx.destination);
 
+        // Sharper "Pulse" Envelope
         gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.15 * this.volume, t + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.01, t + 0.4);
+        gain.gain.linearRampToValueAtTime(0.2 * this.volume, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
 
         osc.start(t);
         lfo.start(t);
-        osc.stop(t + 0.5);
-        setTimeout(() => lfo.stop(), 500);
+        osc.stop(t + 0.6);
+        setTimeout(() => {
+            try { lfo.stop(); } catch (e) { }
+        }, 600);
     }
 
     stop(soundName) {

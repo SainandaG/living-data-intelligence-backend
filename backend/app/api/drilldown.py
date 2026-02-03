@@ -68,3 +68,29 @@ async def calculate_gravity(request: GravityRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/drilldown/{connection_id}/semantic-discovery/{table_name}")
+async def get_semantic_discovery(connection_id: str, table_name: str):
+    """Get predicted semantic relationships for a table"""
+    try:
+        from app.services.neural_core import neural_core
+        from app.services.graph_generator import graph_generator
+        
+        # 1. Get all other tables for context
+        graph = await graph_generator.generate_graph(connection_id)
+        other_tables = [n['name'] for n in graph.get('nodes', []) if n['name'] != table_name]
+        
+        # 2. Get predictions
+        predictions = await neural_core.predict_links(connection_id, table_name, other_tables)
+        
+        return {"status": "success", "predictions": predictions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/drilldown/{connection_id}/column-intelligence/{table_name}/{column_name}")
+async def get_column_intelligence(connection_id: str, table_name: str, column_name: str):
+    """Get granular intelligence for a specific column"""
+    try:
+        from app.services.neural_core import neural_core
+        intelligence = await neural_core.get_column_intelligence(connection_id, table_name, column_name)
+        return {"status": "success", "intelligence": intelligence}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

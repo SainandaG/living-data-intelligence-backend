@@ -193,10 +193,9 @@ class SchemaAnalyzer:
         connection = db_connector.get_connection(connection_id)
         database = connection['config']['database']
         
-        # 1. Get all tables and counts in one go
-        # 1. Get all tables (Row counts fetched separately for accuracy)
+        # 1. Get all tables and row counts from information_schema (Memory Safe)
         tables_query = """
-            SELECT TABLE_NAME as table_name
+            SELECT TABLE_NAME as table_name, TABLE_ROWS as row_count
             FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = %s
               AND TABLE_NAME NOT IN ('neural_snapshots', 'alembic_version', 'flyway_schema_history')
@@ -204,17 +203,10 @@ class SchemaAnalyzer:
         """
         tables_data = await db_connector.query(connection_id, tables_query, (database,))
 
-        # 1.5 Fetch EXACT row counts (Fix for InnoDB approximation issues)
-        # Note: accurate counts are critical for static data visualization
-        for t in tables_data:
-            try:
-                # Use simple backtick quoting for MySQL
-                count_sql = f"SELECT COUNT(*) as c FROM `{t['table_name']}`"
-                count_res = await db_connector.query(connection_id, count_sql)
-                t['row_count'] = count_res[0]['c']
-            except Exception as e:
-                print(f"⚠️ Failed to count rows for {t['table_name']}: {e}")
-                t['row_count'] = 0
+        # 1.5 Optional: Refresh EXACT row counts for very small tables only if needed
+        # (Disabled for now to prevent OOM errors on large views/tables)
+        # for t in tables_data:
+        #    ... 
         
         # 2. Bulk fetch columns
         columns_query = """
