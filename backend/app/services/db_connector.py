@@ -87,14 +87,7 @@ class DatabaseConnector:
             
             # CRITICAL: Background the schema analysis AFTER storing connection but BEFORE returning
             # This ensures the API responds immediately
-            async def _background_schema_analysis():
-                try:
-                    from app.services.schema_analyzer import schema_analyzer
-                    await schema_analyzer.analyze_schema(connection_id)
-                except Exception as e:
-                    print(f" Background schema analysis failed for {connection_id}: {e}")
-            
-            asyncio.create_task(_background_schema_analysis())
+            asyncio.create_task(self._background_schema_analysis_task(connection_id))
             
             return {'id': connection_id, 'type': db_type}
             
@@ -107,6 +100,13 @@ class DatabaseConnector:
             duration = time.perf_counter() - start_time
             print(f"[ERROR] Failed to connect to {db_type} after {duration:.3f}s: {str(e)}")
             raise
+
+    async def _background_schema_analysis_task(self, connection_id: str):
+        try:
+            from app.services.schema_analyzer import schema_analyzer
+            await schema_analyzer.analyze_schema(connection_id)
+        except Exception as e:
+            print(f" Background schema analysis failed for {connection_id}: {e}")
 
     def _connect_postgresql_sync(self, config: Dict[str, Any]):
         """Connect to PostgreSQL"""
