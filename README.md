@@ -91,6 +91,7 @@ For the **High Fidelity** experience (React + 3D Visuals), you need to run both 
 
 ### 1. Start the Backend Server (Terminal 1)
 ```bash
+cd backend
 python main.py
 ```
 Backend will be available on `http://localhost:8000`.
@@ -145,32 +146,27 @@ The **High Fidelity UI** will be available on **`http://localhost:5173`**.
 
 ```
 living-data-intelligence-backend/
-├── app/
-│   ├── api/                 # API route handlers
-│   │   ├── database.py      # Database connection endpoints
-│   │   ├── schema.py        # Schema analysis endpoints
-│   │   ├── graph.py         # Graph generation endpoints
-│   │   └── metrics.py       # Real-time metrics endpoints
-│   ├── models/              # Pydantic models
-│   │   └── schemas.py       # Data validation models
-│   └── services/            # Business logic
-│       ├── db_connector.py  # Database connection manager
-│       ├── schema_analyzer.py # Schema introspection
-│       ├── ai_classifier.py # AI table classification
-│       ├── graph_generator.py # 3D graph generation
-│       ├── realtime_monitor.py # Real-time data monitoring
-│       └── connection_manager.py # WebSocket manager
-├── static/
-│   ├── css/
-│   │   └── styles.css       # Application styles
-│   ├── js/
-│   │   ├── app.js           # Main application controller
-│   │   ├── visualization.js # Three.js 3D visualization
-│   │   └── particle-system.js # Particle flow system
-│   └── index.html           # Main HTML page
-├── main.py                  # FastAPI application entry point
-├── requirements.txt         # Python dependencies
-└── .env.example            # Environment variables template
+├── backend/
+│   ├── app/
+│   │   ├── api/                 # API route handlers
+│   │   │   ├── database.py      # Database connection endpoints
+│   │   │   ├── schema.py        # Schema analysis endpoints
+│   │   │   ├── graph.py         # Graph generation endpoints
+│   │   │   └── metrics.py       # Real-time metrics endpoints
+│   │   ├── models/              # Pydantic models
+│   │   │   └── schemas.py       # Data validation models
+│   │   └── services/            # Business logic
+│   │       ├── db_connector.py  # Database connection manager
+│   │       ├── schema_analyzer.py # Schema introspection
+│   │       ├── ai_classifier.py # AI table classification
+│   │       ├── graph_generator.py # 3D graph generation
+│   │       ├── realtime_monitor.py # Real-time data monitoring
+│   │       └── connection_manager.py # WebSocket manager
+│   ├── main.py                  # FastAPI application entry point
+│   ├── requirements.txt         # Python dependencies
+│   └── .env.example            # Environment variables template
+├── frontend/                # Frontend application
+└── actions/                 # GitHub Actions or other scripts
 ```
 
 ## 🎯 Use Cases
