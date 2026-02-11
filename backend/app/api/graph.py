@@ -103,6 +103,8 @@ async def get_graph(connection_id: str):
                 
                 # UNIFIED COLORING: Ensure Overview and Latent Space share the same semantic logic
                 node['color'] = latent_space_service._get_semantic_color(node)
+
+
             except Exception as inner_e:
                 print(f" Error processing node {node.get('name', '?')}: {inner_e}")
                 # Fallback: DO NOT zero out. Use statistical defaults to prevent clumping.

@@ -38,7 +38,7 @@ class LatentSpaceService:
         else:
             # 4-ZONE SPATIAL SEGMENTATION (Business Entity Based)
             # Wide separation to create distinct mountain ranges
-            business_entity = str(node.get('business_entity', 'other')).lower()
+            business_entity = str(node.get('entity', node.get('business_entity', 'other'))).lower()
             
             # Map business entities to 4 distinct zones (Reference Image)
             entity_zones = {
@@ -171,7 +171,7 @@ class LatentSpaceService:
         if node.get('id') == 'hub' or node.get('id') == 'DATABASE_CORE':
             return '#FF9F1A'  # Orange Neural Core
         
-        business_entity = str(node.get('business_entity', 'other')).lower()
+        business_entity = str(node.get('entity', node.get('business_entity', 'other'))).lower()
         
         # 4-Color Palette (Reference Matched)
         entity_colors = {
@@ -185,7 +185,8 @@ class LatentSpaceService:
             'product': '#FFC107', 'service': '#FFC107', 'loan': '#FFC107', 'branch': '#FFC107',
             
             # Red Mountain: Risk/Audit
-            'fraud': '#F44336', 'audit': '#F44336', 'alert': '#F44336', 'other': '#F44336'
+            'fraud': '#F44336', 'audit': '#F44336', 'alert': '#F44336', 'other': '#94A3B8'
+
         }
         
         return entity_colors.get(business_entity, '#94A3B8')  # Default gray

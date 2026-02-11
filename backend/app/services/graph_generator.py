@@ -14,12 +14,13 @@ class GraphGenerator:
     # Entity-specific color palette (BRIGHT, vibrant colors for dark background)
     # UNIFIED SEMANTIC PALETTE (G, B, Y, R)
     ENTITY_COLORS = {
-        'fact': '#2196F3',              # Blue (Vehicles equivalent)
-        'dimension': '#4CAF50',         # Green (Batteries equivalent)
-        'time_intelligence': '#FFC107', # Yellow (Users equivalent)
-        'core': '#F44336',              # Red (Stations equivalent)
+        'customer': '#4CAF50',          # Green
+        'transaction': '#2196F3',       # Blue
+        'product': '#FFC107',           # Yellow
+        'fraud': '#F44336',             # Red
         'other': '#94a3b8'
     }
+
     
     # Heuristic Mode - VIBRANT 6-color palette
     HEURISTIC_COLORS = [
@@ -350,9 +351,10 @@ class GraphGenerator:
             'ENTROPY.Δ': round(0.1 + (random.Random(t_name).random() * 0.4), 3) # Table-stable entropy
         }
         
-        # Default colors (Frontend will refine these)
-        color = self.ENTITY_COLORS.get(t_type, self.ENTITY_COLORS['other'])
+        # Default colors (Unified with LatentSpaceService)
+        color = self.ENTITY_COLORS.get(b_entity, self.ENTITY_COLORS['other'])
         if b_entity == 'fraud': color = self.ENTITY_COLORS['fraud']
+
         
         # DRAMATIC SIZING: High-Fidelity presence
         if t_type == 'fact':

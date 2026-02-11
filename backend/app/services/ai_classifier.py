@@ -151,31 +151,34 @@ class AIClassifier:
         return 'unknown'
     
     def _identify_business_entity(self, table: Any) -> str:
-        """Identify business entity type"""
+        """Identify business entity type with expanded heuristics"""
         # Helper
         def get(obj, attr, default=None):
             return obj.get(attr, default) if isinstance(obj, dict) else getattr(obj, attr, default)
 
         name = get(table, 'name', '').lower()
+        table_type = get(table, 'table_type', 'unknown')
         
         entities = {
-            'customer': ['customer', 'client', 'user'],
-            'account': ['account', 'wallet'],
-            'transaction': ['transaction', 'transfer', 'payment'],
-            'branch': ['branch', 'location', 'office'],
-            'employee': ['employee', 'staff', 'worker'],
-            'product': ['product', 'service', 'offering'],
-            'loan': ['loan', 'credit', 'mortgage'],
+            'customer': ['customer', 'client', 'user', 'account', 'profile', 'subscriber'],
+            'transaction': ['transaction', 'transfer', 'payment', 'order', 'invoice', 'sale', 'billing', 'shipment', 'ledger', 'journal'],
+            'product': ['product', 'service', 'offering', 'item', 'inventory', 'warehouse', 'catalog', 'category', 'stock'],
+            'branch': ['branch', 'location', 'office', 'store', 'facility'],
+            'employee': ['employee', 'staff', 'worker', 'manager'],
             'card': ['card', 'debit', 'credit_card'],
-            'fraud': ['fraud', 'alert', 'suspicious'],
-            'audit': ['audit', 'log', 'history']
+            'fraud': ['fraud', 'alert', 'suspicious', 'risk', 'audit', 'violation'],
         }
         
         for entity, keywords in entities.items():
             if any(keyword in name for keyword in keywords):
                 return entity
         
+        # Default fact tables to transaction if no specific match
+        if table_type == 'fact':
+            return 'transaction'
+            
         return 'other'
+
     
     def _calculate_importance(self, table: Any) -> int:
         """Calculate importance score for visualization sizing"""

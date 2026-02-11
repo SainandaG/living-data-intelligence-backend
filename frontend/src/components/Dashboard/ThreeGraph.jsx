@@ -395,16 +395,18 @@ function createClusterVoxelMesh(nodesInCluster, currentLens = 'ops') {
 }
 
 function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy') {
+
     const colorMap = {
-        core: 0xff9f1a,      // Vibrant Orange (Matched to 2nd Image)
-        fact: 0x45aaf2,      // Analysis Blue
-        dimension: 0x20bf6b, // Success Green
-        warning: 0xeb3b5a,   // High-Risk Red
-        default: 0x4b7bec    // Semantic Blue
+        core: 0xff9f1a,        // Vibrant Orange
+        customer: 0x4CAF50,    // Green
+        transaction: 0x2196F3, // Blue
+        product: 0xffc107,     // Yellow
+        fraud: 0xf44336,       // Red
+        other: 0x94a3b8        // Gray
     };
 
     const isCore = nodeData.id === 'DATABASE_CORE' || nodeData.id === 'hub';
-    const tt = (nodeData.table_type || nodeData.type || 'dimension').toLowerCase();
+    const entity = (nodeData.entity || 'other').toLowerCase();
 
     let color;
     if (isCore) color = colorMap.core;
@@ -412,8 +414,10 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy') {
         if (typeof nodeData.color === 'string') color = new THREE.Color(nodeData.color).getHex();
         else color = nodeData.color;
     }
-    else if (tt === 'fact') color = colorMap.fact;
-    else color = colorMap.dimension;
+    else {
+        color = colorMap[entity] || colorMap.other;
+    }
+
     // SIZING Logic
     const nTerm = Math.log10(Math.max(1, nodeData.row_count || 1));
     const rawImportance = nodeData.importance_score || 1.0;
