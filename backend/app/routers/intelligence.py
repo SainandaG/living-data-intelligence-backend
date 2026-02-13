@@ -4,7 +4,13 @@ from typing import Dict, List, Any
 import logging
 
 try:
-    from backend.app.services.latent_manager import latent_manager
+    try:
+        from backend.app.services.latent_manager import latent_manager
+    except ImportError:
+        try:
+            from app.services.latent_manager import latent_manager
+        except ImportError:
+            from ..services.latent_manager import latent_manager
 except ImportError:
     from app.services.latent_manager import latent_manager
 

@@ -15,20 +15,13 @@ class DrillDownService:
             # Defensive Check: Verify table exists in schema context first
             from app.services.schema_analyzer import schema_analyzer
             schema = schema_analyzer.get_analysis_result(connection_id)
+            actual_table_name = table_name
+            
             if schema:
                 # Case-insensitive check
                 table_names_lower = {t.name.lower(): t.name for t in schema.tables}
-                if table_name.lower() not in table_names_lower:
-                    return {
-                        'table': table_name,
-                        'records': [],
-                        'count': 0,
-                        'error': f"Relation '{table_name}' not found in active schema snapshot."
-                    }
-                # Use the actual case-correct name from schema for the query
-                actual_table_name = table_names_lower[table_name.lower()]
-            else:
-                actual_table_name = table_name
+                if table_name.lower() in table_names_lower:
+                     actual_table_name = table_names_lower[table_name.lower()]
 
             if connection['type'] in ['postgresql', 'mysql']:
                 quoted_table = db_connector.quote_identifier(connection_id, actual_table_name)
@@ -231,13 +224,7 @@ class DrillDownService:
                             "type": "record_flow",
                             "value": str(val)
                         })
-                # Add some random cross-cluster links for "noise" if sparse
-                elif len(links) < 5 and len(nodes) > 1:
-                    src = nodes[import_random().randint(0, len(nodes)-1)]['id']
-                    dst = nodes[import_random().randint(0, len(nodes)-1)]['id']
-                    if src != dst:
-                        links.append({"source": src, "target": dst, "type": "latent_flow"})
-
+            
             return {
                 "table": table_name,
                 "classification": classification,
@@ -250,9 +237,6 @@ class DrillDownService:
             traceback.print_exc()
             raise
 
-def import_random():
-    import random
-    return random
-
 # Global instance
 drill_down_service = DrillDownService()
+

@@ -4,7 +4,7 @@ All new features default to FALSE for backward compatibility
 """
 
 # Agent Enhancements
-USE_ENHANCED_T0_AGENT = False  # Temporarily disabled for stability
+USE_ENHANCED_T0_AGENT = True   # ✅ Enhanced context awareness and multi-turn memory
 USE_MODULAR_HANDLERS = True    # Separate T1 handler files
 USE_AGENT_CONTEXT = True       # Multi-turn conversation context
 

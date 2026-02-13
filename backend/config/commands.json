@@ -153,7 +153,10 @@
             "phrases": [
                 "drill down {table_name}",
                 "inspect table {table_name}",
-                "open detail for {table_name}"
+                "open detail for {table_name}",
+                "show me more details",
+                "more details",
+                "show details"
             ],
             "intent": "drill_down",
             "action": "ui.drill_down",
@@ -161,15 +164,48 @@
                 "table_name": "table_name"
             },
             "examples": [
-                "drill down users"
+                "drill down users",
+                "show me more details"
             ],
             "description": "Auto-generated for drill_down"
+        },
+        {
+            "id": "zoom_in",
+            "phrases": [
+                "zoom in",
+                "zoom closer",
+                "get closer",
+                "zoom in more"
+            ],
+            "intent": "zoom_in",
+            "action": "graph.zoom_in",
+            "parameters": {},
+            "examples": [
+                "zoom in"
+            ],
+            "description": "Zoom camera closer to the graph"
+        },
+        {
+            "id": "zoom_out",
+            "phrases": [
+                "zoom out",
+                "zoom back",
+                "pull back",
+                "zoom out more"
+            ],
+            "intent": "zoom_out",
+            "action": "graph.zoom_out",
+            "parameters": {},
+            "examples": [
+                "zoom out"
+            ],
+            "description": "Zoom camera away from the graph"
         }
     ],
     "metadata": {
         "created": "2026-01-28",
         "version": "1.0.0",
-        "total_commands": 9,
+        "total_commands": 11,
         "description": "Auto-generated command registry"
     }
 }

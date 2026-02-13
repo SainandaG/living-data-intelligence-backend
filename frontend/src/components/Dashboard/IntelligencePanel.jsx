@@ -50,6 +50,24 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
         }
     }, [connectionId, tableName]);
 
+    const [justification, setJustification] = useState(null);
+
+    useEffect(() => {
+        const fetchXAI = async () => {
+            if (!connectionId || !tableName) return;
+            try {
+                const res = await fetch(`/api/explainability/justification/${connectionId}/${tableName}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setJustification(data.justification);
+                }
+            } catch (err) {
+                console.warn('[IntelligencePanel] XAI Fetch failed:', err);
+            }
+        };
+        fetchXAI();
+    }, [connectionId, tableName]);
+
     if (loading) {
         return (
             <div className="p-4 flex flex-col gap-3 animate-pulse">
@@ -86,6 +104,18 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
                     "{narrative}"
                 </p>
             </div>
+
+            {justification && (
+                <div className="bg-purple-500/10 border border-purple-500/20 p-4 rounded-xl">
+                    <h3 className="text-purple-400 font-mono text-xs uppercase mb-3 flex items-center gap-2">
+                        <Zap size={14} />
+                        Reasoning Trace
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                        {justification}
+                    </p>
+                </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
                 <MetricBox

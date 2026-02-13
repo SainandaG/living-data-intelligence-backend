@@ -23,8 +23,17 @@ class AnalyticsActionHandler(ActionHandler):
     
     async def run_anomaly_detection(self, params: Dict[str, Any]):
         # Call GNN (Neural Core) for real predictions
-        # Mocking node IDs for demo (in production, fetch from graph)
-        sample_nodes = ["1", "2", "3", "4", "5"] 
+        # Fetch real nodes from the active context
+        conn_id = self.neural_core.active_connection_id
+        real_nodes = list(self.neural_core.gravity_stores.get(conn_id, {}).keys())
+        
+        # If no active context, fallback to empty or heuristic list
+        if not real_nodes:
+             sample_nodes = []
+        else:
+             # Take top 20 nodes to avoid timeout
+             sample_nodes = real_nodes[:20]
+
         anomalies = []
         
         try:

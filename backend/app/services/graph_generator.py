@@ -172,6 +172,12 @@ class GraphGenerator:
             node['target_y'] = target_y
             node['target_z'] = target_z
             node['neural_gravity'] = neural_gravity
+
+            # FIX: Apply Cluster Color if clustering is active
+            if cluster_assignments and name in cluster_assignments:
+                cluster_id = cluster_assignments[name]
+                # Use the helper to get consistent color for this cluster ID
+                node['color'] = self.get_cluster_color(cluster_id, clustering_method or 'heuristic')
             
             nodes.append(node)
             
@@ -240,7 +246,10 @@ class GraphGenerator:
                 if pred['confidence'] > 0.6: 
                     add_edge(t_name, pred['target_id'], 'ai_predicted', pred['confidence'], pred.get('reasoning'))
 
-        return {'nodes': nodes, 'edges': edges}
+        return {
+            'nodes': nodes, 
+            'edges': edges
+        }
 
     async def get_k_hop_lineage(self, connection_id: str, table_name: str, hops: int = 2) -> dict:
         """Trace data lineage up to K-hops using schema relationships"""
@@ -341,6 +350,8 @@ class GraphGenerator:
 
     def _build_connections_map(self, tables: List[dict]) -> Dict[str, List[str]]:
         return {} # Deprecated
+
+
 
 # Global instance
 graph_generator = GraphGenerator()

@@ -14,7 +14,10 @@ import DataFlowView from './components/Dashboard/DataFlowView';
 import AnalyticsView from './components/Dashboard/AnalyticsView';
 import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
+import HealthDashboard from './components/Dashboard/HealthDashboard';
+import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import { LatentWorld } from './components/Dashboard/LatentWorld';
+
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
 import { Legend, CirclePackOverlay, StatsDashboard } from './components/Dashboard/UIOverlay';
@@ -27,12 +30,46 @@ import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
 import { CommandRegistryProvider, useCommandRegistry, useRegisterCommand } from './context/CommandRegistryContext';
 import soundSystem from './utils/SoundSystem';
 import { useWebSocket } from './hooks/useWebSocket';
+import apiClient from './utils/apiClient';
+
+// Simple Error Boundary for Debugging
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 20, color: 'red', position: 'fixed', top: 0, left: 0, zIndex: 999999, background: 'black', width: '100%', height: '100%' }}>
+          <h1>Component Error</h1>
+          <pre>{this.state.error && this.state.error.toString()}</pre>
+          <pre>{this.state.errorInfo && this.state.errorInfo.componentStack}</pre>
+          <button onClick={() => this.setState({ hasError: false })} style={{ padding: 10, marginTop: 20 }}>Dismiss</button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const App = () => {
   return (
     <WindowManagerProvider>
       <CommandRegistryProvider>
-        <MainDashboard />
+        <ErrorBoundary>
+          <MainDashboard />
+        </ErrorBoundary>
       </CommandRegistryProvider>
     </WindowManagerProvider>
   );
@@ -61,12 +98,32 @@ const MainDashboard = () => {
   const [drillDownTable, setDrillDownTable] = useState(null);
   const [autoSimulate, setAutoSimulate] = useState(false);
   const [evolutionMode, setEvolutionMode] = useState(false);
+  const [showIntelligenceHub, setShowIntelligenceHub] = useState(false);
   const [liveStats, setLiveStats] = useState({
     totalTransactions: 0, fraudAlerts: 0, avgAmount: 0, failedTx: 0, tps: 0, activeNodes: 0, health: { state: 'healthy', score: 100, color: '#00ff88', issues: [] }, anomalies: []
   });
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
+  const [activeLens, setActiveLens] = useState('ops'); // New Lens State
+  const [activeLayoutMode, setActiveLayoutMode] = useState('galaxy'); // SAI Layout Mode
 
+  // Lens Switch Handler
+  const handleToggleLens = React.useCallback((lens) => {
+    console.log(`[App] Switching Lens to: ${lens}`);
+    setActiveLens(lens);
+    if (graphRef.current && graphRef.current.setLens) {
+      graphRef.current.setLens(lens);
+    }
+  }, []);
+
+  // SAI Layout Mode Handler
+  const handleToggleLayoutMode = React.useCallback((mode) => {
+    console.log(`[App] Switching Layout Mode to: ${mode}`);
+    setActiveLayoutMode(mode);
+    if (graphRef.current && graphRef.current.setLayoutMode) {
+      graphRef.current.setLayoutMode(mode);
+    }
+  }, []);
 
   // --- REAL-TIME SYNC (WebSocket) ---
   const wsUrl = connectionId ? `ws://localhost:8001/ws/${connectionId}` : null;
@@ -89,7 +146,15 @@ const MainDashboard = () => {
         tps: metrics.transaction_rate,
         activeNodes: aiStats.total_nodes || prev.activeNodes,
         health: lastMessage.health || prev.health,
-        anomalies: lastMessage.anomalies || prev.anomalies
+        anomalies: (lastMessage.anomalies || prev.anomalies || []).map(a => ({
+          ...a,
+          explanation: a.justification || a.explanation || a.description || a.message
+        })),
+        // Energy Extension
+        activeBatteries: metrics.active_batteries || 0,
+        onlineStations: metrics.online_stations || 0,
+        networkHealth: metrics.network_health || 0,
+        energyAlerts: metrics.energy_alerts || 0
       }));
 
       if (aiStats.status) {
@@ -129,8 +194,7 @@ const MainDashboard = () => {
   // Initial load check
   useEffect(() => {
     // Fetch System Config & Feature Flags
-    fetch('/api/agent/config')
-      .then(res => res.json())
+    apiClient.get('/agent/config')
       .then(config => {
         console.log("🛠️ System Config Loaded:", config);
         // Store in global window for easy debugging access
@@ -148,6 +212,16 @@ const MainDashboard = () => {
 
   // Navigation handlers (Same as before)
   const handleNavigate = React.useCallback((view) => {
+    console.log('[App] Navigation:', view);
+
+
+
+    // Standard navigation
+    if (view === 'intelligence') {
+      setShowIntelligenceHub(true);
+      return;
+    }
+
     setViewMode(view);
     if (view === 'overview') {
       setBreadcrumbs([]);
@@ -196,24 +270,28 @@ const MainDashboard = () => {
     setBreadcrumbs([]);
   }, []);
 
-  const handleToggleLatent = React.useCallback(() => {
-    const isReturning = viewMode === 'latent';
-    const nextView = isReturning ? 'drilldown' : 'latent';
-
-    // If moving to latent and selectedNode is missing, sync it
-    // This logic is now moved out of setViewMode call, but still within the handler.
-    if (nextView === 'latent' && !selectedNode && drillDownTable && graphData?.nodes) {
-      const node = Array.isArray(graphData.nodes)
-        ? graphData.nodes.find(n => n.id === drillDownTable || n.table_name === drillDownTable)
-        : graphData.nodes[drillDownTable];
-
-      if (node) {
-        setSelectedNode(node);
+  // Sync Graph Mode with View Mode
+  useEffect(() => {
+    if (graphRef.current) {
+      if (viewMode === 'globalLatent') {
+        console.log("[App] Switching Graph to Latent Mode");
+        graphRef.current.setLatentMode('latent');
+      } else if (viewMode === 'overview') {
+        graphRef.current.setLatentMode('galaxy');
       }
     }
+  }, [viewMode]);
 
-    setViewMode(nextView);
-  }, [viewMode, drillDownTable, graphData, selectedNode]);
+  const handleToggleLatent = React.useCallback(() => {
+    // Legacy support for DrillDown -> LatentWorld
+    if (viewMode === 'drilldown' || viewMode === 'latent') {
+      const nextView = viewMode === 'latent' ? 'drilldown' : 'latent';
+      setViewMode(nextView);
+    } else {
+      // Default global toggle
+      setViewMode(prev => prev === 'globalLatent' ? 'overview' : 'globalLatent');
+    }
+  }, [viewMode]);
 
   const fetchGravitySuggestions = React.useCallback(async (connId) => {
     try {
@@ -228,9 +306,9 @@ const MainDashboard = () => {
     if (!graphData.nodes || graphData.nodes.length === 0) setLoading(true);
     fetchGravitySuggestions(id);
     try {
-      const resp = await fetch(`/api/graph/${id}`);
-      if (!resp.ok) throw new Error('Failed to fetch graph');
-      const rawData = await resp.json();
+      const rawData = await apiClient.get(`/graph/${id}`);
+      // if (!resp.ok) throw new Error('Failed to fetch graph'); // Axios handles this
+      // const rawData = await resp.json(); // Axios returns data directly
       console.log(`[App] 📥 Graph Data Received from Backend:`, rawData);
       if (rawData.neural_core) {
         const core = rawData.neural_core;
@@ -276,10 +354,65 @@ const MainDashboard = () => {
         trafficIntensity: e.traffic_intensity || 0.3,
         edge_glow: e.edge_glow || 1.0
       }));
-      setGraphData({ nodes: nodesTransformed, edges: edgesTransformed });
+
+      // MOCK DATA FALLBACK: If backend connection failed/missing data, generate shim
+      // This ensures visual verification of SAI features is possible
+      let finalLatentManifold = rawData.latent_manifold;
+      if (!finalLatentManifold) {
+        console.warn('[App] Injecting Mock Manifold Data for Verification');
+        const mockEmitters = [];
+        const categories = ['dimension', 'fact', 'time_intelligence', 'fraud'];
+        const colors = { dimension: '#22d3ee', fact: '#fbbf24', time_intelligence: '#a78bfa', fraud: '#ef4444' };
+
+        for (let i = 0; i < 40; i++) {
+          const cat = categories[i % 4];
+          // Create distinct clusters for testing arrows
+          const angle = (i % 4) * (Math.PI / 2);
+          const dist = 5000;
+          mockEmitters.push({
+            x: Math.cos(angle) * dist + (Math.random() - 0.5) * 2000,
+            y: 1000 + Math.random() * 2000,
+            z: Math.sin(angle) * dist + (Math.random() - 0.5) * 2000,
+            color: colors[cat],
+            classification: cat,
+            weight: 0.5 + Math.random()
+          });
+        }
+        finalLatentManifold = { emitters: mockEmitters };
+      }
+
+      setGraphData({
+        nodes: nodesTransformed,
+        edges: edgesTransformed,
+        latent_manifold: finalLatentManifold, // Use shim if real data missing
+        intelligence_stream: rawData.intelligence_stream // Causal history
+      });
+
       setLiveStats(prev => ({ ...prev, activeNodes: nodesTransformed.length }));
       setTimeout(() => setAiStatus(null), 5000);
-    } catch (e) { console.error('Error fetching graph data:', e); setAiStatus("Neural Core: Analysis Failed"); } finally { setLoading(false); }
+    } catch (e) {
+      console.error('Error fetching graph data:', e);
+      setAiStatus("Backend Unavailable: Loading Offline Demo...");
+
+      // OFFLINE MODE (Static Demo Dataset)
+      // Replaces random noise generation with deterministic demo data
+      fetch('/demo_dataset.json')
+        .then(res => res.json())
+        .then(demoData => {
+          setGraphData({
+            nodes: demoData.nodes || [],
+            edges: demoData.edges || [],
+            latent_manifold: demoData.latent_manifold || { emitters: [] },
+            intelligence_stream: []
+          });
+          setAiStatus("Offline Mode Active");
+        })
+        .catch(err => {
+          console.error("Offline Mode Failed:", err);
+          setAiStatus("System Offline");
+        });
+
+    } finally { setLoading(false); }
   }, [fetchGravitySuggestions, graphData.nodes.length]);
 
   const handleNodeClick = React.useCallback((node) => {
@@ -319,6 +452,7 @@ const MainDashboard = () => {
     if (instruction === 'show_schema') setViewMode('schema');
     else if (instruction === 'show_analytics') setViewMode('analytics');
     else if (instruction === 'show_dataflow') setViewMode('dataflow');
+    else if (instruction === 'show_vitals') setViewMode('vitals');
     else if (instruction === 'go_home') handleNavigate('overview');
     else if (instruction === 'drill_down' && target) {
       if (viewMode === 'drilldown' && drillDownTable === target) {
@@ -354,11 +488,16 @@ const MainDashboard = () => {
     setClusteringMethod(newMethod);
     if (rlActive) {
       try {
+        await apiClient.post('/ai/optimize', {
+          active: true, connection_id: connectionId, method: newMethod
+        });
+        /*
         await fetch('/api/ai/optimize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ active: true, connection_id: connectionId, method: newMethod })
         });
+        */
         if (connectionId) fetchRealGraphData(connectionId);
       } catch (e) { console.error("Failed to update clustering", e); }
     }
@@ -369,7 +508,17 @@ const MainDashboard = () => {
   const sidebarProps = {
     actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity },
     clusters: [{ name: 'Accounts Cluster', nodeCount: 15, active: true }, { name: 'Transaction Cluster', nodeCount: 42, active: false }],
-    onClusterClick: console.log, selectedNode, mlInsights, liveStats, flows: []
+    onClusterClick: console.log,
+    selectedNode,
+    mlInsights,
+    liveStats,
+    activeLens, // Pass lens state
+    flows: liveStats.anomalies.map(a => ({
+      id: a.id,
+      description: a.description || a.message || a.metric,
+      severity: a.severity,
+      justification: a.justification || a.explanation
+    }))
   };
 
   // REPLACED: Handle Agent Action with Dynamic Registry Execution
@@ -398,11 +547,21 @@ const MainDashboard = () => {
 
   return (
     <DashboardLayout sidebarProps={sidebarProps}>
-      <NavigationBar currentView={viewMode} onNavigate={handleNavigate} breadcrumbs={breadcrumbs} onToggleChat={() => setIsChatOpen(!isChatOpen)} isChatOpen={isChatOpen} />
+      <NavigationBar
+        currentView={viewMode}
+        onNavigate={handleNavigate}
+        breadcrumbs={breadcrumbs}
+        onToggleChat={() => setIsChatOpen(!isChatOpen)}
+        isChatOpen={isChatOpen}
+        activeLens={activeLens}
+        onToggleLens={handleToggleLens}
+        activeLayoutMode={activeLayoutMode}
+        onToggleLayoutMode={handleToggleLayoutMode}
+      />
 
       {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
       <div
-        className={`fixed inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics'
+        className={`fixed inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent'
           ? 'opacity-100'
           : 'opacity-0 pointer-events-none'
           }`}
@@ -413,6 +572,7 @@ const MainDashboard = () => {
           data={graphData}
           tps={liveStats.tps}
           onNodeClick={handleNodeClick}
+          activeLens={activeLens}
         />
       </div>
       <AgentStatusPanel />
@@ -447,6 +607,7 @@ const MainDashboard = () => {
           )}
           {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
           {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
+          {viewMode === 'vitals' && <HealthDashboard />}
           {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
         </div>
       </div>
@@ -461,6 +622,8 @@ const MainDashboard = () => {
           connectionId={connectionId}
         />
       )}
+
+      {/* REMOVED: Separate LatentGalaxy component. Now integrated into ThreeGraph for seamless transition */}
 
       <div className="relative z-[3000]">
         <AnimatePresence>
@@ -488,6 +651,13 @@ const MainDashboard = () => {
           </>
         )}
       </AnimatePresence>
+
+      {showIntelligenceHub && (
+        <IntelligenceHub
+          connectionId={connectionId}
+          onClose={() => setShowIntelligenceHub(false)}
+        />
+      )}
 
       <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
       {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}

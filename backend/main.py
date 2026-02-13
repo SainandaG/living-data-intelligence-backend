@@ -1,3 +1,15 @@
+# Fix Windows console encoding issues
+import sys
+import os
+
+# Configure UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    # Force UTF-8 encoding for stdout/stderr to handle Unicode characters (emojis, etc.)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -5,8 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
-import os
-import sys
 from dotenv import load_dotenv
 
 # Ensure backend directory is in path and 'app' is findable
@@ -144,6 +154,7 @@ registry.register_required("app.api.graph", prefix="/api", tags=["graph"])
 registry.register_required("app.api.metrics", prefix="/api", tags=["metrics"])
 registry.register_required("app.api.drilldown", prefix="/api", tags=["drilldown"])
 registry.register_required("app.api.hierarchy", prefix="/api", tags=["hierarchy"])
+registry.register_required("app.api.internal_node", prefix="/api", tags=["internal-node"])
 registry.register_required("app.api.ai", prefix="/api/ai", tags=["ai"])
 registry.register_required("app.api.agent")
 registry.register_required("app.api.websocket")
@@ -156,7 +167,8 @@ registry.register_optional("app.api.evolution")
 registry.register_optional("app.api.ml")
 registry.register_optional("app.api.events")
 registry.register_optional("app.api.explainability")
-registry.register_optional("app.routers.intelligence", prefix="/api/intelligence", tags=["intelligence"])
+registry.register_optional("app.api.vitals")
+registry.register_optional("app.api.intelligence", prefix="/api/intelligence", tags=["intelligence"])
 
 # ============================================================================
 # HEALTH CHECK ENDPOINT
@@ -186,5 +198,6 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=True,
+        reload_excludes=["*.log", "*.tmp"],
         log_level="info"
     )

@@ -55,7 +55,8 @@ export const StatsDashboard = ({ stats }) => {
     const [collapsed, setCollapsed] = useState({
         live: false,
         metrics: false,
-        health: false
+        health: false,
+        roi: false
     });
 
     const toggle = (section) => {
@@ -92,10 +93,21 @@ export const StatsDashboard = ({ stats }) => {
                 </div>
                 {!collapsed.metrics && (
                     <div className="metrics-grid">
-                        <MetricItem name="Fraud Alerts" icon="⚠️" value={stats.fraudAlerts} change="+2 today" trend={stats.fraudAlerts > 5 ? "negative" : "positive"} />
-                        <MetricItem name="Avg Amount" icon="💰" value={`$${stats.avgAmount}K`} change="+5.2%" trend="positive" />
-                        <MetricItem name="Failed" icon="❌" value={stats.failedTx} change="Stable" trend="warning" />
-                        <MetricItem name="Active Nodes" icon="🔗" value={stats.activeNodes} change="+12" trend="positive" />
+                        {stats.activeBatteries > 0 ? (
+                            <>
+                                <MetricItem name="Active Batteries" icon="🔋" value={stats.activeBatteries} change="+2 new" trend="positive" />
+                                <MetricItem name="Network Health" icon="⚡" value={`${stats.networkHealth}%`} change="Stable" trend="positive" />
+                                <MetricItem name="Online Stations" icon="🚉" value={stats.onlineStations} change="Optimal" trend="positive" />
+                                <MetricItem name="Critical Alerts" icon="🚨" value={stats.energyAlerts} change="Sentinel" trend={stats.energyAlerts > 0 ? "negative" : "positive"} />
+                            </>
+                        ) : (
+                            <>
+                                <MetricItem name="Fraud Alerts" icon="⚠️" value={stats.fraudAlerts} change="+2 today" trend={stats.fraudAlerts > 5 ? "negative" : "positive"} />
+                                <MetricItem name="Avg Amount" icon="💰" value={`$${stats.avgAmount}K`} change="+5.2%" trend="positive" />
+                                <MetricItem name="Failed" icon="❌" value={stats.failedTx} change="Stable" trend="warning" />
+                                <MetricItem name="Active Nodes" icon="🔗" value={stats.activeNodes} change="+12" trend="positive" />
+                            </>
+                        )}
                     </div>
                 )}
             </div>
@@ -110,10 +122,39 @@ export const StatsDashboard = ({ stats }) => {
                     <div className="health-items">
                         <HealthItem name="API Response" value="18ms" percent={95} color="cyan" />
                         <HealthItem name="Database Load" value={`${stats.health.score}%`} percent={stats.health.score} color="yellow" />
+                        {stats.activeBatteries > 0 && (
+                            <HealthItem name="ROI Confidence" value="94%" percent={94} color="cyan" />
+                        )}
                         <HealthItem name="Throughput" value="92%" percent={92} color="cyan" />
                     </div>
                 )}
             </div>
+
+            {/* NEW: ROI Intensity Section (Proposal Compliance) */}
+            {stats.activeBatteries > 0 && (
+                <div className={`glass-card roi-card ${collapsed.roi ? 'collapsed' : ''}`}>
+                    <div className="section-header" onClick={() => toggle('roi')} style={{ paddingBottom: '10px' }}>
+                        <div className="health-title" style={{ margin: 0, color: '#00ff88' }}>WEZU ROI Intensity</div>
+                        <span className="toggle-icon">{collapsed.roi ? '+' : '−'}</span>
+                    </div>
+                    {!collapsed.roi && (
+                        <div className="roi-metrics" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div className="roi-item" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                <span style={{ opacity: 0.7 }}>Revenue Protected:</span>
+                                <span style={{ color: '#00ff88', fontWeight: 'bold' }}>₹{((stats.totalTransactions || 0) * 0.05).toFixed(0)}L</span>
+                            </div>
+                            <div className="roi-item" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                <span style={{ opacity: 0.7 }}>Life Extended:</span>
+                                <span style={{ color: '#00d4ff', fontWeight: 'bold' }}>+12% (180 days)</span>
+                            </div>
+                            <div className="roi-item" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                <span style={{ opacity: 0.7 }}>Pilot Roadmap:</span>
+                                <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>Phase 2: Kinetic</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

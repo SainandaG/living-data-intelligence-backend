@@ -73,13 +73,27 @@ export const useVoiceRecognition = (onResult, options = {}) => {
         };
     }, [continuous, interimResults, lang, onResult]);
 
-    const startListening = useCallback(() => {
+    const startListening = useCallback(async () => {
         if (recognitionRef.current && !isListening) {
             setTranscript('');
             try {
+                // Request microphone permission first
+                console.log('[Voice] Requesting microphone permission...');
+                await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('[Voice] Microphone permission granted');
+
+                // Start recognition
                 recognitionRef.current.start();
+                console.log('[Voice] Speech recognition started');
             } catch (err) {
                 console.error('Failed to start recognition:', err);
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    setError('microphone-permission-denied');
+                } else if (err.name === 'NotFoundError') {
+                    setError('no-microphone-found');
+                } else {
+                    setError('failed-to-start');
+                }
             }
         }
     }, [isListening]);

@@ -73,8 +73,33 @@ async def predict_node_importance(request: NodePredictionRequest):
         import time
         start = time.time()
         
-        # Call the orphaned GNN code
-        importance = _gnn.predict_importance(request.node_id, request.node_type)
+        # 1. Fetch Real Context from Neural Core
+        # This ensures we don't rely on the mock fallback in graph_neural_core.py
+        from ..services.neural_core import neural_core
+        from ..services.schema_analyzer import schema_analyzer
+        
+        conn_id = neural_core.active_connection_id
+        node_data = None
+        
+        if conn_id:
+            # Attempt to find real metadata
+            schema = schema_analyzer.get_analysis_result(conn_id)
+            if schema and schema.tables:
+                target_table = next((t for t in schema.tables if t.name == request.node_id), None)
+                if target_table:
+                    # Construct real data payload
+                    node_data = {
+                        "id": target_table.name,
+                        "type": "table",
+                        "record_count": target_table.row_count or 0,
+                        # GNN expects a list to calculate degree (len)
+                        "edges": target_table.foreign_keys if target_table.foreign_keys else [],
+                        "columns": len(target_table.columns) if target_table.columns else 0
+                    }
+                    print(f"🧠 GNN: Injected real metadata for {request.node_id} (Rows: {node_data['record_count']})")
+
+        # 2. Call GNN with (optional) Real Data
+        importance = _gnn.predict_importance(request.node_id, request.node_type, node_data=node_data)
         
         elapsed_ms = (time.time() - start) * 1000
         
@@ -82,7 +107,7 @@ async def predict_node_importance(request: NodePredictionRequest):
             node_id=request.node_id,
             importance=importance,
             inference_time_ms=elapsed_ms,
-            method="gnn"
+            method="gnn_real" if node_data else "gnn_heuristic"
         )
     
     except Exception as e:

@@ -94,3 +94,6 @@ async def get_column_intelligence(connection_id: str, table_name: str, column_na
         return {"status": "success", "intelligence": intelligence}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+

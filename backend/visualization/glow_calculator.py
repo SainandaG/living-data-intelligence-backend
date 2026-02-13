@@ -72,12 +72,16 @@ class GlowCalculator:
         # Fallback / Default Heuristic
         if not node_glows:
             for node in nodes:
-                # NodeGlow(v) = α·log(N_v + 1) + β·C_v
+                # NodeGlow(v) = α·log(N_v + 1) + β·C_v + η·Vitality
                 n_v = node.get('record_count', 0)
                 c_v = node.get('centrality', 0.0)
+                vit = float(node.get('vitality', 100)) / 100.0 # 0.0 to 1.0
                 
-                glow = (self.alpha * math.log(n_v + 1)) + (self.beta * c_v)
-                glow = min(max(glow, 0.1), 3.0) 
+                # If vitality is low (e.g. 20%), boost glow to attract attention (Pulsing Risk)
+                vit_boost = (1.0 - vit) * 1.5
+                
+                glow = (self.alpha * math.log(n_v + 1)) + (self.beta * c_v) + vit_boost
+                glow = min(max(glow, 0.1), 3.5) 
                 node_glows[node.get('id')] = glow
             
         if not edge_glows:

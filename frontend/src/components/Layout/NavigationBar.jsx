@@ -1,12 +1,16 @@
 import React from 'react';
-import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare } from 'lucide-react';
+import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Activity, Layers, Brain } from 'lucide-react';
 
-export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [], onToggleChat, isChatOpen }) {
+export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [], onToggleChat, isChatOpen, activeLens, onToggleLens }) {
     const navItems = [
         { id: 'overview', label: 'Overview', icon: Home },
         { id: 'dataflow', label: 'Data Flow', icon: GitBranch },
         { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+        { id: 'vitals', label: 'Health', icon: Activity },
+
         { id: 'schema', label: 'Schema', icon: Database },
+        { id: 'intelligence', label: 'AI Insights', icon: Brain },
+        { id: 'globalLatent', label: 'Latent Space', icon: Layers },
     ];
 
     return (
@@ -56,7 +60,33 @@ export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [
                         ))}
                     </div>
                 )}
+
+                {/* CONTEXTUAL LENS SELECTOR (Visible in Latent AND Overview) */}
+                {(currentView === 'globalLatent' || currentView === 'overview') && (
+                    <div className="flex items-center gap-2 px-6 py-2 border-t border-white/5 w-full bg-black/20">
+                        <span className="text-[10px] uppercase font-bold text-[var(--text-tertiary)] tracking-widest mr-2">
+                            Active Lens:
+                        </span>
+                        {['ops', 'security', 'executive', 'tier3', 'energy'].map(lens => (
+                            <button
+                                key={lens}
+                                onClick={() => onToggleLens && onToggleLens(lens)}
+                                className={`
+                                    px-2 py-1 rounded text-[10px] font-mono uppercase transition-all border
+                                    ${activeLens === lens
+                                        ? 'bg-[var(--primary-cyan)]/20 text-[var(--primary-cyan)] border-[var(--primary-cyan)]/50'
+                                        : 'text-[var(--text-secondary)] border-transparent hover:bg-white/5'
+                                    }
+                                `}
+                            >
+                                {lens === 'tier3' ? '3D Tables' : lens === 'energy' ? 'WEZU Energy' : lens}
+                            </button>
+                        ))}
+                    </div>
+                )}
             </div>
+
+
 
             {/* Chat Toggle Button (Right Side) */}
             <button

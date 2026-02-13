@@ -81,8 +81,15 @@ pip install -r requirements.txt
 ### 4. Configure environment
 
 ```bash
-copy .env.example .env
-# Edit .env with your database credentials
+```bash
+# Windows
+type backend\.env.example > backend\.env
+
+# Linux/Mac
+cp backend/.env.example backend/.env
+```
+2. Edit `backend/.env` with your API keys and database credentials.
+   - **Crucial**: You must set `GEMINI_API_KEY` and `DB_PASSWORD` for the Neural Core to function.
 ```
 
 ## 🚀 Running the Application
@@ -101,6 +108,16 @@ cd frontend
 npm run dev
 ```
 The **High Fidelity UI** will be available on **`http://localhost:5173`**.
+
+### 3. Database Setup (First Run Only)
+If you haven't set up the database yet:
+1. Create a MySQL database named `aw`.
+2. Run the scripts in `AdventureWorksDW/`:
+   ```bash
+   mysql -u root -p aw < AdventureWorksDW/create-database-tables.sql
+   mysql -u root -p aw < AdventureWorksDW/add-constraints.sql
+   ```
+
 
 ---
 
@@ -140,6 +157,15 @@ The **High Fidelity UI** will be available on **`http://localhost:5173`**.
 - No data modification
 - Secure WebSocket connections
 - Environment variable configuration
+
+## ❓ Troubleshooting
+
+### "Neural Core: Analysis Failed"
+This error usually means the backend cannot connect to the database or an API key is missing.
+1. **Check `.env`**: Ensure `backend/.env` exists and has valid `DB_PASSWORD` and `GEMINI_API_KEY`.
+2. **Check Database**: Ensure your MySQL server is running and the `aw` database exists.
+3. **Check Console**: Look at the terminal running `main.py` for specific error logs (e.g., "Access denied for user").
+
 
 ## 📁 Project Structure
 

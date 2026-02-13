@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from app.services.graph_generator import graph_generator
+from typing import Dict, List, Any
 import math
 
 router = APIRouter()
@@ -36,19 +37,30 @@ async def get_graph(connection_id: str):
         # 3. Get Neural Core Status (Schema Intelligence)
         core_metrics = await neural_core.get_core_metrics(connection_id)
         
-        # 4. Enrich Nodes & Edges via GlowCalculator Service
+        # 4. Initialize Latent Space Service
+        from app.services.latent_space_service import latent_space_service
+        from app.services.causal_intelligence import causal_intelligence
+        
+        # 4.5 Fetch WEZU Node Specific Metrics (Data-Driven Mapping)
+        wezu_node_data = await realtime_monitor.get_wezu_node_data(connection_id)
+        
+        # 5. Enrich Nodes & Edges via GlowCalculator Service
         from visualization.glow_calculator import GlowCalculator
         glow_calc = GlowCalculator()
         
         # Prepare data for calculator
-        # We need to pass raw lists, the calculator handles the logic (and feature flags)
         nodes_for_calc = graph.get('nodes', [])
         edges_for_calc = graph.get('edges', [])
         
-        # Add necessary properties for calculator if missing (mapping API format to calculator expectation)
+        # Add necessary properties for calculator...
         for n in nodes_for_calc:
             n.setdefault('record_count', n.get('row_count', 0))
-            # Inject neural importance if available
+            
+            # Inject WEZU Specific Metrics for Latent Mapping
+            node_name = n.get('name')
+            if node_name in wezu_node_data:
+                n.update(wezu_node_data[node_name])
+            
             gravity_map = neural_core.gravity_stores.get(connection_id, {})
             raw_imp = gravity_map.get(n.get('name'), 1.0)
             if isinstance(raw_imp, str):
@@ -57,7 +69,7 @@ async def get_graph(connection_id: str):
             else:
                  n['centrality'] = float(raw_imp)
 
-        # Batch Calculate
+        # Batch Calculate Glow
         glow_results = glow_calc.batch_calculate(nodes_for_calc, edges_for_calc)
         node_glow_map = glow_results.get('node_glows', {})
         edge_glow_map = glow_results.get('edge_glows', {})
@@ -66,12 +78,9 @@ async def get_graph(connection_id: str):
         enriched_nodes = []
         for node in nodes_for_calc:
             try:
-                # Apply Glow
                 node_id = node.get('id')
                 node['node_glow'] = round(node_glow_map.get(node_id, 1.0), 2)
                 
-                # Setup visual properties
-                # ... other vitality/cluster logic preserved ...
                 table_name = node.get('name')
                 cluster = cluster_assignments.get(table_name) if table_name and cluster_assignments else None
                 
@@ -80,16 +89,65 @@ async def get_graph(connection_id: str):
                     new_color = graph_generator.get_cluster_color(cluster, clustering_method)
                     node['color'] = new_color
                 
-                # Fallback vitality calculation (or move to calculator later)
-                # Maintaining simple visual size logic here for now
                 n_term = math.log10(max(1, int(node.get('row_count', 0) or 0) + 1))
-                vitality = min(100, (n_term * 20) + (node.get('centrality', 1.0) * 5))
-                node['vitality'] = int(vitality)
+                
+                # Improved vitality calculation for Security Lens
+                # Creates realistic health distribution based on table size
+                row_count = int(node.get('row_count', 0) or 0)
+                if row_count == 0:
+                    vitality = 25  # Empty tables are unhealthy
+                elif row_count < 100:
+                    vitality = 30 + (row_count / 100) * 25  # 30-55 range
+                elif row_count < 1000:
+                    vitality = 55 + (math.log10(row_count) - 2) * 15  # 55-70 range
+                elif row_count < 10000:
+                    vitality = 70 + (math.log10(row_count) - 3) * 10  # 70-80 range
+                else:
+                    vitality = 80 + min(20, (math.log10(row_count) - 4) * 5)  # 80-100 range
+                
+                node['vitality'] = int(min(100, vitality))
+                
+                # Debug: Log ALL vitality values to diagnose uniformity
+                print(f"🔍 {node.get('name', 'Unknown'):20s} | rows={row_count:6d} | vitality={int(vitality):3d}")
+                
+                # Use Neural Core for structural importance, but enrich with GNN
                 node['importance_score'] = node.get('centrality', 1.0)
+                
+                try:
+                    try:
+                        from backend.ml.graph_neural_core import graph_neural_core
+                    except ImportError:
+                        try:
+                            from ml.graph_neural_core import graph_neural_core
+                        except ImportError:
+                            # Final resort if running from a nested context
+                            import sys
+                            import os
+                            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                            from backend.ml.graph_neural_core import graph_neural_core
+                    
+                    # Pass the enriched node data to get GNN-backed importance
+                    node['importance_score'] = graph_neural_core.calculate_importance(node)
+                except Exception as gnn_e:
+                    print(f"⚠️ GNN Inference skipped for {node.get('name')}: {gnn_e}")
+
+                # --- Autonomous Latent Space Mapping ---
+                latent_coords = latent_space_service.calculate_latent_coordinates(
+                    node, live_metrics, real_metrics_data.get('anomalies', [])
+                )
+                node.update(latent_coords)
+                
+                # UNIFIED COLORING (Preserve original 'color' for main graph, use 'latent_color' for Galaxy)
+                node['latent_color'] = latent_space_service._get_semantic_color(node)
 
             except Exception as inner_e:
                 print(f"⚠️ Error processing node {node.get('name', '?')}: {inner_e}")
-                node.update({'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0})
+                # Fallback to defaults
+                node.update({
+                    'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0,
+                    'latent_x': (hash(node.get('id', 'default')) % 10000) - 5000,
+                    'latent_y': 100, 'latent_z': 0
+                })
             
             enriched_nodes.append(node)
             
@@ -105,6 +163,14 @@ async def get_graph(connection_id: str):
              enriched_edges.append(edge)
 
         graph['edges'] = enriched_edges
+        
+        # --- Manifold Surface Parameters ---
+        # Provides the mathematical terrain data for the frontend
+        graph['latent_manifold'] = latent_space_service.generate_manifold_data(enriched_nodes)
+        
+        # --- Causal History (Global Narrative Thread) ---
+        graph['intelligence_stream'] = causal_intelligence.causal_history[-10:] if causal_intelligence.causal_history else []
+
         graph['neural_core'] = {
             'status': core_metrics['status'],
             'health': health_report,
@@ -114,7 +180,7 @@ async def get_graph(connection_id: str):
                 'average_amount': live_metrics.get('average_amount', 0),
                 'failed_transactions': live_metrics.get('failed_transactions', 0)
             },
-            'ai_stats': core_metrics # Pass full core stats (growth, patterns)
+            'ai_stats': core_metrics 
         }
         
         return graph
@@ -165,3 +231,54 @@ async def recalculate_gravity(payload: dict):
         return {"status": "triggered", "message": "Neural Core recalculation started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/graph/cluster-metadata/{connection_id}")
+async def get_cluster_metadata(connection_id: str):
+    """
+    Get cluster metadata for 3D Tables visualization (tier3 lens)
+    
+    Returns semantic cluster groups with:
+    - Cluster names and IDs
+    - Table lists for each cluster
+    - Colors for visualization
+    - 3D positions for layout
+    
+    Used by ThreeGraph.jsx when currentLens === 'tier3'
+    """
+    try:
+        from app.services.cluster_metadata_service import cluster_metadata_service
+        from app.services.schema_analyzer import schema_analyzer
+        
+        # Get schema for clustering
+        schema = await schema_analyzer.analyze_schema(connection_id)
+        schema_data = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
+        
+        # Generate cluster metadata
+        metadata = await cluster_metadata_service.get_cluster_groups(
+            connection_id,
+            schema_data
+        )
+        
+        return {
+            "status": "success",
+            "connection_id": connection_id,
+            "total_tables": metadata.get("total_tables", 0),
+            "total_clusters": metadata.get("total_clusters", 0),
+            "clusters": metadata.get("clusters", []),
+            "error": metadata.get("error")
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
+        # Return graceful fallback
+        return {
+            "status": "error",
+            "connection_id": connection_id,
+            "total_tables": 0,
+            "total_clusters": 0,
+            "clusters": [],
+            "error": str(e)
+        }
+

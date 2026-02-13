@@ -6,6 +6,7 @@ Autonomous agents that explore the data graph effectively.
 
 import asyncio
 import random
+import math
 from datetime import datetime
 from typing import Dict, List
 
@@ -70,6 +71,20 @@ class AgentService:
                     "focus": t_name,
                     "rows_scanned": row_count
                 })
+
+                # 4. WEZU SPECIALIZATION: If this is an energy connection, trigger patrols
+                if "wezu" in conn_id.lower() or "energy" in conn_id.lower():
+                    from app.services.wezu_agents import WEZUGridSentinel, WEZUAnomalyHunter
+                    
+                    # Run Grid Sentinel on a 1 in 3 chance
+                    if random.random() > 0.6:
+                        sentinel = WEZUGridSentinel()
+                        await sentinel.patrol_cycle(conn_id)
+                    
+                    # Run Anomaly Hunter on a 1 in 5 chance
+                    if random.random() > 0.8:
+                        hunter = WEZUAnomalyHunter()
+                        await hunter.hunt(conn_id)
 
             except asyncio.CancelledError:
                 break

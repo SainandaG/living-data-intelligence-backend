@@ -11,8 +11,9 @@ class AgentAnalyst:
         
         # 1. Fetch current status context
         schema = await schema_analyzer.analyze_schema(connection_id)
-        # Mock metrics for context if real-time not available in this scope
-        metrics = {"transaction_rate": 850, "fraud_alerts": 1, "failed_transactions": 5}
+        
+        # metrics should ideally come from RealtimeMonitor, initialized to 0 here to avoid fake data
+        metrics = {"transaction_rate": 0, "fraud_alerts": 0, "failed_transactions": 0}
         health = graph_intelligence.analyze_graph_health(connection_id, metrics)
         
         # 2. Pattern matching for common queries
@@ -38,13 +39,7 @@ class AgentAnalyst:
         if "relationship" in query or "link" in query:
             return "I am using a Neural Network to predict hidden relationships. You can see these visualized as purple connections in the 3D Graph view."
 
-        # 3. Default fallback (Agentic reasoning simulation)
-        responses = [
-            "Based on the current graph topology, I recommend focusing on the central fact tables to optimize query performance.",
-            "I've detected a cluster of highly connected dimensions. This suggests a strictly normalized business entity structure.",
-            "Analyzing the latency patterns... the system appears to be operating within optimal parameters.",
-            "I am currently monitoring the live data stream for any deviations from the established baseline."
-        ]
-        return random.choice(responses)
+        # 3. Default fallback (Honest response)
+        return "I'm analyzing the graph topology, but I don't have a specific insight for that query yet. Try asking about 'health', 'fraud', or 'schema'.";
 
 agent_analyst = AgentAnalyst()

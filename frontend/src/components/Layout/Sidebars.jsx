@@ -79,47 +79,108 @@ const LeftSidebar = ({ actions, clusters, onClusterClick }) => {
         </div>
     );
 };
-const RightSidebar = ({ selectedNode, flows, mlInsights, liveStats }) => {
+const RightSidebar = ({ selectedNode, flows, mlInsights, liveStats, activeLens }) => {
+    const isEnergyMode = activeLens === 'energy' || liveStats?.activeBatteries > 0;
+
     return (
         <div className="p-5 flex flex-col gap-5">
             {/* Stats Dashboard - Integrated */}
             {liveStats && (
                 <div className="space-y-4">
-                    {/* Live Data Card */}
+                    {/* Live Data Card / ROI Hero */}
                     <div className="bg-gradient-to-br from-[#1e293b] to-[#0f172a] border border-[var(--primary-cyan)]/30 rounded-xl p-4 shadow-[0_0_20px_rgba(34,211,238,0.1)]">
                         <div className="flex items-center gap-2 mb-3">
                             <div className="w-2 h-2 rounded-full bg-[var(--primary-cyan)] animate-ping" />
-                            <span className="text-[10px] font-bold tracking-[2px] uppercase text-[var(--primary-cyan)] font-mono">LIVE DATA</span>
+                            <span className="text-[10px] font-bold tracking-[2px] uppercase text-[var(--primary-cyan)] font-mono">
+                                {isEnergyMode ? 'NETWORK VITALITY' : 'LIVE DATA'}
+                            </span>
                         </div>
-                        <div className="text-3xl font-black text-white mb-1">{(liveStats.totalTransactions / 1e9).toFixed(2)}B</div>
-                        <div className="text-[10px] text-[var(--text-secondary)] mb-2">Total Transactions Processed</div>
+                        {isEnergyMode ? (
+                            <>
+                                <div className="text-3xl font-black text-white mb-1">{liveStats.networkHealth || 0}%</div>
+                                <div className="text-[10px] text-[var(--text-secondary)] mb-2">Aggregate Battery Health (Avg SoH)</div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="text-3xl font-black text-white mb-1">{(liveStats.totalTransactions / 1e9).toFixed(2)}B</div>
+                                <div className="text-[10px] text-[var(--text-secondary)] mb-2">Total Transactions Processed</div>
+                            </>
+                        )}
                         <div className="text-xs text-[var(--primary-cyan)] flex items-center gap-1">
-                            <span>↗️</span> +{liveStats.tps} tx/sec
+                            <span>↗️</span> {isEnergyMode ? `Scanning ${liveStats.activeBatteries || 0} Assets` : `+${liveStats.tps} tx/sec`}
                         </div>
                     </div>
 
                     {/* Metrics Grid */}
                     <div className="bg-[var(--bg-elevated)] border border-[var(--border-color)] rounded-xl p-4">
-                        <div className="text-[10px] font-bold tracking-[2px] uppercase text-[var(--text-secondary)] mb-3">METRICS & ALERTS</div>
+                        <div className="text-[10px] font-bold tracking-[2px] uppercase text-[var(--text-secondary)] mb-3">
+                            {isEnergyMode ? 'WEZU ASSET METRICS' : 'METRICS & ALERTS'}
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white/5 p-2 rounded">
-                                <div className="text-[9px] text-[var(--text-muted)] mb-1">Fraud Alerts</div>
-                                <div className="text-lg font-bold text-[var(--danger-red)]">{liveStats.fraudAlerts}</div>
-                            </div>
-                            <div className="bg-white/5 p-2 rounded">
-                                <div className="text-[9px] text-[var(--text-muted)] mb-1">Avg Amount</div>
-                                <div className="text-lg font-bold text-[var(--primary-green)]">${liveStats.avgAmount}K</div>
-                            </div>
-                            <div className="bg-white/5 p-2 rounded">
-                                <div className="text-[9px] text-[var(--text-muted)] mb-1">Failed</div>
-                                <div className="text-lg font-bold text-[var(--warning-yellow)]">{liveStats.failedTx}</div>
-                            </div>
-                            <div className="bg-white/5 p-2 rounded">
-                                <div className="text-[9px] text-[var(--text-muted)] mb-1">Active Nodes</div>
-                                <div className="text-lg font-bold text-[var(--primary-cyan)]">{liveStats.activeNodes}</div>
-                            </div>
+                            {isEnergyMode ? (
+                                <>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Batteries</div>
+                                        <div className="text-lg font-bold text-[var(--primary-cyan)]">{liveStats.activeBatteries}</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Stations</div>
+                                        <div className="text-lg font-bold text-[var(--primary-green)]">{liveStats.onlineStations}</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">High Risk</div>
+                                        <div className="text-lg font-bold text-[var(--danger-red)]">{liveStats.energyAlerts}</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Pilot Phase</div>
+                                        <div className="text-lg font-bold text-[var(--warning-yellow)]">V2</div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Fraud Alerts</div>
+                                        <div className="text-lg font-bold text-[var(--danger-red)]">{liveStats.fraudAlerts}</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Avg Amount</div>
+                                        <div className="text-lg font-bold text-[var(--primary-green)]">${liveStats.avgAmount}K</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Failed</div>
+                                        <div className="text-lg font-bold text-[var(--warning-yellow)]">{liveStats.failedTx}</div>
+                                    </div>
+                                    <div className="bg-white/5 p-2 rounded">
+                                        <div className="text-[9px] text-[var(--text-muted)] mb-1">Active Nodes</div>
+                                        <div className="text-lg font-bold text-[var(--primary-cyan)]">{liveStats.activeNodes}</div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
+
+                    {/* ROI Intensity Card (New) */}
+                    {isEnergyMode && (
+                        <div className="bg-gradient-to-br from-green-950/40 to-black border border-[var(--primary-green)]/30 rounded-xl p-4 shadow-[0_0_20px_rgba(34,197,94,0.1)]">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Zap size={14} className="text-[var(--primary-green)]" />
+                                <span className="text-[10px] font-bold tracking-[2px] uppercase text-[var(--primary-green)] font-mono">WEZU ROI INTENSITY</span>
+                            </div>
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-[var(--text-muted)]">Revenue Protected</span>
+                                    <span className="text-[var(--primary-green)] font-bold">₹{((liveStats.totalTransactions || 0) * 0.05).toFixed(0)}L</span>
+                                </div>
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-[var(--text-muted)]">Life Extended</span>
+                                    <span className="text-[var(--primary-cyan)] font-bold">+12.5%</span>
+                                </div>
+                                <div className="h-1.5 bg-black/30 rounded-full overflow-hidden mt-1">
+                                    <div className="h-full bg-gradient-to-r from-[var(--primary-cyan)] to-[var(--primary-green)] rounded-full" style={{ width: '84%' }}></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* System Health */}
                     <div className="bg-[var(--bg-elevated)] border border-[var(--border-color)] rounded-xl p-4">
@@ -224,9 +285,16 @@ const RightSidebar = ({ selectedNode, flows, mlInsights, liveStats }) => {
                 <div className="space-y-2">
                     {flows && flows.length > 0 ? (
                         flows.map((flow, i) => (
-                            <div key={i} className="flex items-center gap-3 p-2 bg-[var(--primary-cyan)]/5 border-l-2 border-[var(--primary-cyan)] rounded-r text-xs">
-                                <ArrowRight size={12} className="text-[var(--primary-green)]" />
-                                <span className="text-[var(--text-secondary)]">{flow.description}</span>
+                            <div key={i} className={`flex flex-col gap-1 p-2 bg-white/5 rounded-lg border-l-2 transition-all ${flow.severity === 'high' ? 'border-l-red-500 bg-red-500/5' : 'border-l-[var(--primary-cyan)]'}`}>
+                                <div className="flex items-center gap-2">
+                                    <ArrowRight size={10} className={flow.severity === 'high' ? 'text-red-400' : 'text-[var(--primary-cyan)]'} />
+                                    <span className="text-[11px] font-bold text-white tracking-tight">{flow.description}</span>
+                                </div>
+                                {flow.justification && (
+                                    <div className="text-[9px] text-[var(--text-muted)] italic pl-4 border-l border-white/5 mt-1">
+                                        {flow.justification}
+                                    </div>
+                                )}
                             </div>
                         ))
                     ) : (

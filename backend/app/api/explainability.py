@@ -96,3 +96,31 @@ async def explainability_status():
         "enabled": USE_ADVANCED_EXPLAINABILITY,
         "status": "ready" if (_tracer is not None) else "not_initialized"
     }
+
+@router.get("/justification/{connection_id}/{table_name}")
+async def get_node_justification(connection_id: str, table_name: str):
+    """
+    Get a natural language justification for a node's metrics.
+    """
+    from app.services.xai_service import xai_service
+    try:
+        return await xai_service.get_node_justification(connection_id, table_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/trace")
+async def get_reasoning_trace(request: Dict[str, Any]):
+    """
+    Get a reasoning trace for an agent action.
+    """
+    from app.services.xai_service import xai_service
+    action = request.get("action")
+    parameters = request.get("parameters", {})
+    if not action:
+        raise HTTPException(status_code=400, detail="Missing action field")
+    
+    try:
+        explanation = await xai_service.explain_agent_action(action, parameters)
+        return {"action": action, "explanation": explanation}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

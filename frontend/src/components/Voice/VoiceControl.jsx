@@ -89,8 +89,21 @@ const VoiceControl = ({ onActionTriggered, uiContext = {} }) => {
                 if (status === 'listening') setStatus('idle');
                 return;
             }
+
+            // User-friendly error messages
+            let errorMessage = `Speech Error: ${speechError}`;
+            if (speechError === 'microphone-permission-denied') {
+                errorMessage = 'Microphone access denied. Please allow microphone permissions in your browser settings.';
+            } else if (speechError === 'no-microphone-found') {
+                errorMessage = 'No microphone detected. Please connect a microphone and try again.';
+            } else if (speechError === 'not-allowed') {
+                errorMessage = 'Microphone permission denied. Click the mic icon in your browser address bar to allow access.';
+            } else if (speechError === 'network') {
+                errorMessage = 'Network error. Speech recognition requires an internet connection.';
+            }
+
             setStatus('error');
-            setMessage(`Speech Error: ${speechError}`);
+            setMessage(errorMessage);
         }
     }, [speechError, status]);
 

@@ -29,7 +29,7 @@ const AgentStatusPanel = () => {
     useEffect(() => {
         fetchData();
         // Faster polling for dynamic feel
-        const interval = setInterval(fetchData, 2000);
+        const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
     }, []);
 

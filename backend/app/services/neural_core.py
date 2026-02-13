@@ -13,7 +13,10 @@ from datetime import datetime, timedelta
 try:
     from backend.app.services.latent_manager import latent_manager
 except ImportError:
-    from app.services.latent_manager import latent_manager
+    try:
+        from app.services.latent_manager import latent_manager
+    except ImportError:
+        from .latent_manager import latent_manager
 
 class NeuralCore:
     def __init__(self):
@@ -35,6 +38,24 @@ class NeuralCore:
         self.growth_factor = 1.0 
         self.agent_status = "IDLE"
         self.active_connection_id = None
+        
+        # Domain Specialization: WEZU Energy
+        self.WEZU_ENERGY_ONTOLOGY = {
+            "batteries": {"gravity_weight": 10.0, "type": "asset"},
+            "stations": {"gravity_weight": 9.0, "type": "infrastructure"},
+            "iot_devices": {"gravity_weight": 8.0, "type": "asset"},
+            "telematics_data": {"gravity_weight": 7.0, "type": "telemetry"},
+            "battery_health_log": {"gravity_weight": 8.0, "type": "telemetry"},
+            "gps_tracking_log": {"gravity_weight": 7.0, "type": "telemetry"},
+            "swap_transactions": {"gravity_weight": 7.0, "type": "transaction"},
+            "rentals": {"gravity_weight": 7.0, "type": "transaction"},
+            "wallet_transactions": {"gravity_weight": 6.0, "type": "financial"},
+            "warehouses": {"gravity_weight": 6.0, "type": "infrastructure"},
+            "kyc_records": {"gravity_weight": 5.0, "type": "user"},
+            "biometric_data": {"gravity_weight": 5.0, "type": "user"},
+            "battery_lifecycle_event": {"gravity_weight": 8.0, "type": "telemetry"},
+            "rental_payments": {"gravity_weight": 6.0, "type": "financial"}
+        }
 
     async def initialize(self):
         """Prepare the core for schema analysis"""
@@ -160,6 +181,13 @@ class NeuralCore:
             raw_imp = row_factor + (norm_struct * 6.0) + col_factor
             sigmoid_imp = 1 / (1 + math.exp(-(raw_imp - 4.0)))
             base_gravity = 1.0 + (sigmoid_imp * 4.0)
+            
+            # Domain Specialization Override: WEZU Energy
+            if t_name in self.WEZU_ENERGY_ONTOLOGY:
+                domain_weight = self.WEZU_ENERGY_ONTOLOGY[t_name].get("gravity_weight", 1.0)
+                # Boost gravity based on domain importance (capped at 10.0)
+                base_gravity = min(10.0, base_gravity + (domain_weight * 0.5))
+                print(f"🌟 [Neural Core] WEZU Domain Boost for {t_name}: {base_gravity:.2f}")
 
             # Decay based on Interaction
             last_int = target_table.get('last_interaction')
@@ -365,6 +393,21 @@ class NeuralCore:
         
         self.agent_status = "ACTIVE_SCANNING"
 
+    def predict_importance(self, node_id: str, node_type: str = "table") -> float:
+        """
+        Return the real calculated gravity/importance for a node from the active scan.
+        Used by AnalyticsActionHandler.
+        """
+        if not self.active_connection_id:
+             return 0.5
+        
+        # Check gravity store for real calculated weight
+        store = self.gravity_stores.get(self.active_connection_id, {})
+        if node_id in store:
+            return store[node_id]
+            
+        return 0.5
+
     async def predict_links(self, connection_id: str, node_id: str, context_nodes: List[str]) -> List[Dict[str, Any]]:
         """
         Identify POTENTIAL relationships based on name similarity.
@@ -499,12 +542,41 @@ class NeuralCore:
 
         # 4. PREDICT SIGNATURE STRENGTH
         signature_strength = len(semantic_neighbors)
+        
+        # INTEGRATE NEURAL CORE (GNN)
+        # Use the real importance score to weight the complexity
+        try:
+            try:
+                try:
+                    from backend.ml.graph_neural_core import graph_neural_core
+                except ImportError:
+                    try:
+                        from ml.graph_neural_core import graph_neural_core
+                    except ImportError:
+                         from ...ml.graph_neural_core import graph_neural_core
+            except ImportError:
+                from ml.graph_neural_core import graph_neural_core
+            
+            # Get table importance (0.0 - 1.0)
+            table_importance = graph_neural_core.predict_importance(table_name, "table")
+        except Exception as e:
+            logger.warning(f"Failed to get GNN importance for {table_name}: {e}")
+            table_importance = 0.5 # Default neutral
+
+        # Advanced Complexity Score:
+        # Base: Downstream dependencies (high impact)
+        # + Semantic reach (potential impact)
+        # + Path length (depth of impact)
+        # * Multiplied by GNN Importance (Strategic Weight)
+        base_complexity = (len(formal_downstream) * 3.0) + (signature_strength * 2.0) + (len(path_nodes) * 1.0)
+        neural_complexity = base_complexity * (0.8 + table_importance) # Scale by importance
 
         return {
             "impact": list(set(formal_downstream + semantic_neighbors)) or ["Isolated System"],
             "propagation_path": path_nodes,
             "signature_strength": signature_strength,
-            "complexity_score": (len(formal_downstream) * 3.0) + (signature_strength * 2.0) + (len(path_nodes) * 1.0)
+            "complexity_score": neural_complexity,
+            "neural_governance": table_importance > 0.7 # Flag if this is a high-value node per GNN
         }
 
 # Global Instance
