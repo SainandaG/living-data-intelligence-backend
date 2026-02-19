@@ -1,4 +1,4 @@
-﻿"""
+"""
 Anomaly Detection with Explainable AI
 Detects anomalies and provides visual explanations.
 States are persisted to ensure historical context survives restarts.
@@ -84,22 +84,42 @@ class AnomalyDetector:
         """Save statistical baselines to database."""
         from app.services.db_connector import db_connector
         try:
-            # Ensure table
+            # [FIX] Get connection info to determine dialect
+            conn_info = db_connector.get_connection(connection_id)
+            db_type = conn_info.get('type', 'mysql').lower()
+
+            # Ensure table exists (Split into separate queries for safety)
+            # PostgreSQL requires explicit schema creation, MySQL treats schema as database
+            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
+                
             await db_connector.query(connection_id, """
-                CREATE SCHEMA IF NOT EXISTS evolution;
                 CREATE TABLE IF NOT EXISTS evolution.statistical_memory (
-                    connection_id TEXT PRIMARY KEY,
-                    metrics_json JSONB,
-                    updated_at TIMESTAMPTZ DEFAULT NOW()
-                );
+                    connection_id VARCHAR(255) PRIMARY KEY,
+                    metrics_json JSON,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             """)
             
             data = json.dumps(self.baseline_metrics.get(connection_id, {}))
-            sql = """
-                INSERT INTO evolution.statistical_memory (connection_id, metrics_json, updated_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (connection_id) DO UPDATE SET metrics_json = EXCLUDED.metrics_json, updated_at = NOW()
-            """
+            
+            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                # POSTGRESQL DIALECT
+                sql = """
+                    INSERT INTO evolution.statistical_memory (connection_id, metrics_json, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (connection_id) DO UPDATE SET 
+                        metrics_json = EXCLUDED.metrics_json, 
+                        updated_at = NOW()
+                """
+            else:
+                # MYSQL DIALECT
+                sql = """
+                    INSERT INTO evolution.statistical_memory (connection_id, metrics_json, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE metrics_json = VALUES(metrics_json), updated_at = NOW()
+                """
+                
             await db_connector.query(connection_id, sql, (connection_id, data))
         except Exception as e:
             print(f"AnomalyDetector: Memory persistence fail: {e}")

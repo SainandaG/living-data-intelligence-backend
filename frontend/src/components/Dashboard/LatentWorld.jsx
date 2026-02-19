@@ -133,16 +133,9 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
         fetchClusters();
     }, [targetNode, connectionId]);
 
-    // Fallback clusters (used when API fails)
+    // No mock fallback — show empty state when API fails
     const getFallbackClusters = () => {
-        return [
-            { name: 'High Value', type: 'cluster', count: 1240, color: '#facc15', shape: 'box', risk: 'low', tags: ['Whales', 'VIP'], description: 'High value transactions' },
-            { name: 'Micro-Trans', type: 'cluster', count: 8500, color: '#00f2ff', shape: 'box', risk: 'low', tags: ['High Frequency'], description: 'Micro transactions' },
-            { name: 'Failed/Err', type: 'cluster', count: 142, color: '#ef4444', shape: 'octa', risk: 'high', tags: ['API Errors', 'Timeouts'], description: 'Failed operations' },
-            { name: 'Anomalies', type: 'cluster', count: 23, color: '#a855f7', shape: 'tetra', risk: 'critical', tags: ['Fraud', 'Suspicious'], description: 'Anomalous patterns' },
-            { name: 'Recurring', type: 'cluster', count: 3200, color: '#22c55e', shape: 'box', risk: 'low', tags: ['Subscriptions'], description: 'Recurring transactions' },
-            { name: 'Legacy Data', type: 'cluster', count: 500, color: '#64748b', shape: 'box', risk: 'low', tags: ['Archived'], description: 'Legacy records' }
-        ];
+        return [];
     };
 
 
@@ -293,7 +286,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
                 renderer.dispose();
                 // renderer.forceContextLoss(); // CAUSES CRASH ON RAPID REMOUNT - REMOVED
                 if (renderer.domElement && mountRef.current) {
-                    try { mountRef.current.removeChild(renderer.domElement); } catch (e) { }
+                    try { mountRef.current.removeChild(renderer.domElement); } catch (e) { /* ignore */ }
                 }
             }
             sceneRef.current.clear();
@@ -412,19 +405,19 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
                             );
 
                             if (numericKeys.length > 0) txValue = Number(rowData[numericKeys[0]]).toFixed(2);
-                            else txValue = (10 + Math.random() * 900).toFixed(2); // Fallback
+                            else txValue = '0.00'; // No numeric data available
 
                             if (dateKeys.length > 0) txTime = rowData[dateKeys[0]];
                             else txTime = new Date().toISOString();
 
                             txType = cluster.name;
                         } catch (e) {
-                            txValue = (10 + Math.random() * 900).toFixed(2);
+                            txValue = '0.00'; // Parse error — no data
                         }
                     } else {
-                        // FALLBACK TO SIMULATION
-                        txValue = (10 + Math.random() * 900).toFixed(2);
-                        txTime = new Date(Date.now() - Math.random() * 86400000).toISOString();
+                        // No row data available
+                        txValue = '0.00';
+                        txTime = new Date().toISOString();
                     }
 
                     voxel.userData = {
@@ -650,11 +643,11 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
                 {/* Right: System Load Widget */}
                 <div className={`${glassPanel} px-4 py-3 rounded-lg flex flex-col items-end min-w-[120px]`}>
                     <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-white/40 font-bold">SYS LOAD</span>
-                        <span className="text-xs text-[#ee2b8c] font-bold">14.8%</span>
+                        <span className="text-[10px] text-white/40 font-bold">CLUSTERS</span>
+                        <span className="text-xs text-[#ee2b8c] font-bold">{dataClusters.length}</span>
                     </div>
                     <div className="w-full h-1 bg-white/10 mt-2 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#ee2b8c] w-[14.8%]"></div>
+                        <div className="h-full bg-[#ee2b8c]" style={{ width: `${Math.min(dataClusters.length * 10, 100)}%` }}></div>
                     </div>
                     <div className="flex gap-1 mt-2">
                         <div className="w-1 h-2 bg-[#ee2b8c]/60 rounded-full"></div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState, useMemo } from 'react';
 import { useRegisterCommand } from '../../context/CommandRegistryContext';
 import { EventBus } from '../../agents/eventBus';
 import soundSystem from '../../utils/SoundSystem';
@@ -262,12 +262,16 @@ function createClusterVoxelMesh(nodesInCluster, currentLens = 'ops') {
     if (currentLens === 'tier3') {
         const totalSize = dim * voxelSize;
         const boxGeo = new THREE.BoxGeometry(totalSize + 20, totalSize + 20, totalSize + 20); // Slightly larger padding
-        const boxMat = new THREE.MeshBasicMaterial({
+        const boxMat = new THREE.MeshStandardMaterial({
             color: 0x22d3ee, // Cyan
             wireframe: true,
             transparent: true,
             opacity: 0.15,
-            blending: THREE.AdditiveBlending
+            blending: THREE.AdditiveBlending,
+            emissive: 0x22d3ee,
+            emissiveIntensity: 0.5,
+            roughness: 0.1,
+            metalness: 0.1
         });
         const container = new THREE.Mesh(boxGeo, boxMat);
         group.add(container);
@@ -377,7 +381,7 @@ function applyGalaxyLayout(nodes, radius = 600) {
 
 
 
-function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', animatedObjectsList = []) {
+function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', clusteringMethod = 'heuristic', animatedObjectsList = []) {
     // Legacy Pastel Palette
     const colorMap = {
         core: 0x68d391,      // Soft Green
@@ -487,7 +491,19 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', an
     // 3. STANDARD GALAXY MODE
     else {
         if (isCore) color = colorMap.core;
-        else if (nodeData.color && typeof nodeData.color === 'string') color = new THREE.Color(nodeData.color).getHex();
+        else if (nodeData.avg_temperature) {
+            // DYNAMIC SIMULATION COLOR
+            const t = nodeData.avg_temperature;
+            if (t > 45) color = 0xff4444;      // Red (Hot)
+            else if (t > 35) color = 0xffbb33; // Orange (Warm)
+            else color = 0x00c851;             // Green (Normal)
+        }
+        else if (nodeData.color) {
+            // [FIX] Handle both numeric and string colors from backend (Cluster colors)
+            color = typeof nodeData.color === 'string'
+                ? new THREE.Color(nodeData.color).getHex()
+                : nodeData.color;
+        }
         else if (tt === 'fact') color = colorMap.fact;
         else color = colorMap.dimension;
     }
@@ -501,16 +517,25 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', an
     const importance = rawImportance > 5 ? (rawImportance / 50.0) : rawImportance;
 
     // Fixed: Smaller base size and multipliers to match physics
-    // Old: 30 + (60*imp) + (15*nTerm) -> Max ~150
-    // New: 12 + (20*imp) + (5*nTerm) -> Max ~50
-    let size = isCore ? 60 : (12 + (importance * 20) + (nTerm * 5));
+    // Old: 12 + (20*imp) + (5*nTerm) -> Max ~50
+    // New: 8 + (12*imp) + (4*nTerm) -> Max ~30
+    let size = isCore ? 40 : (8 + (importance * 12) + (nTerm * 4));
+
+    // VISIBILITY FIX: Make 'batteries' node huge so user can find it
+    if (nodeData.id === 'batteries') {
+        size = 80; // 2x Core size
+        color = 0x00ff00; // Bright Green base
+    }
 
     // LATENT MODE VISIBILITY BOOST
-    // In the massive 60k space, nodes need to be HUGE to be seen from afar
+    // Reduced from 3.5x to 1.5x to prevent overcrowding
     if (layoutMode === 'latent') {
-        size *= 3.5; // Triple the size for visibility against the terrain
+        size *= 1.5;
     }
-    if (currentLens === 'executive') size *= 1.2;
+    if (currentLens === 'executive') size *= 1.1;
+
+    // SYNC: Update node data so D3 collision knows the actual visual size
+    nodeData.size = size;
 
     // 1. Inner Core Sphere (The Light Source)
     // OPTIMIZATION: Reduced segments from 32,32 to 16,16
@@ -519,7 +544,14 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', an
     const nodeColor = new THREE.Color(color);
     if (layoutMode === 'latent') nodeColor.multiplyScalar(1.5); // Boost brightness
 
-    const material = new THREE.MeshBasicMaterial({ color: nodeColor });
+    // FIX: Use Standard Material to support Emissive (for glow/pulse/time-travel)
+    const material = new THREE.MeshStandardMaterial({
+        color: nodeColor,
+        roughness: 0.4,
+        metalness: 0.1,
+        emissive: 0x000000,
+        emissiveIntensity: 0.0
+    });
     const sphere = new THREE.Mesh(geometry, material);
 
     // CRITICAL FIX: Attach Node Data for Raycaster
@@ -599,10 +631,14 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', an
             // Formula: Color = lerp(Red, Yellow, vitality/100)
             const shieldColor = new THREE.Color(0xff0000).lerp(new THREE.Color(0xffff00), health / 100);
 
-            const shieldMat = new THREE.MeshBasicMaterial({
+            const shieldMat = new THREE.MeshStandardMaterial({
                 color: shieldColor,
                 wireframe: true,
                 transparent: true,
+                emissive: shieldColor,
+                emissiveIntensity: 0.5,
+                roughness: 0.1,
+                metalness: 0.1,
                 opacity: 0.6,
                 blending: THREE.AdditiveBlending
             });
@@ -728,11 +764,13 @@ function createParticle(type = 'normal') {
     else if (type === 'high_traffic') color = 0xFFD700; // Gold
     else color = 0x00FF88;                       // Green
 
-    const material = new THREE.MeshBasicMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color: color,
         // Maximize glow for Green to ensure it's visible
         emissive: color,
-        emissiveIntensity: 2.0
+        emissiveIntensity: 2.0,
+        roughness: 0.2,
+        metalness: 0.8
     });
     const mesh = new THREE.Mesh(geometry, material);
     return mesh;
@@ -784,7 +822,7 @@ function createStarfield(scene) {
     scene.add(dust);
 }
 
-const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLens: activeLensProp = 'ops' }, ref) => {
+const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, className, activeLens: activeLensProp = 'ops', clusteringMethod = 'heuristic', paused = false }, ref) => {
     const containerRef = useRef(null);
     const mountRef = useRef(null);
     const rendererRef = useRef(null);
@@ -805,7 +843,54 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
     const flowEnabledRef = useRef(false);
     const flowTimeoutRef = useRef(null); // Timeout for auto-stopping flow
     const lineageRef = useRef({ origin: null, nodes: [] });
+    const clusteringMethodRef = useRef(clusteringMethod);
     const simulationRef = useRef(null);
+
+    // [PHASE 2] InstancedMesh Refs
+    const instancedMeshRef = useRef(null); // Core nodes
+    const instancedShellRef = useRef(null); // Glow shells
+    const textSpritesGroupRef = useRef(null); // Text labels group
+    const dummyObject = useMemo(() => new THREE.Object3D(), []);
+    const nodeColorBuffer = useMemo(() => new THREE.Color(), []);
+
+    // Shared Geometries/Materials (Memoized)
+    const nodeGeometry = useMemo(() => new THREE.SphereGeometry(1, 16, 16), []); // Radius 1, scale to size
+    const shellGeometry = useMemo(() => new THREE.SphereGeometry(1, 16, 16), []);
+
+    // CUSTOM SHADER UNIFORMS FOR PULSE
+    const shaderUniforms = useMemo(() => ({
+        time: { value: 0 }
+    }), []);
+
+    const nodeMaterial = useMemo(() => {
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0x4299e1,
+            roughness: 0.4,
+            metalness: 0.6,
+            emissive: 0x000000,
+            emissiveIntensity: 0.5
+        });
+
+
+        return mat;
+    }, []);
+
+    const shellMaterial = useMemo(() => {
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0x4299e1,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.BackSide,
+            blending: THREE.AdditiveBlending,
+            emissive: 0x4299e1,
+            emissiveIntensity: 0.5,
+            roughness: 0.1,
+            metalness: 0.1
+        });
+
+
+        return mat;
+    }, []);
 
     // Refs for state setters to avoid closure issues in event handlers
     const setViewModeRef = useRef(null);
@@ -1292,7 +1377,6 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
         selectedNodeRef.current = null;
     }
 
-    // Update tpsRef whenever tps prop changes
     useEffect(() => {
         console.log(`[ThreeGraph] TPS changed: ${tps}`);
         tpsRef.current = tps;
@@ -1305,6 +1389,11 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             particlesRef.current = [];
         }
     }, [tps]);
+
+    // Update clusteringMethodRef
+    useEffect(() => {
+        clusteringMethodRef.current = clusteringMethod;
+    }, [clusteringMethod]);
 
     // 1. INITIALIZATION EFFECT (One-time Setup)
     // ============ FETCH CLUSTER METADATA FOR 3D TABLES LENS ============
@@ -1447,12 +1536,19 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 notification.remove();
             }
 
-            // Reinitialize scene (this will be handled by the useEffect cleanup/rerun)
-            // For now, just reload the page to ensure clean state
+            // Soft reset: resize renderer and update controls to restore rendering
             setTimeout(() => {
-                console.log('🔄 [ThreeGraph] Context Lost - Attempting recovery without reload...');
-                // window.location.reload(); // DISABLED: Causing refresh loops
-                // TODO: Trigger a soft reset of the Three.js state if needed
+                console.log('[ThreeGraph] WebGL context restored — triggering scene rebuild');
+                if (rendererRef.current && containerRef.current) {
+                    const w = containerRef.current.clientWidth || window.innerWidth;
+                    const h = containerRef.current.clientHeight || window.innerHeight;
+                    rendererRef.current.setSize(w, h);
+                    if (cameraRef.current) {
+                        cameraRef.current.aspect = w / h;
+                        cameraRef.current.updateProjectionMatrix();
+                    }
+                }
+                if (controlsRef.current) controlsRef.current.update();
             }, 1000);
         };
 
@@ -1557,8 +1653,25 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 let foundNode = null;
 
                 for (let i = 0; i < intersects.length; i++) {
-                    let object = intersects[i].object;
-                    // Check if this object or its parents is a Node
+                    const intersection = intersects[i];
+                    let object = intersection.object;
+
+                    // [PHASE 2] InstancedMesh Support
+                    if (object.isInstancedMesh) {
+                        const instanceId = intersection.instanceId;
+                        if (instanceId !== undefined) {
+                            // Find node with this instanceId
+                            // Optimization: If arrays are sync'd, nodesRef.current[instanceId] might work, 
+                            // but safest is to check the property
+                            const node = nodesRef.current.find(n => n.instanceId === instanceId);
+                            if (node) {
+                                foundNode = node;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Legacy/Voxel Support
                     let nodeCandidate = null;
                     let traverser = object;
                     while (traverser) {
@@ -1579,6 +1692,11 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                     hoverNodeRef.current = foundNode; // Update Ref
                     document.body.style.cursor = 'pointer';
 
+                    // [NEW] Trigger hover callback for UI Preview
+                    if (onNodeHover) {
+                        onNodeHover(foundNode);
+                    }
+
                     // SONIFICATION: Play metric sound on hover
                     const gravity = foundNode.importance_score || 1.0;
                     const glowIntense = foundNode.node_glow || 0.5;
@@ -1587,6 +1705,11 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             } else if (hoverNodeRef.current) {
                 hoverNodeRef.current = null; // Clear Ref
                 document.body.style.cursor = 'default';
+
+                // [NEW] Clear hover preview
+                if (onNodeHover) {
+                    onNodeHover(null);
+                }
             }
         };
 
@@ -1622,7 +1745,14 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
         // Loop - Just renders (Logic moved to D3 tick + Glow update)
         const animate = () => {
             animationRef.current = requestAnimationFrame(animate);
+
+            // [FIX] Zombie Simulation check
+            if (paused) return;
+
             const time = Date.now() * 0.001;
+
+            // [VISUAL FIX] Update Shader Uniforms for Pulse/Glow
+            if (shaderUniforms) shaderUniforms.time.value = time;
 
             if (controlsRef.current) controlsRef.current.update();
 
@@ -1647,7 +1777,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                     const t = Date.now() * 0.001;
                     const speed = object.userData.pulseSpeed || 1.0;
                     const base = object.userData.originalScale || 1.4;
-                    // Formula: scale = base + sin(time * speed) * offset
+                    // Formula: scale = base + sin(t * speed) * offset
                     const scale = base + Math.sin(t * speed * 3.0) * 0.15;
                     object.scale.setScalar(scale);
                     object.rotation.y += 0.02;
@@ -1766,7 +1896,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             if (cameraAnimRef.current) cancelAnimationFrame(cameraAnimRef.current);
 
             if (mountRef.current && canvasContainer) {
-                try { mountRef.current.removeChild(canvasContainer); } catch (e) { }
+                try { mountRef.current.removeChild(canvasContainer); } catch (e) { /* ignore */ }
             }
 
             // DISPOSE RESOURCES to prevent Context Loss
@@ -1788,6 +1918,19 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             }
         };
     }, []); // Runs ONCE
+
+    // [FIX] Pause/Resume Physics Simulation
+    useEffect(() => {
+        if (simulationRef.current) {
+            if (paused) {
+                console.log("[ThreeGraph] ⏸ Pausing Simulation");
+                simulationRef.current.stop();
+            } else {
+                console.log("[ThreeGraph] ▶ Resuming Simulation");
+                simulationRef.current.restart();
+            }
+        }
+    }, [paused]);
 
 
 
@@ -1872,28 +2015,63 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             console.log(`[ThreeGraph] ✨ Fast Property Sync... (Structural Integrity Maintained)`);
             data.nodes.forEach(incoming => {
                 const existing = nodesRef.current.find(n => n.id === incoming.id);
-                if (existing && existing.mesh) {
-                    const mesh = existing.mesh;
+                if (existing) {
                     // Update Vitality/Glow
-                    mesh.userData.nodeGlow = incoming.node_glow || 1.0;
-
-                    // Update Color if shifted
-                    if (incoming.color && existing.color !== incoming.color) {
-                        const newColor = typeof incoming.color === 'string' ? new THREE.Color(incoming.color) : new THREE.Color(incoming.color);
-                        if (mesh.material) mesh.material.color.set(newColor);
-                        // Update shell too
-                        if (mesh.children[0]) mesh.children[0].material.color.set(newColor);
-                    }
-
-                    // Update Scale (Vitality/Size)
-                    const targetScale = incoming.size / (existing.size || 20);
-                    mesh.scale.setScalar(targetScale);
-
-                    // Sync local object state
                     existing.node_glow = incoming.node_glow;
                     existing.vitality = incoming.vitality;
                     existing.color = incoming.color;
                     existing.size = incoming.size;
+
+                    // [PHASE 2] InstancedMesh Update
+                    if (instancedMeshRef.current && existing.instanceId !== undefined) {
+                        const i = existing.instanceId;
+
+                        // Update Color
+                        if (incoming.color) {
+                            const newColor = new THREE.Color(incoming.color);
+                            instancedMeshRef.current.setColorAt(i, newColor);
+                            if (instancedShellRef.current) instancedShellRef.current.setColorAt(i, newColor);
+                        }
+
+                        // Update Scale (Size)
+                        if (incoming.size) {
+                            const size = incoming.size || 20;
+                            // We need the current position to update the matrix
+                            // Use currentX/Y/Z if available, else target
+                            const x = existing.currentX || existing.x || 0;
+                            const y = existing.currentY || existing.y || 0;
+                            const z = existing.currentZ || existing.z || 0;
+
+                            dummyObject.position.set(x, y, z);
+                            dummyObject.scale.set(size / 2, size / 2, size / 2);
+                            dummyObject.updateMatrix();
+                            instancedMeshRef.current.setMatrixAt(i, dummyObject.matrix);
+
+                            if (instancedShellRef.current) {
+                                dummyObject.scale.set(size / 2 * 1.4, size / 2 * 1.4, size / 2 * 1.4);
+                                dummyObject.updateMatrix();
+                                instancedShellRef.current.setMatrixAt(i, dummyObject.matrix);
+                            }
+                        }
+                    }
+                    // Legacy/Voxel Update
+                    else if (existing.mesh && existing.mesh.isMesh) {
+                        const mesh = existing.mesh;
+                        // Update Vitality/Glow
+                        mesh.userData.nodeGlow = incoming.node_glow || 1.0;
+
+                        // Update Color if shifted
+                        if (incoming.color && existing.color !== incoming.color) {
+                            const newColor = typeof incoming.color === 'string' ? new THREE.Color(incoming.color) : new THREE.Color(incoming.color);
+                            if (mesh.material) mesh.material.color.set(newColor);
+                            // Update shell too
+                            if (mesh.children[0]) mesh.children[0].material.color.set(newColor);
+                        }
+
+                        // Update Scale (Vitality/Size)
+                        const targetScale = incoming.size / (existing.size || 20);
+                        mesh.scale.setScalar(targetScale);
+                    }
                 }
             });
             prevDataRef.current = JSON.parse(JSON.stringify(data));
@@ -1908,25 +2086,95 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
         console.log(`[ThreeGraph] 🔄 Structural Update. Rebuilding Universe...`, data.nodes?.length);
 
 
-        // A. CLEANUP PREVIOUS CONTENT
-        nodesRef.current.forEach(n => {
-            if (n.mesh) scene.remove(n.mesh);
-        });
-        edgesRef.current.forEach(e => {
-            if (e) scene.remove(e);
-        });
-        // NEW: Cleanup Groups (Voxel Clusters)
-        groupsRef.current.forEach(g => {
-            if (g) scene.remove(g);
-        });
-        groupsRef.current = []; // Reset
+        // Helper to properly dispose of Three.js objects
+        const disposeObject = (obj) => {
+            if (!obj) return;
 
-        nodesRef.current = [];
-        edgesRef.current = [];
+            // Recursive disposal for children (e.g. labels, shells)
+            if (obj.children) {
+                [...obj.children].forEach(child => disposeObject(child));
+            }
+
+            if (obj.geometry) obj.geometry.dispose();
+
+            if (obj.material) {
+                if (Array.isArray(obj.material)) {
+                    obj.material.forEach(m => {
+                        if (m.map) m.map.dispose();
+                        if (m.emissiveMap) m.emissiveMap.dispose();
+                        if (m.roughnessMap) m.roughnessMap.dispose();
+                        if (m.metalnessMap) m.metalnessMap.dispose();
+                        m.dispose();
+                    });
+                } else {
+                    if (obj.material.map) obj.material.map.dispose();
+                    if (obj.material.emissiveMap) obj.material.emissiveMap.dispose();
+                    if (obj.material.roughnessMap) obj.material.roughnessMap.dispose();
+                    if (obj.material.metalnessMap) obj.material.metalnessMap.dispose();
+                    obj.material.dispose();
+                }
+            }
+        };
+
+        // A. CLEANUP PREVIOUS CONTENT (AGGRESSIVE)
+        console.log("[ThreeGraph] 🧹 Disposing previous scene resources...");
+
+        // 1. Nodes
+        if (nodesRef.current) {
+            nodesRef.current.forEach(n => {
+                if (n.mesh) {
+                    scene.remove(n.mesh);
+                    disposeObject(n.mesh);
+                }
+            });
+            nodesRef.current = [];
+        }
+
+        // 2. Edges
+        if (edgesRef.current) {
+            edgesRef.current.forEach(e => {
+                if (e) {
+                    scene.remove(e);
+                    disposeObject(e);
+                }
+            });
+            edgesRef.current = [];
+        }
+
+        // 3. Groups (Voxel Clusters)
+        if (groupsRef.current) {
+            groupsRef.current.forEach(g => {
+                if (g) {
+                    scene.remove(g);
+                    disposeObject(g);
+                }
+            });
+            groupsRef.current = [];
+        }
+
+        // 4. Latent World Artifacts (Manifold & Axes)
+        if (manifoldRef.current) {
+            scene.remove(manifoldRef.current);
+            disposeObject(manifoldRef.current);
+            manifoldRef.current = null;
+        }
+        if (axesRef.current) {
+            scene.remove(axesRef.current);
+            disposeObject(axesRef.current);
+            axesRef.current = null;
+        }
+
+        animatedObjectsRef.current = [];
 
         // Stop previous simulation
         if (simulationRef.current) {
             simulationRef.current.stop();
+        }
+
+        // CRITICAL: Force WebGL to release buffers immediately
+        if (rendererRef.current) {
+            rendererRef.current.renderLists.dispose();
+            rendererRef.current.info.reset();
         }
 
         // B. BUILD NEW CONTENT
@@ -1938,7 +2186,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             // 1. Layout - CONDITIONAL BASED ON MODE
             const layoutNodes = layoutMode === 'latent'
                 ? applyLatentSpaceLayout(nodes, currentLens)
-                : applyGalaxyLayout(nodes, 600);
+                : applyGalaxyLayout(nodes, 800); // Increased from 600 to 800 for better spacing
             const nodeMap = new Map();
 
             // 2. Create Nodes
@@ -2100,32 +2348,47 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
 
                 console.log(`✅ [3D Tables] Created Neural Core + ${createdCount} individual table voxels in graph structure`);
             }
-            // ============ STANDARD SPHERE MODES ============
+            // ============ STANDARD SPHERE MODES (Ops, Security, Executive) ============
             else {
-                // STANDARD SPHERE MODES (Ops, Security, Executive)
-                layoutNodes.forEach((nodeData, i) => {
-                    // EXECUTIVE FILTERING: Skip low-value items
-                    if (nodeData.visible === false) return;
+                // [PHASE 2 - INSTANCED MESH REFACTOR]
+                const visibleNodes = layoutNodes.filter(n => n.visible !== false);
+                const count = visibleNodes.length;
 
-                    const mesh = createNodeMesh(nodeData, currentLens, layoutMode, animatedObjectsRef.current);
+                if (count > 0) {
+                    // [LEGACY RESTORATION - SASIR STYLE]
+                    // Reverted from InstancedMesh to Individual Meshes for maximum visual fidelity
+                    visibleNodes.forEach((nodeData) => {
+                        // [FIX] Coordinate validation
+                        if (isNaN(nodeData.x)) nodeData.x = nodeData.targetX || 0;
+                        if (isNaN(nodeData.y)) nodeData.y = nodeData.targetY || 0;
+                        if (isNaN(nodeData.z)) nodeData.z = nodeData.targetZ || 0;
 
-                    if (mesh) {
-                        if (isNaN(nodeData.x)) nodeData.x = 0;
-                        if (isNaN(nodeData.y)) nodeData.y = 0;
-                        if (isNaN(nodeData.z)) nodeData.z = 0;
+                        // [RESTORATION] Create Mesh via Sasir Helper (Restores Legend/Lens Coloring)
+                        const mesh = createNodeMesh(nodeData, currentLensRef.current, layoutModeRef.current, clusteringMethodRef.current, animatedObjectsRef.current);
+                        if (!mesh) return;
 
                         mesh.position.set(nodeData.x, nodeData.y, nodeData.z);
+
+                        // [FIX] Link Data & Refs for Animation/Raycasting
                         nodeData.mesh = mesh;
-                        nodeData.baseY = nodeData.y;
+                        // Find the label sprite among children for D3 tick position updates (if any)
+                        nodeData.labelSprite = mesh.children.find(c => c.type === 'Sprite');
 
                         scene.add(mesh);
                         nodesRef.current.push(nodeData);
                         nodeMap.set(nodeData.id, nodeData);
                         createdCount++;
-                    }
-                });
+                    });
+
+                    // Clear Instanced Refs to prevent update loop conflicts
+                    instancedMeshRef.current = null;
+                    instancedShellRef.current = null;
+                    textSpritesGroupRef.current = null; // Labels are children now
+
+                    console.log(`✅ [Legacy Mode] Created ${createdCount} individual meshes.`);
+                }
             }
-            console.log(`[ThreeGraph] ✅ Created & Added ${createdCount} node meshes.`);
+            console.log(`[ThreeGraph] ✅ Created & Added ${createdCount} nodes.`);
 
             // UPDATE DEBUG HUD
             setDebugStats(prev => ({
@@ -2141,9 +2404,18 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                     const target = nodeMap.get(edge.target);
                     if (source && target) {
                         // CHANGED: Use Curved Edge with DETERMINISTIC SEEDing
-                        const line = createCurvedEdge(source.mesh.position, target.mesh.position, edge, edge.source, edge.target);
+                        // [FIX] Use raw coordinates, not mesh position (which is 0,0,0 for InstancedMesh)
+                        const startPos = new THREE.Vector3(source.x, source.y, source.z);
+                        const endPos = new THREE.Vector3(target.x, target.y, target.z);
+
+                        const line = createCurvedEdge(startPos, endPos, edge, edge.source, edge.target);
                         line.userData.sourceId = edge.source;
                         line.userData.targetId = edge.target;
+
+                        // [FIX] Store InstancedMesh ref or individual mesh ref if legacy
+                        // For InstancedMesh, we don't have individual meshes to track, 
+                        // so we rely on the ID map in the loop
+
                         scene.add(line);
                         edgesRef.current.push(line);
                     }
@@ -2163,10 +2435,12 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 // Remove old manifold/axes if they exist
                 if (manifoldRef.current) {
                     scene.remove(manifoldRef.current);
+                    disposeObject(manifoldRef.current); // FIX: Dispose resources
                     manifoldRef.current = null;
                 }
                 if (axesRef.current) {
                     scene.remove(axesRef.current);
+                    disposeObject(axesRef.current); // FIX: Dispose resources
                     axesRef.current = null;
                 }
 
@@ -2203,10 +2477,12 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 // Clean up manifold/axes when switching back to galaxy mode
                 if (manifoldRef.current) {
                     scene.remove(manifoldRef.current);
+                    disposeObject(manifoldRef.current); // FIX: Dispose resources
                     manifoldRef.current = null;
                 }
                 if (axesRef.current) {
                     scene.remove(axesRef.current);
+                    disposeObject(axesRef.current); // FIX: Dispose resources
                     axesRef.current = null;
                 }
 
@@ -2238,18 +2514,20 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             )
             .force("collide", d3.forceCollide()
                 // LATENT STABILITY: Disable collision to allow perfect stacking
-                .radius(d => (layoutMode === 'latent') ? 0 : (d.size || 20) * 1.5)
-                .iterations(2)
+                // Radius: Use updated d.size (visual radius) * buffer
+                .radius(d => (layoutMode === 'latent') ? 0 : (d.size || 10) * 1.2)
+                .iterations(3) // Increase iterations for stability
             )
             .force("link", forceLink(edgesRef.current.map(e => ({ source: e.userData.sourceId, target: e.userData.targetId, ...e })))
                 .id(d => d.id)
                 .distance(d => {
                     const intensity = d.trafficIntensity || 0.5;
-                    if (intensity <= 0.01) return 200;
-                    const dist = 100 / intensity;
-                    return isNaN(dist) ? 100 : Math.min(dist, 500);
+                    // Increased min distance to prevent clustering
+                    if (intensity <= 0.01) return 150;
+                    const dist = 150 / intensity;
+                    return isNaN(dist) ? 150 : Math.min(dist, 600);
                 })
-                .strength(layoutMode === 'latent' ? 0 : 0.1) // ZERO strength in latent mode
+                .strength(layoutMode === 'latent' ? 0 : 0.05) // Reduced strength to let collision work
             )
             .force("x", forceX(d => d.targetX || 0).strength(0.8))
             .force("y", forceY(d => d.targetY || 0).strength(0.8))
@@ -2258,80 +2536,67 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 const currentScene = sceneRef.current;
                 if (!currentScene) return;
 
-                nodesRef.current.forEach((d, i) => {
+                // [FIX] Map for fast lookup of D3 nodes by ID
+                const nodeMap = new Map();
+                nodesRef.current.forEach(n => nodeMap.set(n.id, n));
+
+                nodesRef.current.forEach((d) => {
+                    // [FIX] Layout Logic
+                    if (isNaN(d.x) || isNaN(d.y) || isNaN(d.z)) {
+                        d.x = d.targetX || 0;
+                        d.y = d.targetY || 0;
+                        d.z = d.targetZ || 0;
+                    }
+
+                    // TIER 3 (VOXEL) FIX: Do not move voxels with D3 physics!
+                    if (d.isVoxel || currentLens === 'tier3') return;
+
+                    // If it's the very first tick and alpha is high, bypass lerp for instant positioning
                     if (d.mesh) {
-                        // TIER 3 (VOXEL) FIX: Do not move voxels with D3 physics!
-                        // They are children of a group and have fixed relative positions.
-                        if (d.isVoxel || currentLens === 'tier3') {
-                            return;
-                        }
-
-                        if (isNaN(d.x) || isNaN(d.y) || isNaN(d.z)) {
-                            d.x = d.targetX || 0;
-                            d.y = d.targetY || 0;
-                            d.z = d.targetZ || 0;
-                        }
-
-                        // If it's the very first tick and alpha is high, bypass lerp for instant positioning
                         if (simulation.alpha() > 0.95) {
                             d.mesh.position.set(d.x, d.y, d.z);
                         } else {
                             d.mesh.position.lerp(new THREE.Vector3(d.x, d.y, d.z), 0.1);
                         }
                     }
+
+                    // 3. UPDATE TEXT LABELS
+                    if (d.labelSprite && !d.mesh) {
+                        const size = d.size || 5;
+                        d.labelSprite.position.set(d.x, d.y + size + 10, d.z);
+                    }
                 });
 
-                // 4. AUTO-FIT CAMERA TO SEE ALL CLUSTERS
-                if (clusterMetadata && clusterMetadata.clusters && clusterMetadata.clusters.length > 0) {
-                    // Calculate bounding box of all cluster groups
-                    const bbox = new THREE.Box3();
-                    scene.children.forEach(child => {
-                        if (child.userData && child.userData.isClusterGroup) {
-                            bbox.expandByObject(child);
-                        }
-                    });
+                // [FIX] 4. UPDATE EDGES (Visual Curves)
+                if (edgesRef.current) {
+                    edgesRef.current.forEach(edge => {
+                        const sId = edge.userData.sourceId;
+                        const tId = edge.userData.targetId;
 
-                    if (!bbox.isEmpty()) {
-                        const center = bbox.getCenter(new THREE.Vector3());
-                        const size = bbox.getSize(new THREE.Vector3());
-                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const source = nodeMap.get(sId);
+                        const target = nodeMap.get(tId);
 
-                        // Calculate camera distance to fit everything
-                        const fov = camera.fov * (Math.PI / 180);
-                        let cameraZ = Math.abs(maxDim / Math.sin(fov / 2)) * 1.5; // 1.5x for padding
+                        // Ensure we have D3 nodes and the curve object
+                        if (source && target && edge.geometry && edge.userData.curve) {
+                            const start = new THREE.Vector3(source.x, source.y, source.z);
+                            const end = new THREE.Vector3(target.x, target.y, target.z);
 
-                        // Position camera to see everything
-                        camera.position.set(
-                            center.x,
-                            center.y + maxDim * 0.3, // Slightly elevated
-                            center.z + cameraZ
-                        );
-                        camera.lookAt(center);
-                        controls.target.copy(center);
-                        controls.update();
+                            // Calculate mid-point with curve (simple quadratic bezier)
+                            const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                            mid.y += (start.distanceTo(end) * 0.2);
 
-                        console.log(`📷 [3D Tables] Camera auto-fit: center=${center.x.toFixed(0)},${center.y.toFixed(0)},${center.z.toFixed(0)} distance=${cameraZ.toFixed(0)}`);
-                    }
-                }
-
-                // ... same edge update logic ...
-
-                edgesRef.current.forEach(edge => {
-                    const source = edge.userData.sourceNode;
-                    const target = edge.userData.targetNode;
-                    if (source && target) {
-                        const start = source.position;
-                        const end = target.position;
-                        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                        if (edge.userData.curve) {
+                            // Update Curve Control Points
                             edge.userData.curve.v0.copy(start);
-                            edge.userData.curve.v1.copy(mid).add(new THREE.Vector3(0, Math.sin(Date.now() * 0.001) * 10, 0));
+                            edge.userData.curve.v1.copy(mid);
                             edge.userData.curve.v2.copy(end);
-                            edge.geometry.setFromPoints(edge.userData.curve.getPoints(50));
+
+                            // Update Geometry from Curve
+                            const points = edge.userData.curve.getPoints(50);
+                            edge.geometry.setFromPoints(points);
                             edge.geometry.attributes.position.needsUpdate = true;
                         }
-                    }
-                });
+                    });
+                }
             });
 
         simulationRef.current = simulation;
@@ -2361,150 +2626,9 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
 
         simulation.alpha(1).restart();
 
-    }, [data, layoutMode, currentLens]); // Re-run when data, layoutMode OR currentLens changes
-
-    // 2. DATA UPDATE EFFECT (Disabled - Reverting)
-    useEffect(() => {
-        return; // DISABLED
-        if (!sceneRef.current || !data) return;
-
-        console.log("[ThreeGraph] Differential Data Update...", data.nodes.length, "nodes");
-        const scene = sceneRef.current;
-
-        // 1. Map existing nodes for quick lookup
-        const existingNodeMap = new Map();
-        nodesRef.current.forEach(n => existingNodeMap.set(n.id, n));
-
-        const existingEdgeMap = new Map();
-        edgesRef.current.forEach(e => existingEdgeMap.set(`${e.userData.sourceId}-${e.userData.targetId}`, e));
-
-        const newNodes = [];
-        const keptNodeIds = new Set();
-
-        // 2. Process Incoming Nodes
-        if (data.nodes) {
-            const incomingNodes = applyGalaxyLayout(data.nodes.map(n => ({ ...n })), 600);
-
-            incomingNodes.forEach(incoming => {
-                keptNodeIds.add(incoming.id);
-                const existing = existingNodeMap.get(incoming.id);
-
-                if (existing) {
-                    // UPDATE: Keep Physics, Update Props
-                    existing.size = incoming.size;
-                    existing.color = incoming.color;
-                    existing.node_glow = incoming.node_glow;
-                    existing.importance_score = incoming.importance_score;
-                    existing.metrics = incoming.metrics;
-                    existing.targetX = incoming.x;
-                    existing.targetY = incoming.y;
-                    existing.targetZ = incoming.z;
-
-                    // Visual Update (Mesh)
-                    if (existing.mesh) {
-                        const scale = incoming.size / 20;
-                        existing.mesh.scale.setScalar(1);
-                    }
-                    newNodes.push(existing);
-                } else {
-                    // NEW
-                    const mesh = createNodeMesh(incoming);
-                    mesh.position.set(incoming.x, incoming.y, incoming.z);
-                    incoming.mesh = mesh;
-                    scene.add(mesh);
-                    newNodes.push(incoming);
-                }
-            });
-        }
-
-        // 3. Remove Stale Nodes
-        nodesRef.current.forEach(n => {
-            if (!keptNodeIds.has(n.id)) {
-                if (n.mesh) scene.remove(n.mesh);
-            }
-        });
-        nodesRef.current = newNodes;
-
-        // 4. Process Edges 
-        const newEdges = [];
-        const keptEdgeIds = new Set();
-        const currentNodesMap = new Map(newNodes.map(n => [n.id, n]));
-
-        if (data.edges) {
-            data.edges.forEach(edgeData => {
-                const id = `${edgeData.source}-${edgeData.target}`;
-                keptEdgeIds.add(id);
-                const existingEdge = existingEdgeMap.get(id);
-                const sourceNode = currentNodesMap.get(edgeData.source);
-                const targetNode = currentNodesMap.get(edgeData.target);
-
-                if (sourceNode && targetNode) {
-                    if (existingEdge) {
-                        existingEdge.userData.trafficIntensity = edgeData.traffic_intensity || 0.3;
-                        existingEdge.userData.sourceNode = sourceNode.mesh;
-                        existingEdge.userData.targetNode = targetNode.mesh;
-                        newEdges.push(existingEdge);
-                    } else {
-                        const line = createCurvedEdge(sourceNode.mesh.position, targetNode.mesh.position, edgeData, edgeData.source, edgeData.target);
-                        line.userData.sourceId = edgeData.source;
-                        line.userData.targetId = edgeData.target;
-                        line.userData.sourceNode = sourceNode.mesh;
-                        line.userData.targetNode = targetNode.mesh;
-                        scene.add(line);
-                        newEdges.push(line);
-                    }
-                }
-            });
-        }
-
-        // Remove Stale Edges
-        edgesRef.current.forEach(e => {
-            const id = `${e.userData.sourceId}-${e.userData.targetId}`;
-            if (!keptEdgeIds.has(id)) scene.remove(e);
-        });
-        edgesRef.current = newEdges;
+    }, [data, layoutMode, currentLens, clusteringMethod]); // Re-run when data, layoutMode, currentLens OR clusteringMethod changes
 
 
-        // 5. Update Physics
-        if (simulationRef.current) {
-            simulationRef.current.stop();
-            // Re-bind nodes (D3 modifies them in place, so new references need re-binding)
-            simulationRef.current = forceSimulation(nodesRef.current)
-                .numDimensions(3)
-                .alpha(0.3)
-                .alphaDecay(0.02)
-                .velocityDecay(0.3)
-                .force("charge", forceManyBody().strength(d => -100 * (d.importance_score || 1.0)).distanceMax(500))
-                .force("collide", d3.forceCollide().radius(d => (d.size || 20) * 1.5).iterations(2)) // Added Collision
-                .force("link", forceLink(edgesRef.current.map(e => ({ source: e.userData.sourceId, target: e.userData.targetId, ...e })))
-                    .id(d => d.id)
-                    .distance(d => 100 / (d.trafficIntensity || 0.5)))
-                .force("x", forceX(d => d.targetX || 0).strength(0.08)) // Reduced from 0.8
-                .force("y", forceY(d => d.targetY || 0).strength(0.08))
-                .force("z", forceZ(d => d.targetZ || 0).strength(0.08))
-                .on("tick", () => {
-                    nodesRef.current.forEach(d => {
-                        if (d.mesh) d.mesh.position.lerp(new THREE.Vector3(d.x, d.y, d.z), 0.1);
-                    });
-                    edgesRef.current.forEach(edge => {
-                        if (edge.userData.sourceNode && edge.userData.targetNode) {
-                            const start = edge.userData.sourceNode.position;
-                            const end = edge.userData.targetNode.position;
-                            if (edge.userData.curve) {
-                                const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                                edge.userData.curve.v0.copy(start);
-                                edge.userData.curve.v1.copy(mid).add(new THREE.Vector3(0, Math.sin(Date.now() * 0.001) * 10, 0));
-                                edge.userData.curve.v2.copy(end);
-                                edge.geometry.setFromPoints(edge.userData.curve.getPoints(50));
-                                edge.geometry.attributes.position.needsUpdate = true;
-                            }
-                        }
-                    });
-                });
-            simulationRef.current.restart();
-        }
-
-    }, [data, layoutMode, currentLens]);
 
     // --- DEBUG HUD STATE ---
     // Duplicate removed
@@ -2574,18 +2698,10 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
             )}
 
             {/* DEBUG HUD - REMOVE BEFORE PRODUCTION */}
-            <div className="absolute top-20 left-6 z-50 p-4 bg-black/80 border border-green-500/30 text-green-400 font-mono text-xs rounded shadow-lg pointer-events-none">
-                <h3 className="font-bold underline mb-2">GRAPH DIAGNOSTICS</h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <span>Nodes:</span> <span className="text-white">{debugStats.nodes}</span>
-                    <span>Edges:</span> <span className="text-white">{debugStats.edges}</span>
-                    <span>Data:</span> <span className="text-white">{data ? 'Received' : 'Waiting...'}</span>
-                    <span>Last Upd:</span> <span className="text-gray-400">{debugStats.lastUpdate}</span>
-                </div>
-            </div>
+
 
             {/* TOPOLOGY VIEW (Always Mounted) */}
-            <div ref={mountRef} className="absolute inset-0 z-0" />
+            < div ref={mountRef} className="absolute inset-0 z-0" />
 
             <div className="absolute bottom-6 left-6 z-50 flex gap-2">
                 <div className="px-4 py-2 rounded border font-mono text-sm bg-cyan-500/20 border-cyan-400 text-cyan-300 pointer-events-none opacity-80">
@@ -2593,93 +2709,95 @@ const ThreeGraph = forwardRef(({ onNodeClick, data, tps = 0, className, activeLe
                 </div>
             </div>
             {/* Latent Mode Toggle Button */}
-            {layoutMode === 'latent' && (
-                <>
-                    <button
-                        onClick={() => setLayoutMode('galaxy')}
-                        className="absolute top-4 right-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 font-semibold z-50"
-                    >
-                        ← Back to Topology
-                    </button>
+            {
+                layoutMode === 'latent' && (
+                    <>
+                        <button
+                            onClick={() => setLayoutMode('galaxy')}
+                            className="absolute top-4 right-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 font-semibold z-50"
+                        >
+                            ← Back to Topology
+                        </button>
 
-                    {/* TIME TRAVEL SLIDER (User Request) */}
-                    <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-1/3 z-50 flex flex-col items-center gap-2">
-                        <div className="flex justify-between w-full text-xs font-mono text-cyan-400 uppercase tracking-widest">
-                            <span>Genesis</span>
-                            {/* Use span with ID for direct DOM update to avoid re-renders */}
-                            <span id="time-travel-label">Time Distortion: {timeProgress}%</span>
-                            <span>Now</span>
-                        </div>
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            defaultValue={100} // Uncontrolled for performance
-                            onInput={(e) => {
-                                const val = parseInt(e.target.value);
-                                timeProgressRef.current = val; // Update Ref (No Re-render)
+                        {/* TIME TRAVEL SLIDER (User Request) */}
+                        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-1/3 z-50 flex flex-col items-center gap-2">
+                            <div className="flex justify-between w-full text-xs font-mono text-cyan-400 uppercase tracking-widest">
+                                <span>Genesis</span>
+                                {/* Use span with ID for direct DOM update to avoid re-renders */}
+                                <span id="time-travel-label">Time Distortion: {timeProgress}%</span>
+                                <span>Now</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                defaultValue={100} // Uncontrolled for performance
+                                onInput={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    timeProgressRef.current = val; // Update Ref (No Re-render)
 
-                                // Direct DOM update for label
-                                const label = document.getElementById('time-travel-label');
-                                if (label) label.innerText = `Time Distortion: ${val}%`;
+                                    // Direct DOM update for label
+                                    const label = document.getElementById('time-travel-label');
+                                    if (label) label.innerText = `Time Distortion: ${val}%`;
 
-                                // Update Visibility Immediately (Direct Node Manipulation)
-                                if (nodesRef.current) {
-                                    nodesRef.current.forEach((n, i) => {
-                                        if (n.mesh) {
-                                            // Deterministic "Birth Time" based on Index/ID hash
-                                            const seed = (n.id.charCodeAt(0) + n.id.length * 5) % 100;
+                                    // Update Visibility Immediately (Direct Node Manipulation)
+                                    if (nodesRef.current) {
+                                        nodesRef.current.forEach((n, i) => {
+                                            if (n.mesh) {
+                                                // Deterministic "Birth Time" based on Index/ID hash
+                                                const seed = (n.id.charCodeAt(0) + n.id.length * 5) % 100;
 
-                                            // Visible if seed <= time
-                                            const isVisible = seed <= val;
-                                            n.mesh.visible = isVisible;
+                                                // Visible if seed <= time
+                                                const isVisible = seed <= val;
+                                                n.mesh.visible = isVisible;
 
-                                            // Ghosting/New Data Effect
-                                            if (isVisible) {
-                                                // If just born (within 10%), make it bright white
-                                                if (seed > val - 10) {
-                                                    // Flash Base
-                                                    if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(0xffffff);
-                                                    else n.mesh.material.color.setHex(0xffffff);
+                                                // Ghosting/New Data Effect
+                                                if (isVisible) {
+                                                    // If just born (within 10%), make it bright white
+                                                    if (seed > val - 10) {
+                                                        // Flash Base
+                                                        if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(0xffffff);
+                                                        else n.mesh.material.color.setHex(0xffffff);
 
-                                                    // Flash Shell (if exists)
-                                                    if (n.mesh.children[0] && n.mesh.children[0].material) {
-                                                        if (n.mesh.children[0].material.emissive) n.mesh.children[0].material.emissive.setHex(0xffffff);
-                                                    }
-                                                } else {
-                                                    // RESTORE ORIGINAL STATE
-                                                    // 1. Reset Color
-                                                    if (n.mesh.userData.originalColor) {
-                                                        n.mesh.material.color.setHex(n.mesh.userData.originalColor);
-                                                    }
-                                                    // 2. Reset Emissive (if applicable)
-                                                    if (n.mesh.userData.originalColor) {
-                                                        if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(n.mesh.userData.originalColor);
-                                                        // Ensure Shell matches
-                                                        if (n.mesh.children[0] && n.mesh.children[0].material && n.mesh.children[0].material.emissive) {
-                                                            n.mesh.children[0].material.emissive.setHex(n.mesh.userData.originalColor);
+                                                        // Flash Shell (if exists)
+                                                        if (n.mesh.children[0] && n.mesh.children[0].material) {
+                                                            if (n.mesh.children[0].material.emissive) n.mesh.children[0].material.emissive.setHex(0xffffff);
                                                         }
-                                                    }
+                                                    } else {
+                                                        // RESTORE ORIGINAL STATE
+                                                        // 1. Reset Color
+                                                        if (n.mesh.userData.originalColor) {
+                                                            n.mesh.material.color.setHex(n.mesh.userData.originalColor);
+                                                        }
+                                                        // 2. Reset Emissive (if applicable)
+                                                        if (n.mesh.userData.originalColor) {
+                                                            if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(n.mesh.userData.originalColor);
+                                                            // Ensure Shell matches
+                                                            if (n.mesh.children[0] && n.mesh.children[0].material && n.mesh.children[0].material.emissive) {
+                                                                n.mesh.children[0].material.emissive.setHex(n.mesh.userData.originalColor);
+                                                            }
+                                                        }
 
-                                                    const targetIntensity = layoutMode === 'latent' ? 2.0 : 1.5;
-                                                    if (n.mesh.material.emissive) n.mesh.material.emissiveIntensity = targetIntensity;
-                                                    if (n.mesh.children[0] && n.mesh.children[0].material) n.mesh.children[0].material.emissiveIntensity = targetIntensity;
+                                                        const targetIntensity = layoutMode === 'latent' ? 2.0 : 1.5;
+                                                        if (n.mesh.material.emissive) n.mesh.material.emissiveIntensity = targetIntensity;
+                                                        if (n.mesh.children[0] && n.mesh.children[0].material) n.mesh.children[0].material.emissiveIntensity = targetIntensity;
+                                                    }
                                                 }
                                             }
-                                        }
-                                    });
-                                }
-                            }}
-                            onMouseUp={(e) => {
-                                // Sync React state only when drag ends
-                                setTimeProgress(parseInt(e.target.value));
-                            }}
-                            className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all"
-                        />
-                    </div>
-                </>
-            )}
-        </div>
+                                        });
+                                    }
+                                }}
+                                onMouseUp={(e) => {
+                                    // Sync React state only when drag ends
+                                    setTimeProgress(parseInt(e.target.value));
+                                }}
+                                className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all"
+                            />
+                        </div>
+                    </>
+                )
+            }
+        </div >
     );
 });
 

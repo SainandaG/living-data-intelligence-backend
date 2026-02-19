@@ -268,6 +268,10 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
     const [aiInsight, setAiInsight] = useState(null);
     const [isInsightLoading, setIsInsightLoading] = useState(false);
 
+    // GNN / Neural Gravity State
+    const [neuralMetrics, setNeuralMetrics] = useState(null);
+    const [isNeuralLoading, setIsNeuralLoading] = useState(false);
+
     // Agent State for Visualization
     const [agentState, setAgentState] = useState({ t0_state: 'idle', t1_state: 'idle' });
     const [simulateAgents, setSimulateAgents] = useState(false); // Demo toggle
@@ -277,6 +281,11 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
             if (!connectionId) return;
             try {
                 const res = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
+                if (res.status === 404) {
+                    setMetrics(null);
+                    setProofs({});
+                    return;
+                }
                 const data = await res.json();
                 if (data.metrics) {
                     setMetrics(data.metrics);
@@ -331,6 +340,10 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
         try {
             soundSystem.play('scanPulse');
             const res = await fetch(`/api/evolution/analysis/insight/${connectionId}/${tableName}`);
+            if (res.status === 404) {
+                setAiInsight("Evolution service not available.");
+                return;
+            }
             const data = await res.json();
             if (data.insight) {
                 setAiInsight(data.insight);
@@ -340,6 +353,29 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
             setAiInsight("Neural Link Interrupted. Retry connection.");
         } finally {
             setIsInsightLoading(false);
+        }
+    };
+
+    const handleNeuralAnalysis = async () => {
+        if (!tableName) return;
+        setIsNeuralLoading(true);
+        try {
+            soundSystem.play('scanPulse');
+            const res = await fetch('/api/ml/gnn/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ node_id: tableName, node_type: 'table' })
+            });
+
+            if (!res.ok) throw new Error("GNN Offline");
+
+            const data = await res.json();
+            setNeuralMetrics(data);
+            soundSystem.play('formationAmbient'); // Confirmation sound
+        } catch (e) {
+            console.error("GNN Analysis failed", e);
+        } finally {
+            setIsNeuralLoading(false);
         }
     };
 
@@ -663,11 +699,38 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
                                         )}
                                     </div>
 
-                                    <div className="col-span-2 mt-2 pt-4 border-t border-white/10 flex items-center justify-between">
-                                        <div className="text-[10px] text-slate-400 font-mono">
-                                            RELATIONAL DENS: {(metrics.row_count / (metrics.gravity || 1)).toFixed(2)} ops/unit
+                                    <div className="col-span-2 mt-2 pt-4 border-t border-white/10">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="text-[10px] text-slate-400 font-mono">
+                                                RELATIONAL DENS: {(metrics.row_count / (metrics.gravity || 1)).toFixed(2)} ops/unit
+                                            </div>
+
+                                            {/* GNN Trigger / Display */}
+                                            {neuralMetrics ? (
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-[var(--primary-cyan)] font-mono uppercase">
+                                                        Neural Gravity: {neuralMetrics.importance.toFixed(2)}
+                                                    </span>
+                                                    <div className="w-16 h-1 bg-white/10 rounded overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-[var(--primary-cyan)]"
+                                                            style={{ width: `${Math.min(100, neuralMetrics.importance * 10)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={handleNeuralAnalysis}
+                                                    disabled={isNeuralLoading}
+                                                    className="px-2 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-[9px] font-mono border border-indigo-500/30 rounded flex items-center gap-1 transition-colors"
+                                                >
+                                                    {isNeuralLoading ? "SCANNING..." : "RUN GNN ANALYSIS"}
+                                                    {!isNeuralLoading && <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />}
+                                                </button>
+                                            )}
                                         </div>
-                                        <div className="h-1 bg-white/5 w-1/2 rounded-full overflow-hidden">
+
+                                        <div className="h-1 bg-white/5 w-full rounded-full overflow-hidden">
                                             <motion.div
                                                 initial={{ width: 0 }}
                                                 animate={{ width: "100%" }}

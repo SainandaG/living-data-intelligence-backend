@@ -60,6 +60,10 @@ export default function ChatInterface({ connectionId, isOpen, onClose }) {
                 }),
             });
 
+            if (response.status === 404) {
+                setMessages(prev => [...prev, { role: 'assistant', content: "Chat service is not available. The backend chat module may not be loaded." }]);
+                return;
+            }
             if (!response.ok) throw new Error('Failed to get response');
 
             const data = await response.json();

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Intelligence Engine: The Projection Layer
 Projects the immutable state chain into human-readable insights and narratives.
 """

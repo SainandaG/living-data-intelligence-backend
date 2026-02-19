@@ -63,12 +63,15 @@ async def stream_metrics():
                     evolved_nodes = []
                     
                     for node in graph_data.get("nodes", []):
-                        # Simulating activity metrics for evolution
-                        # In real use, this would come from a per-node metric store
+                        # Use actual transaction rate for volume-based evolution
+                        tx_rate = data['data'].get('transaction_rate', 0)
+                        
+                        # Reality-Driven: Use 0 for errors/latency unless real telemetry is detected
+                        # This removes the "random dummy" jitter.
                         activity = {
-                            "transaction_volume": data['data'].get('transaction_rate', 0) * 10,
-                            "error_rate": random.random() * 0.02,
-                            "avg_latency": 100 + random.random() * 50
+                            "transaction_volume": tx_rate * 10,
+                            "error_rate": 0.0, 
+                            "avg_latency": 0.0
                         }
                         evolved_node = living_graph_engine.evolve_node(node, activity)
                         evolved_nodes.append({

@@ -44,12 +44,30 @@ class LivingGraphEngine:
         state['current_size'] += (target_size - state['current_size']) * 0.1
         set_val(node, 'size', state['current_size'])
         
-        # 2. Health Monitoring
+        # 2. Health Monitoring & Vitality Alignment
         error_rate = activity_metrics.get('error_rate', 0)
         latency = activity_metrics.get('avg_latency', 0)
         
         health_score = self._calculate_health(error_rate, latency)
         state['health'] = health_score
+        
+        # Pull centralized vitality for synchronization (Specification 1.0)
+        from app.services.graph_intelligence import graph_intelligence
+        from app.services.neural_core import neural_core
+        
+        # Get topology context for high-fidelity vitality
+        connection_id = activity_metrics.get('connection_id')
+        in_deg = neural_core.in_degrees.get(connection_id, {}).get(get(node, 'name', node_id), 0)
+        out_deg = neural_core.out_degrees.get(connection_id, {}).get(get(node, 'name', node_id), 0)
+        
+        auth = graph_intelligence.get_authenticated_metrics(
+            get(node, 'name', node_id),
+            get(node, 'row_count', 0),
+            in_deg,
+            out_deg
+        )
+        vitality = auth['vitality']
+        set_val(node, 'vitality', vitality)
         
         self._apply_health_visuals(node, health_score)
         

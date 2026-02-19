@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 import { BarChart3, Clock, TrendingUp, Calendar, Zap } from 'lucide-react';
 import {
     ResponsiveContainer,
@@ -17,14 +17,16 @@ import {
 export default function PatternDashboard({ connectionId, tableName }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Use the passed tableName prop (e.g. from 3D graph selection)
-                const res = await axios.get(`/api/intelligence/patterns/${connectionId}/${tableName || 'users'}`);
-                setData(res.data);
+                setServiceUnavailable(false);
+                const res = await apiClient.get(`/intelligence/patterns/${connectionId}/${tableName || 'users'}`);
+                setData(res);
             } catch (err) {
+                if (err.response?.status === 404) setServiceUnavailable(true);
                 console.error("Failed to fetch pattern data:", err);
             } finally {
                 setLoading(false);
@@ -34,6 +36,15 @@ export default function PatternDashboard({ connectionId, tableName }) {
         fetchData();
     }, [connectionId, tableName]);
 
+    if (serviceUnavailable) {
+        return (
+            <div className="p-8 flex items-center justify-center h-full">
+                <div className="text-center p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm max-w-md">
+                    Intelligence service not available. The backend intelligence module may not be loaded.
+                </div>
+            </div>
+        );
+    }
     if (loading) return (
         <div className="p-8 flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">

@@ -2,45 +2,45 @@
  * Evolution Service API Client
  * Handles communication with the Temporal Genesis endpoints.
  */
-import axios from 'axios';
+import apiClient from '../utils/apiClient';
 
-const API_URL = 'http://localhost:8001/api/evolution';
+const API_URL = '/evolution';
 
 const evolutionService = {
     /**
      * Analyze the database evolution for a connection
      */
     async analyzeEvolution(connectionId) {
-        const response = await axios.get(`${API_URL}/analyze/${connectionId}`);
-        return response.data;
+        const response = await apiClient.get(`${API_URL}/analyze/${connectionId}`);
+        return response;
     },
 
     /**
      * Get the full timeline for a connection
      */
     async getTimeline(connectionId) {
-        const response = await axios.get(`${API_URL}/timeline/${connectionId}`);
-        return response.data;
+        const response = await apiClient.get(`${API_URL}/timeline/${connectionId}`);
+        return response;
     },
 
     /**
      * Get a state snapshot for a specific timestamp
      */
     async getSnapshot(connectionId, timestamp) {
-        const response = await axios.get(`${API_URL}/snapshot/${connectionId}`, {
+        const response = await apiClient.get(`${API_URL}/snapshot/${connectionId}`, {
             params: { timestamp }
         });
-        return response.data;
+        return response;
     },
 
     /**
      * Get pre-generated keyframes for smooth playback
      */
     async getPlaybackKeyframes(connectionId, steps = 50) {
-        const response = await axios.get(`${API_URL}/playback/${connectionId}`, {
+        const response = await apiClient.get(`${API_URL}/playback/${connectionId}`, {
             params: { steps }
         });
-        return response.data;
+        return response;
     }
 };
 

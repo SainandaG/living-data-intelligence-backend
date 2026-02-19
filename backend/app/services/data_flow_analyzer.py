@@ -26,18 +26,28 @@ class DataFlowAnalyzer:
         
         # Get schema for context
         from app.services.schema_analyzer import schema_analyzer
-        schema = await schema_analyzer.analyze_schema(connection_id)
-        schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
+        try:
+            schema = await schema_analyzer.analyze_schema(connection_id)
+            schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
+        except ValueError as e:
+            print(f"⚠️ Connection error in data flow: {e}")
+            return {'nodes': [], 'edges': [], 'relationships': [], 'error': str(e)}
+        except Exception as e:
+            print(f"⚠️ Schema analysis error: {e}")
+            return {'nodes': [], 'edges': [], 'relationships': [], 'error': "Failed to analyze schema"}
         
-        # Find the target table
+        # Find the target table (Case-insensitive)
         target_table = None
         for table in schema_dict.get('tables', []):
-            if table['name'] == table_name:
+            if table['name'].lower() == table_name.lower():
                 target_table = table
+                # Use the actual casing from DB
+                table_name = table['name']
                 break
         
         if not target_table:
-            return {'nodes': [], 'edges': [], 'relationships': []}
+            print(f"⚠️ Table not found in schema: {table_name}")
+            return {'nodes': [], 'edges': [], 'relationships': [], 'error': f"Table '{table_name}' not found"}
         
         # Build flow graph
         flow_graph = {

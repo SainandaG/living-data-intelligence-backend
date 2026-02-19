@@ -5,8 +5,11 @@ Provides REST API for T0/T1 voice agent system.
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
+import logging
 
-from app.services.t0_agent_v2 import get_t0_agent
+logger = logging.getLogger(__name__)
+
+from app.services.t0_agent import get_t0_agent
 from app.services.t1_agent import get_t1_agent
 from app.services.agent_state_manager import get_agent_state_manager
 from app.services.command_registry import get_command_registry
@@ -128,7 +131,7 @@ async def get_agent_state():
         return StateResponse(**state)
         
     except Exception as e:
-        print(f"❌ [AGENT API] Error fetching state: {e}")
+        logger.error(f"Error fetching state: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch agent state: {str(e)}")
@@ -150,7 +153,7 @@ async def get_command_logs(limit: int = 10):
         )
         
     except Exception as e:
-        print(f"❌ [AGENT API] Error fetching logs: {e}")
+        logger.error(f"Error fetching logs: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to fetch command logs: {str(e)}")

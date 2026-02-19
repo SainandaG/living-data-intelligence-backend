@@ -130,7 +130,38 @@ This is acceptable for a "Generic" database tool where we don't know the domain,
 | **ML Layer** | ⚠️ Partial | `graph_neural_core.py` has disconnected methods (`predict_links`, `predict_importance`). |
 | **Assets** | ✅ Verified | No missing CSS/JS imports found in `index.html` or `App.jsx`. |
 
-## 4. Final Recommendation
+## 4. API Wiring Reference
+
+Which frontend features depend on which backend routes, and which routers are optional (if the module fails to load, the app still starts but those routes return 404).
+
+| Frontend feature / file | Backend route | Router | Required? |
+|-------------------------|---------------|--------|-----------|
+| ConnectionModal | POST /api/connect | database | Yes |
+| SchemaView, DataFlowView | GET /api/schema/{id} | schema | Yes |
+| ThreeGraph, App graph load | GET /api/graph/{id} | graph | Yes |
+| ThreeGraph | GET /api/graph/cluster-metadata/{id} | graph | Yes |
+| DrillDownView | GET /api/drilldown/.../table/..., /api/data-flow/... | drilldown, data_flow | Yes / Optional |
+| Record3DGraph | GET /api/drilldown/clustered-records/... | drilldown | Yes |
+| RecordForceGraph | GET /api/data/sample/... | data_explorer | Optional |
+| SemanticDiscoveryPanel | GET /api/drilldown/.../semantic-discovery/... | drilldown | Yes |
+| LatentWorld | GET /api/internal-node/clusters/..., /api/drilldown/.../column-intelligence/... | internal_node, drilldown | Yes |
+| Intelligence Hub (all tabs) | GET /api/intelligence/health, health/history, deep-status, patterns, anomalies, predictions, root-cause, recommendations, latent/projection, latent/similar/{id} | intelligence | Optional |
+| BlueprintOverlay, IntelligencePanel, NodeFormationSimulation | GET /api/evolution/analysis/table/..., insight/... | evolution | Optional |
+| IntelligencePanel | GET /api/explainability/justification/... | explainability | Optional |
+| HealthDashboard (Dashboard) | GET /api/vitals/ | vitals | Optional |
+| ChatInterface | POST /api/chat | chat | Optional |
+| AnalystChat | POST /api/ai/chat | ai | Yes |
+| App (gravity, optimize) | GET /api/ai/gravity-suggestions/..., POST /api/ai/optimize | ai | Yes |
+| TimelinePlayer | GET /api/evolution/analyze, timeline, snapshot, playback | evolution | Optional |
+| VoiceControl / AgentStatusPanel | /api/agent/intent, execute, state, logs, commands, reset | agent | Yes |
+| UIOverlay | POST /api/seed/{id} | database | Yes |
+| useWebSocket | ws://.../ws/{id} | websocket | Yes |
+
+When an optional router is not loaded, the frontend shows a short message (e.g. "Intelligence service not available") instead of a generic error or blank state.
+
+---
+
+## 5. Final Recommendation
 
 The system is production-ready **IF** the ML features are considered "experimental". For the core visualization of database schemas, it is fully wired and functional. The "Neural" features currently rely heavily on heuristics and fallbacks, which is acceptable for a v1.0 but should be upgraded for v2.0.
 

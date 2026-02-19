@@ -38,15 +38,15 @@ class ChatService:
 
         if google_key:
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=google_key)
-                self.google_model = genai.GenerativeModel('models/gemini-2.0-flash-lite')
-                print("✅ ChatService: Google Gemini initialized (backup)")
+                from google import genai
+                self.google_client = genai.Client(api_key=google_key)
+                self.google_model_id = 'gemini-2.0-flash-lite'
+                print(f"✅ ChatService: Google Gemini initialized (backup: {self.google_model_id})")
                 if not self.provider: self.provider = "google"
             except Exception as e:
                 print(f"⚠️ Failed to initialize Google Gemini: {e}")
         
-        if not self.groq_client and not self.google_model:
+        if not self.groq_client and not getattr(self, 'google_client', None):
             print("⚠️ ChatService: No working API clients found")
             self.has_ai = False
         else:
@@ -317,26 +317,27 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
 
     async def _call_google(self, system_prompt: str, user_message: str, history: list) -> dict:
         import asyncio
-        import google.generativeai as genai
         
-        formatted_history = []
+        # Format history for new SDK
+        contents = []
         for msg in history:
             role = "user" if msg['role'] == 'user' else "model"
-            formatted_history.append({"role": role, "parts": [msg['content']]})
+            contents.append({"role": role, "parts": [{"text": msg['content']}]})
         
-        try:
-            chat = self.google_model.start_chat(history=formatted_history)
-        except:
-            chat = self.google_model.start_chat(history=[])
-        
+        # Add current message (System prompt as prefix for simplicity in this SDK version)
         full_message = f"{system_prompt}\n\nUser Question: {user_message}"
+        contents.append({"role": "user", "parts": [{"text": full_message}]})
         
         # Persistent Retry logic for Google API rate limits
-        max_retries = 2  # Reduce to 2 retries to fail faster
+        max_retries = 2
         
         for attempt in range(max_retries):
             try:
-                response = await asyncio.to_thread(chat.send_message, full_message)
+                response = await asyncio.to_thread(
+                    self.google_client.models.generate_content,
+                    model=self.google_model_id,
+                    contents=contents
+                )
                 return {
                     "response": response.text,
                     "related_nodes": []
@@ -344,21 +345,19 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
             except Exception as e:
                 error_str = str(e).lower()
                 if "429" in error_str or "quota" in error_str:
-                    
-                     # Try to find specific wait time in error message
-                    wait_time = 10 # Reduced default
+                    wait_time = 10
                     import re
                     match = re.search(r'retry in (\d+\.?\d*)', error_str)
                     if match:
                         suggested_wait = float(match.group(1))
-                        wait_time = min(suggested_wait + 2, 15) # Cap at 15 seconds
+                        wait_time = min(suggested_wait + 2, 15)
                     
                     if attempt < max_retries - 1:
                         print(f"⏳ Google Quota Hit. Waiting {wait_time:.1f}s before retry {attempt+1}/{max_retries}...")
                         await asyncio.sleep(wait_time)
                         continue
                         
-                raise e # Re-raise if not rate limit or out of retries
+                raise e
 
     def _build_system_prompt(self, schema: any) -> str:
         # Format schema for the prompt

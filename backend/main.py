@@ -14,6 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware  # [NEW] Compression
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
@@ -25,7 +26,8 @@ if current_dir not in sys.path:
     sys.path.append(current_dir)
 
 # Load environment variables BEFORE importing services
-load_dotenv()
+# Force override ensures local .env takes precedence over system env vars
+load_dotenv(override=True)
 
 import logging
 from datetime import datetime
@@ -45,10 +47,45 @@ async def lifespan(app: FastAPI):
     from app.api.websocket import start_streaming_task
     await start_streaming_task()
     
+    # ENABLED: Data Simulator for local testing and observation (MOVED UP)
+    try:
+        from app.services.data_simulator import data_simulator
+        # Using a safer, shorter implementation if needed, but the original is fine for observation
+        # It runs in background loop
+        asyncio.create_task(data_simulator.start_simulation())
+    except Exception as e:
+        print(f"⚠️ Failed to start Data Simulator: {e}")
+
     # Start Agentic AI Autonomous Loop
     from app.services.agent_service import agent_service
     await agent_service.start_autonomous_loop()
     
+    # Auto-Connect to Primary Database for Background Services
+    try:
+        from app.services.db_connector import db_connector
+        
+        # Check if already connected? No, easy to just try connecting.
+        db_config = {
+            "db_type": "postgres", # Force postgres/neon
+            "host": os.getenv("DB_HOST"),
+            "port": os.getenv("DB_PORT"),
+            "username": os.getenv("DB_USER"),
+            "password": os.getenv("DB_PASSWORD"),
+            "database": os.getenv("DB_NAME")
+        }
+        
+        # Only connect if credentials exist
+        if db_config["host"] and db_config["username"]:
+            print(f"🔌 Auto-connecting to database: {db_config['database']}...")
+            await db_connector.connect(db_config)
+            print("✅ Auto-connection successful.")
+        else:
+            print("⚠️ DB Credentials missing in .env, skipping auto-connect.")
+
+    except Exception as e:
+        print(f"⚠️ Auto-connect failed: {e}")
+
+
     yield
     # Shutdown
     print("👋 Shutting down...")
@@ -91,6 +128,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# [NEW] Enable GZip Compression for performance
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 class RouterRegistry:
     """
@@ -169,6 +209,7 @@ registry.register_optional("app.api.events")
 registry.register_optional("app.api.explainability")
 registry.register_optional("app.api.vitals")
 registry.register_optional("app.api.intelligence", prefix="/api/intelligence", tags=["intelligence"])
+registry.register_optional("app.api.ontology", prefix="/api/ontology", tags=["ontology"])
 
 # ============================================================================
 # HEALTH CHECK ENDPOINT

@@ -6,10 +6,16 @@ export default function HealthDashboard() {
     const [vitals, setVitals] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
+
     useEffect(() => {
         const fetchVitals = async () => {
             try {
                 const response = await fetch('/api/vitals/');
+                if (response.status === 404) {
+                    setServiceUnavailable(true);
+                    return;
+                }
                 if (response.ok) {
                     const data = await response.json();
                     setVitals(data);
@@ -26,8 +32,15 @@ export default function HealthDashboard() {
         return () => clearInterval(interval);
     }, []);
 
-    if (loading && !vitals) {
+    if (loading && !vitals && !serviceUnavailable) {
         return <div className="p-4 text-white font-mono text-xs animate-pulse text-center">Syncing with Neural Core...</div>;
+    }
+    if (serviceUnavailable) {
+        return (
+            <div className="p-6 text-amber-200 text-sm border border-amber-500/20 rounded-2xl bg-amber-500/10">
+                Vitals service not available. The backend vitals module may not be loaded.
+            </div>
+        );
     }
 
     const { vitals: sys, agents, status } = vitals || {};

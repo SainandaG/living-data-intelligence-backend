@@ -23,8 +23,12 @@ async def get_graph(connection_id: str):
         from app.services.neural_core import neural_core
         from app.services.realtime_monitor import realtime_monitor
         
-        # 1. Feed the Schema for Active Scanning
-        neural_core.update_schema_context({'tables': graph.get('nodes', [])}, connection_id=connection_id)
+        # 1. Feed the Schema for Active Scanning (Include Edges for Topology)
+        neural_core.update_schema_context(
+            {'tables': graph.get('nodes', [])}, 
+            connection_id=connection_id,
+            edges=graph.get('edges', [])
+        )
         
         # REMOVED: Synchronous init ticks that block graph generation.
         # The core will evolve naturally via background signals.
@@ -91,24 +95,7 @@ async def get_graph(connection_id: str):
                 
                 n_term = math.log10(max(1, int(node.get('row_count', 0) or 0) + 1))
                 
-                # Improved vitality calculation for Security Lens
-                # Creates realistic health distribution based on table size
-                row_count = int(node.get('row_count', 0) or 0)
-                if row_count == 0:
-                    vitality = 25  # Empty tables are unhealthy
-                elif row_count < 100:
-                    vitality = 30 + (row_count / 100) * 25  # 30-55 range
-                elif row_count < 1000:
-                    vitality = 55 + (math.log10(row_count) - 2) * 15  # 55-70 range
-                elif row_count < 10000:
-                    vitality = 70 + (math.log10(row_count) - 3) * 10  # 70-80 range
-                else:
-                    vitality = 80 + min(20, (math.log10(row_count) - 4) * 5)  # 80-100 range
-                
-                node['vitality'] = int(min(100, vitality))
-                
-                # Debug: Log ALL vitality values to diagnose uniformity
-                print(f"🔍 {node.get('name', 'Unknown'):20s} | rows={row_count:6d} | vitality={int(vitality):3d}")
+                # Legacy vitality calculation removed - now using unified service below
                 
                 # Use Neural Core for structural importance, but enrich with GNN
                 node['importance_score'] = node.get('centrality', 1.0)
@@ -127,9 +114,36 @@ async def get_graph(connection_id: str):
                             from backend.ml.graph_neural_core import graph_neural_core
                     
                     # Pass the enriched node data to get GNN-backed importance
-                    node['importance_score'] = graph_neural_core.calculate_importance(node)
+                    node['importance_score'] = graph_neural_core.predict_importance(node.get('id'), node.get('type', 'table'), node)
                 except Exception as gnn_e:
                     print(f"⚠️ GNN Inference skipped for {node.get('name')}: {gnn_e}")
+
+                # --- UNIFIED MASTER SYNC (Specification 1.0) ---
+                from app.services.graph_intelligence import graph_intelligence
+                from app.services.neural_core import neural_core
+                
+                # Pre-calculate total connections for Entropy synchronization
+                total_connections = sum(neural_core.in_degrees.get(connection_id, {}).values()) + \
+                                    sum(neural_core.out_degrees.get(connection_id, {}).values())
+                
+                # Fetch local degrees from neural core for high-fidelity math
+                t_name = node.get('name', '')
+                in_deg = neural_core.in_degrees.get(connection_id, {}).get(t_name, 0)
+                out_deg = neural_core.out_degrees.get(connection_id, {}).get(t_name, 0)
+                
+                auth_metrics = graph_intelligence.get_authenticated_metrics(
+                    t_name,
+                    node.get('row_count', 0),
+                    in_deg,
+                    out_deg,
+                    total_system_connections=total_connections
+                )
+                
+                # Apply authenticated values to the node
+                node['vitality'] = auth_metrics['vitality']
+                node['gravity_pull'] = auth_metrics['pull_factor']
+                node['importance_score'] = auth_metrics['gravity'] # Use authenticated gravity for GNN-level importance
+                node['entropy'] = auth_metrics['entropy']
 
                 # --- Autonomous Latent Space Mapping ---
                 latent_coords = latent_space_service.calculate_latent_coordinates(
@@ -141,10 +155,18 @@ async def get_graph(connection_id: str):
                 node['latent_color'] = latent_space_service._get_semantic_color(node)
 
             except Exception as inner_e:
-                print(f"⚠️ Error processing node {node.get('name', '?')}: {inner_e}")
-                # Fallback to defaults
+                t_name = node.get('name', 'Unknown')
+                print(f"⚠️ Authenticated Enrichment Failed for {t_name}: {inner_e}")
+                
+                # EMERGENCY REDIRECT: Use Authenticated Engine even in fallback
+                from app.services.graph_intelligence import graph_intelligence
+                auth = graph_intelligence.get_authenticated_metrics(t_name, 0, 0, 0)
+                
                 node.update({
-                    'vitality': 20, 'importance_score': 1.0, 'node_glow': 1.0,
+                    'vitality': auth['vitality'], 
+                    'gravity_pull': auth['pull_factor'],
+                    'importance_score': auth['gravity'], 
+                    'node_glow': 1.0,
                     'latent_x': (hash(node.get('id', 'default')) % 10000) - 5000,
                     'latent_y': 100, 'latent_z': 0
                 })
@@ -210,9 +232,9 @@ async def get_graph(connection_id: str):
         # Re-raise error to show real status
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/metrics/{connection_id}")
+@router.get("/graph/neural-metrics/{connection_id}")
 async def get_neural_metrics(connection_id: str):
-    """Get real-time metrics from the neural core"""
+    """Get neural core metrics only (distinct from /api/metrics which returns realtime_monitor data)."""
     try:
         from app.services.neural_core import neural_core
         metrics = await neural_core.get_core_metrics(connection_id)

@@ -5,9 +5,12 @@ This service provides real data clustering for the LatentWorld visualization,
 replacing mock data with actual analysis of table records.
 """
 import math
+import logging
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 
 class InternalNodeAnalyzer:
@@ -92,7 +95,7 @@ class InternalNodeAnalyzer:
             return result
             
         except Exception as e:
-            print(f"❌ Error analyzing table clusters for {table_name}: {e}")
+            logger.error(f"Error analyzing table clusters for {table_name}: {e}")
             import traceback
             traceback.print_exc()
             return self._create_fallback_clusters(table_name, str(e))
@@ -351,8 +354,8 @@ class InternalNodeAnalyzer:
         return clusters
     
     def _create_fallback_clusters(self, table_name: str, error_msg: str) -> Dict[str, Any]:
-        """Create fallback mock clusters when real analysis fails"""
-        print(f"⚠️ Using fallback clusters for {table_name}: {error_msg}")
+        """Create error-state response when real analysis fails"""
+        logger.warning(f"Using fallback clusters for {table_name}: {error_msg}")
         
         return {
             "table_name": table_name,

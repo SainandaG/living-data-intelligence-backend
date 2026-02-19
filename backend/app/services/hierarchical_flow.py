@@ -159,7 +159,7 @@ class HierarchicalFlowService:
                     'to': related[i % len(related)] if related else table_name,
                     'timestamp': timestamp, # Sync visual to requested time
                     'type': 'normal',
-                    'amount': 1.0 # Placeholder for value if not found
+                    'amount': self._extract_amount(rec)
                 })
 
             return {
@@ -172,5 +172,13 @@ class HierarchicalFlowService:
         except Exception as e:
             return {'error': str(e)}
 
+    def _extract_amount(self, record: Dict[str, Any]) -> float:
+        """Extract the first numeric value from a record as the particle amount."""
+        for key, val in record.items():
+            if isinstance(val, (int, float)) and key.lower() != 'id':
+                return float(val)
+        return 0
+
 # Global instance
 hierarchical_flow_service = HierarchicalFlowService()
+

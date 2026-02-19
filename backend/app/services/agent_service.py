@@ -20,8 +20,11 @@ class AgentService:
     async def start_autonomous_loop(self):
         """Start the background exploration agent"""
         self.is_running = True
-        self._tasks.append(asyncio.create_task(self._exploration_worker()))
-        print("🕵️ Agentic AI: Autonomous Explorer started.")
+        try:
+            self._tasks.append(asyncio.create_task(self._exploration_worker()))
+            print("🕵️ Agentic AI: Autonomous Explorer started.")
+        except Exception as e:
+            print(f"❌ CRITICAL: Failed to start Agentic AI loop: {e}")
 
     async def stop(self):
         self.is_running = False
@@ -33,6 +36,7 @@ class AgentService:
         """Main loop for the autonomous agent - Uses real schema data"""
         from app.services.neural_core import neural_core
         from app.services.schema_analyzer import schema_analyzer
+        from app.services.graph_intelligence import graph_intelligence
 
         while self.is_running:
             try:
@@ -57,16 +61,16 @@ class AgentService:
                 analysis_time = 2.0 + (math.log10(max(1, row_count)) * 0.5)
                 await asyncio.sleep(min(analysis_time, 10))
 
-                # 3. Generate Insight Signal
+                # 3. Generate Insight Signal using authenticated metrics
                 # Feed findings into Neural Core
-                # Intensity is high if the table has row data or relationships
-                intensity = 0.5 + (min(row_count, 100000) / 200000.0)
-                if target_table.foreign_keys:
-                    intensity += 0.2
+                in_deg = neural_core.in_degrees.get(conn_id, {}).get(t_name, 0)
+                out_deg = neural_core.out_degrees.get(conn_id, {}).get(t_name, 0)
                 
-                intensity = min(1.0, intensity)
+                auth = graph_intelligence.get_authenticated_metrics(t_name, target_table.row_count, in_deg, out_deg)
+                vitality = auth['vitality']
                 
-                await neural_core.process_signal(t_name, intensity=intensity, connection_id=conn_id, metadata={
+                # Process signals into Neural Core
+                await neural_core.process_signal(t_name, intensity=vitality / 100.0, connection_id=conn_id, metadata={
                     "event": "autonomous_exploration",
                     "focus": t_name,
                     "rows_scanned": row_count

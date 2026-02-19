@@ -1,8 +1,12 @@
+# -*- coding: utf-8 -*-
 import asyncio
+import logging
 from app.services.db_connector import db_connector
 from app.services.ai_classifier import ai_classifier
 from app.models.schemas import Schema, Table, Column, ForeignKey, Relationship
 from typing import Dict, List, Any
+
+logger = logging.getLogger(__name__)
 
 class SchemaAnalyzer:
     def __init__(self):
@@ -14,10 +18,15 @@ class SchemaAnalyzer:
 
     async def analyze_schema(self, connection_id: str) -> Schema:
         """Analyze database schema"""
+        # 0. Check Cache First
+        if connection_id in self.analysis_results:
+            # print(f"⚡ Using cached schema for {connection_id}")
+            return self.analysis_results[connection_id]
+
         connection = db_connector.get_connection(connection_id)
         db_type = connection['type']
         
-        print(f"🔍 Analyzing schema for connection: {connection_id}")
+        logger.info(f"Analyzing schema for connection: {connection_id}")
         
         if db_type in ['postgresql', 'postgres', 'neon', 'neon_db', 'mock']:
             schema = await self._analyze_postgresql(connection_id)
@@ -45,19 +54,19 @@ class SchemaAnalyzer:
             schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
             asyncio.create_task(agent_service.analyze_new_connection(schema_dict, connection_id=connection_id))
         except Exception as e:
-            print(f"⚠️ Agent seeding failed: {e}")
+            logger.warning(f"Agent seeding failed: {e}")
             
-        print(f"✅ Fast Schema analysis complete: {len(schema.tables)} tables mapped")
+        logger.info(f"Fast Schema analysis complete: {len(schema.tables)} tables mapped")
         return schema
 
     async def _background_classification(self, schema: Schema):
         """Run deep AI classification in background"""
         try:
-            print("🧠 Background: Starting deep AI classification...")
+            logger.info("Background: Starting deep AI classification...")
             await ai_classifier.classify_tables(schema)
-            print("🧠 Background: AI classification complete.")
+            logger.info("Background: AI classification complete.")
         except Exception as e:
-            print(f"⚠️ Background classification failed: {e}")
+            logger.warning(f"Background classification failed: {e}")
 
     async def _analyze_postgresql(self, connection_id: str) -> Schema:
         """Analyze PostgreSQL schema using bulk queries for performance"""
@@ -108,14 +117,24 @@ class SchemaAnalyzer:
         """
         all_fks = await db_connector.query(connection_id, fk_query)
         
-        # 5. Fast row-count estimates (O(1) lookup vs O(N) scan)
-        count_query = """
-            SELECT relname as table_name, reltuples::bigint as row_count
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND c.relkind = 'r';
-        """
-        all_counts = await db_connector.query(connection_id, count_query)
+        # 5. Exact row-count (O(N) scan) - Requested by User for accuracy
+        logger.info("Fetching EXACT row counts for all tables...")
+        all_counts = []
+        
+        # Optimization: Create list of tasks for asyncio.gather if connector supports it
+        # For now, we'll do sequential to be safe with the shared connection wrapper
+        for row in tables_data:
+            t_name = row['table_name']
+            t_schema = row['table_schema']
+            try:
+                # Quote identifier for safety - Use actual schema from result
+                q = f'SELECT COUNT(*) as c FROM "{t_schema}"."{t_name}"'
+                res = await db_connector.query(connection_id, q)
+                count = res[0]['c'] if res else 0
+                all_counts.append({'table_name': t_name, 'row_count': count})
+            except Exception as e:
+                logger.warning(f"Failed to get exact count for {t_name}: {e}")
+                all_counts.append({'table_name': t_name, 'row_count': 0})
         
         # Group data for easy lookup
         col_map = {}
@@ -203,10 +222,32 @@ class SchemaAnalyzer:
         """
         tables_data = await db_connector.query(connection_id, tables_query, (database,))
 
-        # 1.5 Optional: Refresh EXACT row counts for very small tables only if needed
-        # (Disabled for now to prevent OOM errors on large views/tables)
-        # for t in tables_data:
-        #    ... 
+        # 1.5 Refresh EXACT row counts for tables where estimate is 0
+        final_tables_data = []
+        for t_row in tables_data:
+            t_name = t_row['table_name']
+            r_count = t_row['row_count']
+            
+            if r_count is None or r_count == 0:
+                try:
+                    # Fallback to exact count for empty-looking tables
+                    # Use a short timeout to prevent hanging on massive locked tables
+                    count_q = f"SELECT COUNT(*) as c FROM {t_name}"
+                    # We can't easily set statement timeout in this generic connector, 
+                    # but for small/empty tables this is fast.
+                     # Note: db_connector.query returns a list of dicts
+                    res = await db_connector.query(connection_id, count_q)
+                    if res and 'c' in res[0]:
+                        r_count = res[0]['c']
+                except Exception as e:
+                    logger.warning(f"Failed to get exact count for {t_name}: {e}")
+            
+            # Create a mutable copy or new dict
+            new_row = dict(t_row)
+            new_row['row_count'] = r_count
+            final_tables_data.append(new_row)
+            
+        tables_data = final_tables_data
         
         # 2. Bulk fetch columns
         columns_query = """

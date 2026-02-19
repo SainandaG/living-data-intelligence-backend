@@ -81,6 +81,8 @@ const LeftSidebar = ({ actions, clusters, onClusterClick }) => {
 };
 const RightSidebar = ({ selectedNode, flows, mlInsights, liveStats, activeLens }) => {
     const isEnergyMode = activeLens === 'energy' || liveStats?.activeBatteries > 0;
+    // eslint-disable-next-line react-hooks/purity
+    const latency = React.useMemo(() => Math.floor(15 + Math.random() * 20), []);
 
     return (
         <div className="p-5 flex flex-col gap-5">
@@ -191,7 +193,7 @@ const RightSidebar = ({ selectedNode, flows, mlInsights, liveStats, activeLens }
                                     <span className="text-[var(--text-muted)]">System Latency</span>
                                     <span className="text-[var(--primary-cyan)] font-bold">
                                         {/* Simulate real variance if exact ping not available */}
-                                        {Math.floor(15 + Math.random() * 20)}ms
+                                        {latency}ms
                                     </span>
                                 </div>
                                 <div className="h-1.5 bg-black/30 rounded-full overflow-hidden">
@@ -365,7 +367,5 @@ const DetailRow = ({ label, value, highlight }) => {
     );
 };
 
-export const Sidebars = {
-    Left: LeftSidebar,
-    Right: RightSidebar
-};
+export { LeftSidebar, RightSidebar };
+

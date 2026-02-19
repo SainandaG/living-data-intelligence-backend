@@ -15,7 +15,7 @@ except ImportError:
     GROQ_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -68,9 +68,9 @@ class IntentClassifier:
         api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GOOGLE_KEY')
         if api_key:
             try:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-pro')
-                print("[SUCCESS] Gemini LLM initialized for intent classification")
+                self.gemini_client = genai.Client(api_key=api_key)
+                self.gemini_model_id = 'gemini-1.5-pro' # updated to standard available
+                print("[SUCCESS] Gemini LLM (v2 SDK) initialized for intent classification")
             except Exception as e:
                 print(f"[WARNING] Gemini initialization failed: {e}")
         else:
@@ -216,7 +216,11 @@ class IntentClassifier:
         prompt = self._build_llm_prompt(text, context, ui_context)
         
         try:
-            response = await self.gemini_model.generate_content_async(prompt)
+            response = await asyncio.to_thread(
+                self.gemini_client.models.generate_content,
+                model=self.gemini_model_id,
+                contents=prompt
+            )
             content = response.text.strip()
             
             # Extract JSON

@@ -1,13 +1,20 @@
 """
 T0 Agent - Voice Intent Brain
 Handles voice input, intent classification, and dispatching to T1.
+Consolidated from t0_agent.py + t0_agent_v2.py.
 """
 from typing import Dict, Any, Optional
+from enum import Enum
 import time
+import logging
 
 from app.ai.unified_intent_classifier import get_intent_classifier
 from app.services.agent_state_manager import get_agent_state_manager, T0State
 from app.services.command_registry import get_command_registry
+from app.config.feature_flags import USE_ENHANCED_T0_AGENT
+from app.services.context_manager import ContextManager
+
+logger = logging.getLogger(__name__)
 
 
 class T0Agent:
@@ -29,8 +36,11 @@ class T0Agent:
         self.command_registry = get_command_registry()
         self.context: list[str] = []
         self.max_context = 5
+        # Enhanced V2 features
+        self.context_manager = ContextManager()
+        self._enhanced = USE_ENHANCED_T0_AGENT
         
-        print("[SUCCESS] T0 Agent initialized")
+        logger.info(f"T0 Agent initialized (Enhanced: {self._enhanced})")
     
     async def process_voice_input(self, text: str, ui_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -54,9 +64,21 @@ class T0Agent:
             self.state_manager.update_t0_state(T0State.PROCESSING)
             
             # Classify the intent
-            print(f"🎤 [T0 Agent] Processing: '{text}'")
+            logger.info(f"Processing: '{text}'")
             classification = await self._classify_intent(text, ui_context)
-            print(f"🧠 [T0 Agent] Classification ({classification['method']}): {classification['intent']} with params {classification['parameters']}")
+            logger.info(f"Classification ({classification['method']}): {classification['intent']} with params {classification['parameters']}")
+            
+            # Enhanced V2: Resolve context references before processing
+            if self._enhanced:
+                resolved_context = self.context_manager.resolve_reference(text)
+                if resolved_context:
+                    logger.info(f"Resolved context references: {resolved_context}")
+                    # Patch parameters with resolved context
+                    params = classification.get('parameters', {})
+                    for key, value in resolved_context.items():
+                        if key not in params or not params[key]:
+                            params[key] = value
+                    classification['parameters'] = params
             
             # Inject connection_id from UI context if available
             if ui_context and 'connectionId' in ui_context:
@@ -103,6 +125,16 @@ class T0Agent:
             # Add to classifier history
             self.intent_classifier.add_to_history(text, classification)
             
+            # Enhanced V2: Save to context manager for multi-turn
+            if self._enhanced:
+                self.context_manager.add_turn(
+                    role="user",
+                    content=text,
+                    intent=classification.get('intent'),
+                    entities=classification.get('parameters', {}),
+                    result=result
+                )
+            
             # Update state: PROCESSING → DISPATCHING
             self.state_manager.update_t0_state(T0State.DISPATCHING)
             
@@ -130,7 +162,7 @@ class T0Agent:
             
         except Exception as e:
             import traceback
-            print(f"🔥 [T0 Agent] CRITICAL ERROR: {e}")
+            logger.error(f"T0 Agent CRITICAL ERROR: {e}")
             traceback.print_exc()
             self.state_manager.update_t0_state(T0State.ERROR)
             return {

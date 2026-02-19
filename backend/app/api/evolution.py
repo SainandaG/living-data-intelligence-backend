@@ -1,4 +1,4 @@
-﻿"""
+"""
 Evolution API Endpoints
 Endpoints for temporal database genesis playback.
 """

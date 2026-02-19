@@ -7,9 +7,14 @@ to build relationship graphs and calculate complexity metrics in real-time.
 """
 
 import asyncio
+import logging
 from typing import List, Dict, Any
 import math
 from datetime import datetime, timedelta
+from functools import lru_cache
+import time
+
+logger = logging.getLogger(__name__)
 try:
     from backend.app.services.latent_manager import latent_manager
 except ImportError:
@@ -33,6 +38,7 @@ class NeuralCore:
         self.signal_counts: Dict[str, int] = {}
         self.analyzed_tables: Dict[str, set] = {}
         self.scan_cursors: Dict[str, int] = {}
+        self.last_save_time: Dict[str, float] = {} # timestamp of last snapshot
         
         # Metrics & Status
         self.growth_factor = 1.0 
@@ -41,30 +47,53 @@ class NeuralCore:
         
         # Domain Specialization: WEZU Energy
         self.WEZU_ENERGY_ONTOLOGY = {
-            "batteries": {"gravity_weight": 10.0, "type": "asset"},
-            "stations": {"gravity_weight": 9.0, "type": "infrastructure"},
-            "iot_devices": {"gravity_weight": 8.0, "type": "asset"},
-            "telematics_data": {"gravity_weight": 7.0, "type": "telemetry"},
-            "battery_health_log": {"gravity_weight": 8.0, "type": "telemetry"},
-            "gps_tracking_log": {"gravity_weight": 7.0, "type": "telemetry"},
-            "swap_transactions": {"gravity_weight": 7.0, "type": "transaction"},
-            "rentals": {"gravity_weight": 7.0, "type": "transaction"},
-            "wallet_transactions": {"gravity_weight": 6.0, "type": "financial"},
-            "warehouses": {"gravity_weight": 6.0, "type": "infrastructure"},
-            "kyc_records": {"gravity_weight": 5.0, "type": "user"},
-            "biometric_data": {"gravity_weight": 5.0, "type": "user"},
-            "battery_lifecycle_event": {"gravity_weight": 8.0, "type": "telemetry"},
-            "rental_payments": {"gravity_weight": 6.0, "type": "financial"}
+            "batteries": {"gravity_weight": 10.0, "type": "asset", "justification": "Primary storage unit in WEZU infrastructure; critical for energy distribution and grid stability."},
+            "stations": {"gravity_weight": 9.0, "type": "infrastructure", "justification": "Physical points of interaction for battery swaps; core nodes in the distribution network."},
+            "iot_devices": {"gravity_weight": 8.0, "type": "asset", "justification": "Remote sensors providing granular telemetry; critical for real-time monitoring and predictive maintenance."},
+            "telematics_data": {"gravity_weight": 7.0, "type": "telemetry", "justification": "High-velocity stream of operational metrics; forms the basis for anomaly detection systems."},
+            "battery_health_log": {"gravity_weight": 8.0, "type": "telemetry", "justification": "Historical ledger of SOH (State of Health) metrics; essential for long-term asset lifecycle analysis."},
+            "gps_tracking_log": {"gravity_weight": 7.0, "type": "telemetry", "justification": "Spatial movement data for mobile assets; enables geographical pattern analysis and optimization."},
+            "swap_transactions": {"gravity_weight": 7.0, "type": "transaction", "justification": "Event-based ledger of physical asset exchanges; core business metric for network utilization."},
+            "rentals": {"gravity_weight": 7.0, "type": "transaction", "justification": "Consumer-facing lease agreements; primary revenue-generating events in the ecosystem."},
+            "wallet_transactions": {"gravity_weight": 6.0, "type": "financial", "justification": "Monetary flow records; enables financial reconciliation and fraud detection auditing."},
+            "warehouses": {"gravity_weight": 6.0, "type": "infrastructure", "justification": "Storage and maintenance hubs; supporting infrastructure for asset logistics and distribution."},
+            "kyc_records": {"gravity_weight": 5.0, "type": "user", "justification": "Identity verification data; required for compliance and user trust framework safety."},
+            "biometric_data": {"gravity_weight": 5.0, "type": "user", "justification": "Highly sensitive identifying attributes; used for secure secondary authentication protocols."},
+            "battery_lifecycle_event": {"gravity_weight": 8.0, "type": "telemetry", "justification": "Major lifecycle transitions (Commission, Retiring, Recycling); key for sustainability tracking."},
+            "rental_payments": {"gravity_weight": 6.0, "type": "financial", "justification": "Revenue capture events associated with equipment leases; critical for cash flow visibility."},
+            "grid_metrics": {"gravity_weight": 9.0, "type": "infrastructure", "justification": "Macro-level energy grid stability data; essential for balancing network supply and demand."},
+            "bess_units": {"gravity_weight": 9.5, "type": "infrastructure", "justification": "Battery Energy Storage Systems; large-scale grid-connected units for peak shaving operations."},
+            "energy_trade_logs": {"gravity_weight": 8.5, "type": "transaction", "justification": "Inter-grid energy transfer records; evidence of wholesale market participation and arbitrage."}
         }
 
     async def initialize(self):
         """Prepare the core for schema analysis"""
         self.model_state = "ready"
-        print("Neural Core: Visual Intelligence Engine Ready.")
+        logger.info("Neural Core: Visual Intelligence Engine Ready.")
 
-    def update_schema_context(self, schema: Dict, connection_id: str):
-        """Receive the latest schema snapshot to analyze"""
+        # [PHASE 3] Rate Limiting
+        # Prevent excessive re-analysis from frontend polling
+        self.last_analysis_time: Dict[str, float] = {} 
+
+    def update_schema_context(self, schema: Dict, connection_id: str, edges: List[Dict] = None):
+        """
+        Receive the latest schema/graph snapshot to analyze.
+        Updated to support both full Schema objects and raw Graph nodes+edges.
+        """
         if not connection_id: return
+        
+        # [PHASE 3] Cooldown Check (5 seconds)
+        # Hot-fix for attribute persistence during reload
+        if not hasattr(self, 'last_analysis_time'):
+            self.last_analysis_time = {}
+
+        current_time = time.time()
+        last_time = self.last_analysis_time.get(connection_id, 0)
+        if current_time - last_time < 5.0:
+            # print(f"⏳ Neural Core: Skipping analysis for {connection_id} (Cooldown active)")
+            return 
+            
+        self.last_analysis_time[connection_id] = current_time
         
         self.snapshots[connection_id] = schema
         self.active_connection_id = connection_id
@@ -78,9 +107,8 @@ class NeuralCore:
             self.signal_counts[connection_id] = 0
             self.scan_cursors[connection_id] = 0
         else:
-            # If connection exists, clear analyzed tables for a fresh scan
             self.analyzed_tables[connection_id].clear()
-            self.patterns_learned[connection_id] = 0 # Reset metrics for re-scan
+            self.patterns_learned[connection_id] = 0
             self.signal_counts[connection_id] = 0
             self.scan_cursors[connection_id] = 0
             
@@ -93,18 +121,28 @@ class NeuralCore:
         
         tables = schema.get('tables', [])
         for t in tables:
-            t_name = t['name']
+            t_name = t.get('name')
+            if not t_name: continue
             if t_name not in adj: adj[t_name] = []
             if t_name not in in_deg: in_deg[t_name] = 0
+            if t_name not in out_deg: out_deg[t_name] = 0
             
+            # Explicit Schema foreign keys
             fks = t.get('foreign_keys', [])
-            out_deg[t_name] = len(fks)
-            
+            out_deg[t_name] += len(fks)
             for fk in fks:
                 target = fk.get('referenced_table', fk.get('target_table'))
                 if target:
-                    if target not in in_deg: in_deg[target] = 0
-                    in_deg[target] += 1
+                    in_deg[target] = in_deg.get(target, 0) + 1
+
+        # Topology-based edges (Overlay/Graph)
+        if edges:
+            for edge in edges:
+                source = edge.get('source')
+                target = edge.get('target')
+                if source and target:
+                    out_deg[source] = out_deg.get(source, 0) + 1
+                    in_deg[target] = in_deg.get(target, 0) + 1
         
         self.adjacency_maps[connection_id] = adj
         self.in_degrees[connection_id] = in_deg
@@ -147,74 +185,37 @@ class NeuralCore:
                 # Fallback: if we were stuck in active but done, idle now
                 self.agent_status = "IDLE (Optimized)"
                 return
-
-        # Active Scanning Logic (1 tick = 1 table analysis step)
-        current_idx = cursor % len(tables)
-        target_table = tables[current_idx]
-        t_name = target_table['name']
+                
+        # BATCH PROCESSING CONFIGURATION
+        BATCH_SIZE = 10
         
-        if t_name not in analyzed:
-            # 1. Update Signal Data
-            fks = len(target_table.get('foreign_keys', []))
-            self.patterns_learned[conn_id] += fks
+        # Calculate batch indices
+        start_idx = cursor % len(tables)
+        indices = [(start_idx + i) % len(tables) for i in range(BATCH_SIZE)]
+        
+        # Collect unique tables to analyze in this batch
+        batch_tables = []
+        for idx in indices:
+            batch_tables.append(tables[idx])
             
-            cols = len(target_table.get('columns', []))
-            self.signal_counts[conn_id] += cols
-            
-            # 2. Calculate Gravity (Structural Weight)
-            in_deg_map = self.in_degrees.get(conn_id, {})
-            out_deg_map = self.out_degrees.get(conn_id, {})
-            
-            in_deg = in_deg_map.get(t_name, 0)
-            out_deg = out_deg_map.get(t_name, 0)
-            
-            # Centrality Score
-            struct_centrality = (in_deg * 2.0) + (out_deg * 1.0)
-            norm_struct = min(1.0, struct_centrality / 10.0)
-            self.hub_scores.setdefault(conn_id, {})[t_name] = norm_struct
-
-            # Weighted Sigmoid Importance
-            row_count = target_table.get('row_count', 0) or 1
-            row_factor = math.log10(max(1, row_count)) * 0.4
-            col_factor = cols * 0.1
-            
-            raw_imp = row_factor + (norm_struct * 6.0) + col_factor
-            sigmoid_imp = 1 / (1 + math.exp(-(raw_imp - 4.0)))
-            base_gravity = 1.0 + (sigmoid_imp * 4.0)
-            
-            # Domain Specialization Override: WEZU Energy
-            if t_name in self.WEZU_ENERGY_ONTOLOGY:
-                domain_weight = self.WEZU_ENERGY_ONTOLOGY[t_name].get("gravity_weight", 1.0)
-                # Boost gravity based on domain importance (capped at 10.0)
-                base_gravity = min(10.0, base_gravity + (domain_weight * 0.5))
-                print(f"🌟 [Neural Core] WEZU Domain Boost for {t_name}: {base_gravity:.2f}")
-
-            # Decay based on Interaction
-            last_int = target_table.get('last_interaction')
-            final_gravity = base_gravity
-            if last_int:
-                try:
-                    dt = datetime.fromisoformat(str(last_int).replace('Z', '+00:00'))
-                    now = datetime.now().astimezone() if dt.tzinfo else datetime.now()
-                    hours_since = (now - dt).total_seconds() / 3600
-                    decay = 1.0 / (1.0 + (hours_since / 168.0)) # 1 week half-life
-                    final_gravity = (base_gravity * 0.5) + (base_gravity * 0.5 * decay)
-                except: pass
-
-            self.gravity_stores[conn_id][t_name] = final_gravity
-            analyzed.add(t_name)
-            self.analyzed_tables[conn_id] = analyzed
+        # Process Batch
+        for target_table in batch_tables:
+            await self._analyze_table_intelligence(target_table, conn_id, analyzed)
 
         # Update global growth factor based on total connection knowledge
         total_complexity = sum(self.patterns_learned.values()) + (sum(self.signal_counts.values()) * 0.1)
         self.growth_factor = 1.0 + math.log10(max(1, total_complexity))
 
-        # Advance Cursor
-        self.scan_cursors[conn_id] = cursor + 1
+        # Advance Cursor by Batch Size
+        self.scan_cursors[conn_id] = cursor + BATCH_SIZE
         self.agent_status = "COMPUTING_CENTRALITY" if cursor % 2 == 0 else "SIGMOID_GRAVITY_SYNC"
 
-        # AUTO-SAVE: If we just finished a full scan cycle
-        if len(analyzed) == len(tables) and self.scan_cursors[conn_id] % len(tables) == 0:
+        # AUTO-SAVE: Rate Limited (Max once per 60s)
+        import time
+        now = time.time()
+        last_save = self.last_save_time.get(conn_id, 0)
+        
+        if (now - last_save) > 60 and len(analyzed) >= len(tables):
             # Trigger Latent Space Update
             # Extract basic node/edge structure for the GNN
             gnn_nodes = [{"id": t['name'], "metadata": t} for t in tables]
@@ -225,25 +226,84 @@ class NeuralCore:
                         gnn_edges.append({"source": t['name'], "target": fk['target_table']})
             
             # Fire and forget (or await if async)
-            # Since update_latent_space is CPU bound (numpy/sklearn), ideally we offload or run it here.
-            # It has its own lock, so it's thread-safe.
             try:
-                latent_manager.update_latent_space(gnn_nodes, gnn_edges)
+                # [FIX] Offload heavy PCA/GNN to thread to avoid blocking event loop
+                await asyncio.to_thread(latent_manager.update_latent_space, gnn_nodes, gnn_edges)
             except Exception as e:
-                print(f"Neural Core: Failed to update Latent Space: {e}")
+                logger.error(f"Neural Core: Failed to update Latent Space: {e}")
 
-            print(f"🧠 Neural Core: Completed full sync for {conn_id}. Persisting state...")
+            logger.info(f"Neural Core: Persisting state snapshot for {conn_id}")
+            self.last_save_time[conn_id] = now
             asyncio.create_task(self.save_snapshot(conn_id))
+
+    async def _analyze_table_intelligence(self, target_table: Dict, conn_id: str, analyzed_set: set):
+        """
+        Analyze a single table for intelligence metrics.
+        Extracted for batch processing.
+        """
+        t_name = target_table['name']
+        
+        if t_name in analyzed_set:
+            return
+
+        # 1. Update Signal Data
+        fks = len(target_table.get('foreign_keys', []))
+        self.patterns_learned[conn_id] += fks
+        
+        cols = len(target_table.get('columns', []))
+        self.signal_counts[conn_id] += cols
+        
+        # 2. Calculate Gravity (Structural Weight)
+        in_deg_map = self.in_degrees.get(conn_id, {})
+        out_deg_map = self.out_degrees.get(conn_id, {})
+        
+        in_deg = in_deg_map.get(t_name, 0)
+        out_deg = out_deg_map.get(t_name, 0)
+        
+        # Centrality Score
+        struct_centrality = (in_deg * 2.0) + (out_deg * 1.0)
+        norm_struct = min(1.0, struct_centrality / 10.0)
+        self.hub_scores.setdefault(conn_id, {})[t_name] = norm_struct
+
+        # 2. Synchronized Metric Extraction (Master Specification)
+        from app.services.graph_intelligence import graph_intelligence
+        
+        # Use authenticated formula for structural importance and gravity
+        auth_metrics = graph_intelligence.get_authenticated_metrics(
+            t_name, 
+            target_table.get('row_count', 0),
+            in_deg,
+            out_deg
+        )
+        
+        self.hub_scores.setdefault(conn_id, {})[t_name] = auth_metrics['gravity'] / 5.0 # Normalized hub proxy
+        base_gravity = auth_metrics['gravity']
+
+        # Decay based on Interaction
+        last_int = target_table.get('last_interaction')
+        final_gravity = base_gravity
+        if last_int:
+            try:
+                dt = datetime.fromisoformat(str(last_int).replace('Z', '+00:00'))
+                now = datetime.now().astimezone() if dt.tzinfo else datetime.now()
+                hours_since = (now - dt).total_seconds() / 3600
+                decay = 1.0 / (1.0 + (hours_since / 168.0)) # 1 week half-life
+                final_gravity = (base_gravity * 0.5) + (base_gravity * 0.5 * decay)
+            except: pass
+
+        self.gravity_stores[conn_id][t_name] = final_gravity
+        analyzed_set.add(t_name)
+        self.analyzed_tables[conn_id] = analyzed_set
 
     async def save_snapshot(self, connection_id: str):
         """Persist the current neural state to the database"""
         current_snapshot = self.snapshots.get(connection_id)
         if not current_snapshot: 
-            print("Neural Core: No schema snapshot to save.")
+            logger.warning("Neural Core: No schema snapshot to save.")
             return
         
         from app.services.db_connector import db_connector
-        print(f"Neural Core: Initiating snapshot save for {connection_id}...")
+        logger.info(f"Neural Core: Initiating snapshot save for {connection_id}")
         
         # 1. Create table if not exists (Lazy Init - Dialect Aware)
         try:
@@ -251,15 +311,15 @@ class NeuralCore:
             db_type = conn_info['type']
             
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
                 await db_connector.query(connection_id, """
-                    CREATE SCHEMA IF NOT EXISTS evolution;
                     CREATE TABLE IF NOT EXISTS evolution.neural_snapshots (
                         id SERIAL PRIMARY KEY,
                         connection_id TEXT NOT NULL,
                         snapshot_at TIMESTAMPTZ DEFAULT NOW(),
                         neural_data JSONB,
                         core_metrics JSONB
-                    );
+                    )
                 """)
                 await db_connector.query(connection_id, "CREATE INDEX IF NOT EXISTS idx_neural_conn ON evolution.neural_snapshots(connection_id)")
             elif db_type == 'mysql':
@@ -277,7 +337,7 @@ class NeuralCore:
                     )
                 """)
         except Exception as e:
-            print(f"FAIL: Failed to init neural_snapshots table: {e}")
+            logger.error(f"Failed to init neural_snapshots table: {e}")
             return
 
         # 2. Prepare Data
@@ -325,9 +385,9 @@ class NeuralCore:
         sql = f"INSERT INTO {table_name} (connection_id, neural_data, core_metrics) VALUES (%s, %s, %s)"
         try:
             await db_connector.query(connection_id, sql, (connection_id, json.dumps(snapshot_data), json.dumps(metrics)))
-            print(f"Neural Core: Snapshot saved for {connection_id} to {table_name}.")
+            logger.info(f"Neural Core: Snapshot saved for {connection_id} to {table_name}")
         except Exception as e:
-            print(f"FAIL: Failed to save neural snapshot to {table_name}: {e}")
+            logger.error(f"Failed to save neural snapshot to {table_name}: {e}")
 
     async def _get_context(self, connection_id: str) -> Dict:
         """Helper to get snapshot for connection, with fallback to schema_analyzer"""
@@ -347,7 +407,7 @@ class NeuralCore:
                 self.update_schema_context(schema_dict, connection_id) # Cache it
                 return schema_dict
         except Exception as e:
-            print(f"Neural Core: Context recovery failed for {connection_id}: {e}")
+            logger.error(f"Neural Core: Context recovery failed for {connection_id}: {e}")
             
         return None
 
@@ -379,7 +439,7 @@ class NeuralCore:
         conn_id = connection_id or self.active_connection_id
         if not conn_id: return
         
-        print(f"Neural Core: Re-initiating full schema scan for {conn_id}...")
+        logger.info(f"Neural Core: Re-initiating full schema scan for {conn_id}")
         self.agent_status = "RECALCULATING"
         await asyncio.sleep(0.5) # Brief pause for UI feedback
         
@@ -398,15 +458,15 @@ class NeuralCore:
         Return the real calculated gravity/importance for a node from the active scan.
         Used by AnalyticsActionHandler.
         """
-        if not self.active_connection_id:
-             return 0.5
-        
         # Check gravity store for real calculated weight
         store = self.gravity_stores.get(self.active_connection_id, {})
         if node_id in store:
             return store[node_id]
             
-        return 0.5
+        # Reality-Driven Fallback: Use Authenticated Engine
+        from app.services.graph_intelligence import graph_intelligence
+        auth = graph_intelligence.get_authenticated_metrics(node_id, 0, 0, 0)
+        return auth['gravity']
 
     async def predict_links(self, connection_id: str, node_id: str, context_nodes: List[str]) -> List[Dict[str, Any]]:
         """

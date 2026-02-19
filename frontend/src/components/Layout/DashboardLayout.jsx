@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Menu, X, ChevronRight, ChevronLeft } from 'lucide-react';
-import { Sidebars } from './Sidebars';
+import { LeftSidebar, RightSidebar } from './Sidebars';
 
 const DashboardLayout = ({ children, sidebarProps }) => {
     const [isLeftOpen, setIsLeftOpen] = useState(true);
@@ -66,7 +66,7 @@ const DashboardLayout = ({ children, sidebarProps }) => {
                 `}
             >
                 <div className="h-full overflow-y-auto custom-scrollbar p-4">
-                    <Sidebars.Left {...sidebarProps} />
+                    <LeftSidebar {...sidebarProps} />
                 </div>
             </aside>
 
@@ -98,7 +98,7 @@ const DashboardLayout = ({ children, sidebarProps }) => {
                 `}
             >
                 <div className="h-full overflow-y-auto custom-scrollbar p-4">
-                    <Sidebars.Right {...sidebarProps} />
+                    <RightSidebar {...sidebarProps} />
                 </div>
             </aside>
 

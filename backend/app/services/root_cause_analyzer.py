@@ -1,9 +1,10 @@
-﻿"""
+"""
 Root Cause Analyzer Service
 Traces issues to their origin and maps impact paths between tables.
 """
 from typing import Dict, List, Any, Optional
 import logging
+from app.services.db_connector import db_connector
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,36 @@ class RootCauseAnalyzer:
                     "reason": f"Linked via {dep['child_column']} -> {table_name}.{dep['parent_column']}",
                     "severity": "Medium" # Default for first-level dependency
                 })
+                
+            # 2.5 SOFT DEPENDENCY SCAN (Latent Links)
+            # If no hard FKs found, look for "Implied" relationships (Name Matching)
+            # This ensures "Impact Analysis" is never empty for loosely coupled tables.
+            if not impact_path:
+                # Get all tables in schema
+                t_query = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema}'"
+                all_tables = await db_connector.query(connection_id, t_query)
+                
+                # Heuristic: If I am 'users', look for 'user_id' in other tables
+                # Heuristic: If I am 'process_log', look for 'process_id'
+                singular_name = table_name[:-1] if table_name.endswith('s') else table_name
+                potential_fk = f"{singular_name}_id"
+                
+                for t in all_tables:
+                    t_name = t['table_name']
+                    if t_name == table_name: continue
+                    
+                    # Check columns of this other table
+                    c_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{t_name}' AND column_name = '{potential_fk}'"
+                    c_res = await db_connector.query(connection_id, c_query)
+                    
+                    if c_res:
+                        impact_path.append({
+                            "table": t_name,
+                            "reason": f"Latent Link: Column '{potential_fk}' implies relationship.",
+                            "severity": "Low"
+                        })
+                        if len(impact_path) >= 3: break # Limit soft scan
+            
                 
             # 3. Generate plain English explanation
             summary = self._generate_impact_summary(table_name, impact_path)

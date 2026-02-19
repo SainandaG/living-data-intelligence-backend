@@ -1,18 +1,21 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 import { Activity, Database, Zap, ShieldCheck, AlertCircle, Info, Layers, TrendingUp } from 'lucide-react';
 
 export default function DeepStatusDashboard({ connectionId, tableName }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const res = await axios.get(`/api/intelligence/deep-status/${connectionId}/${tableName || 'users'}`);
-                setData(res.data);
+                setServiceUnavailable(false);
+                const res = await apiClient.get(`/intelligence/deep-status/${connectionId}/${tableName || 'users'}`);
+                setData(res);
             } catch (err) {
+                if (err.response?.status === 404) setServiceUnavailable(true);
                 console.error("Deep Status fetch failed:", err);
             } finally {
                 setLoading(false);
@@ -24,6 +27,15 @@ export default function DeepStatusDashboard({ connectionId, tableName }) {
         return () => clearInterval(interval);
     }, [connectionId, tableName]);
 
+    if (serviceUnavailable) {
+        return (
+            <div className="p-8 flex items-center justify-center h-full">
+                <div className="text-center p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm max-w-md">
+                    Intelligence service not available. The backend intelligence module may not be loaded.
+                </div>
+            </div>
+        );
+    }
     if (loading) return (
         <div className="p-8 flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">

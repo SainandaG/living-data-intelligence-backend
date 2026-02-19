@@ -5,8 +5,11 @@ Custom extensions of the T0/T1 hierarchy for the Energy Domain.
 """
 from typing import Dict, List, Any
 import asyncio
+import logging
 from app.services.t0_agent import T0Agent
 from app.services.t1_agent import T1Agent
+
+logger = logging.getLogger(__name__)
 
 class WEZUGridSentinel(T0Agent):
     """
@@ -19,7 +22,7 @@ class WEZUGridSentinel(T0Agent):
         from app.services.db_connector import db_connector
         from app.services.neural_core import neural_core
         
-        print(f"🕵️ [Grid Sentinel] Patrol started for {connection_id}")
+        logger.info(f"Grid Sentinel: Patrol started for {connection_id}")
         
         try:
             # 1. Fetch latest SoH metrics for critical batteries
@@ -32,14 +35,8 @@ class WEZUGridSentinel(T0Agent):
                 ORDER BY h.recorded_at DESC
             """
             
-            # Using mock safety: if connection is mock, we simulate results
-            if connection_id == 'mock':
-                results = [
-                    {"id": 42, "serial_number": "B-0042", "soh_percentage": 78.5, "velocity": -6.2},
-                    {"id": 87, "serial_number": "B-0087", "soh_percentage": 82.1, "velocity": -5.1}
-                ]
-            else:
-                results = await db_connector.query(connection_id, query)
+            # Real query execution
+            results = await db_connector.query(connection_id, query)
 
             # 2. Process findings and trigger Neural Core signals
             alerts_triggered = 0
@@ -62,10 +59,10 @@ class WEZUGridSentinel(T0Agent):
                         }
                     )
             
-            print(f"✅ [Grid Sentinel] Patrol complete. Triggered {alerts_triggered} degradation alerts.")
+            logger.info(f"Grid Sentinel: Patrol complete. Triggered {alerts_triggered} degradation alerts.")
             
         except Exception as e:
-            print(f"⚠️ [Grid Sentinel] Patrol failed: {e}")
+            logger.warning(f"Grid Sentinel: Patrol failed: {e}")
 
 class WEZUDemandPredictor(T1Agent):
     """
@@ -77,28 +74,40 @@ class WEZUDemandPredictor(T1Agent):
         """
         from app.services.db_connector import db_connector
         
-        print(f"📊 [Demand Predictor] Forecasting for station: {station_id}")
+        logger.info(f"Demand Predictor: Forecasting for station: {station_id}")
         
         # 1. Fetch 30-day historical data and warehouse inventory
         # Querying warehouses and stations to find load imbalances
         
-        # 2. Mock Logic for rapid implementation
-        prediction = 45 if "mumbai" in station_id.lower() else 30
-        confidence = 0.85 + (random.random() * 0.1)
+        # 2. Predictive Logic (Formulaic Fallback if no ML model loaded)
+        # In a real scenario, this would call a Prophet or LSTM model.
+        # Fallback to mean-based projection if historical data exists.
+        prediction = 0
+        confidence = "0.0%"
         
-        recommendation = "Maintain levels"
-        if prediction > 40:
-            recommendation = f"Transfer +{prediction // 3} units from nearest Warehouse (Ghatkopar Central)"
-        elif prediction < 10:
-            recommendation = "Low load - Re-distribute 5 units to North-Hub"
+        try:
+            # Simple heuristic: average swaps from last 7 days * 1.1
+            hist_query = f"SELECT AVG(total_swaps) as avg_swaps FROM stations WHERE id = '{station_id}'"
+            hist_res = await db_connector.query(connection_id, hist_query)
+            if hist_res and hist_res[0].get('avg_swaps'):
+                prediction = int(float(hist_res[0]['avg_swaps']) * 1.1)
+                confidence = "65.0% (Heuristic)"
+        except:
+            pass
+            
+        recommendation = "Insufficient historical data for forecasting"
+        if prediction > 0:
+            recommendation = "Maintain levels"
+            if prediction > 40:
+                recommendation = f"Transfer units from nearest Warehouse"
             
         return {
             "station_id": station_id,
             "horizon": "7 days",
             "predicted_swaps": prediction,
-            "confidence": f"{confidence * 100:.1f}%",
+            "confidence": confidence,
             "recommendation": recommendation,
-            "roi_impact": "₹45,000 protected"
+            "roi_impact": "₹0 (Baseline)" if prediction == 0 else "Analysis Active"
         }
 
 class WEZUAnomalyHunter(T1Agent):
@@ -109,40 +118,22 @@ class WEZUAnomalyHunter(T1Agent):
         """
         Scan GPS logs for geofence breaches (batteries leaving operational zones).
         """
-        from app.services.neural_core import neural_core
-        print(f"🕵️ [Anomaly Hunter] Hunting for breaches in {connection_id}")
+        from app.services.db_connector import db_connector
+        logger.info(f"Anomaly Hunter: Hunting for breaches in {connection_id}")
         
-        # Mock Logic: Simulate geofence breach and KYC fraud
-        if connection_id == 'mock' or "wezu" in connection_id.lower():
-            # 1. Geofence Breach
-            await neural_core.process_signal(
-                node_id="gps_tracking_log",
-                intensity=0.8,
-                connection_id=connection_id,
-                metadata={
-                    "event": "geofence_breach",
-                    "severity": "high",
-                    "action_taken": "immobilization_sent",
-                    "lat": 19.0760, "lng": 72.8777,
-                    "insight": "Battery departed from authorized operational zone (Mumbai Central).",
-                    "justification": "GPS coordinates out-of-bounds relative to the Tier-1 geofence registry."
-                }
-            )
+        anomalies = 0
+        try:
+            # Attempt to find real GPS breaches in 'gps_tracking_log' if table exists
+            check_table = "SELECT table_name FROM information_schema.tables WHERE table_name = 'gps_tracking_log'"
+            table_exists = await db_connector.query(connection_id, check_table)
             
-            # 2. KYC / Payment Anomaly
-            await neural_core.process_signal(
-                node_id="rental_payments",
-                intensity=0.7,
-                connection_id=connection_id,
-                metadata={
-                    "event": "failed_payment_pattern",
-                    "user_id": 1024,
-                    "risk_score": 0.92,
-                    "insight": "Suspicious rental duration vs payment frequency detected for User 1024.",
-                    "justification": "User has 3 consecutive payment failures while maintaining an active rental period > 48hrs."
-                }
-            )
+            if table_exists:
+                # Detect coordinates outside valid GPS ranges (lat ±90, lon ±180).
+                # Future: integrate configurable geofence polygons per station.
+                breach_query = "SELECT COUNT(*) as count FROM gps_tracking_log WHERE abs(latitude) > 90 OR abs(longitude) > 180"
+                res = await db_connector.query(connection_id, breach_query)
+                anomalies = res[0]['count'] if res else 0
+        except Exception as e:
+            logger.warning(f"Anomaly Hunter: GPS breach scan failed: {e}")
             
-            print("🚨 [Anomaly Hunter] Detected geofence breach and payment pattern outliers.")
-        
-        return {"status": "sweep_complete", "anomalies_found": 2}
+        return {"status": "sweep_complete", "anomalies_found": anomalies}

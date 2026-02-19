@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 import { Activity, ShieldCheck, AlertCircle, Info, Clock, Zap, Database } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import BlueprintOverlay from './BlueprintOverlay';
@@ -9,22 +9,25 @@ export default function HealthDashboard({ connectionId, tableName }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [history, setHistory] = useState([]);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
+                setServiceUnavailable(false);
                 // Fetch real health history
-                const historyRes = await axios.get(`/api/intelligence/health/history/${connectionId}`);
-                if (historyRes.data.history) {
-                    setHistory(historyRes.data.history.map(h => ({
+                const historyRes = await apiClient.get(`/intelligence/health/history/${connectionId}`);
+                if (historyRes.history) {
+                    setHistory(historyRes.history.map(h => ({
                         time: new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                         score: h.score
                     })));
                 }
 
-                const res = await axios.get(`/api/intelligence/health/${connectionId}`);
-                setData(res.data);
+                const res = await apiClient.get(`/intelligence/health/${connectionId}`);
+                setData(res);
             } catch (err) {
+                if (err.response?.status === 404) setServiceUnavailable(true);
                 console.error("Health fetch failed:", err);
             } finally {
                 setLoading(false);
@@ -36,6 +39,15 @@ export default function HealthDashboard({ connectionId, tableName }) {
         return () => clearInterval(interval);
     }, [connectionId]);
 
+    if (serviceUnavailable) {
+        return (
+            <div className="p-8 flex items-center justify-center h-full">
+                <div className="text-center p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm max-w-md">
+                    Intelligence service not available. The backend intelligence module may not be loaded.
+                </div>
+            </div>
+        );
+    }
     if (loading) return (
         <div className="p-8 flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">

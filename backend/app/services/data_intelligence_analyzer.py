@@ -1,4 +1,4 @@
-﻿"""
+"""
 Data Intelligence Analyzer
 Performs deep analysis on actual table data to extract business insights
 """
@@ -78,8 +78,9 @@ class DataIntelligenceAnalyzer:
         """Get total row count"""
         try:
             conn_info = db_connector.get_connection(connection_id)
-            db_type = conn_info['type']
-            q_table = f'"{table_name}"' if db_type == 'postgresql' else f'`{table_name}`'
+            db_type = conn_info['type'].lower()
+            is_pg = any(t in db_type for t in ['postgresql', 'postgres', 'neon', 'neon_db'])
+            q_table = f'"{table_name}"' if is_pg else f'`{table_name}`'
             query = f"SELECT COUNT(*) as count FROM {q_table}"
             result = await db_connector.query(connection_id, query)
             return result[0]['count'] if result else 0
@@ -90,9 +91,10 @@ class DataIntelligenceAnalyzer:
         """Get column information"""
         try:
             conn_info = db_connector.get_connection(connection_id)
-            db_type = conn_info['type']
+            db_type = conn_info['type'].lower()
+            is_mysql = 'mysql' in db_type
             
-            if db_type == 'mysql':
+            if is_mysql:
                 query = f"""
                     SELECT COLUMN_NAME as column_name, DATA_TYPE as data_type, IS_NULLABLE as is_nullable
                     FROM information_schema.columns
@@ -115,8 +117,9 @@ class DataIntelligenceAnalyzer:
         """Get sample data for analysis"""
         try:
             conn_info = db_connector.get_connection(connection_id)
-            db_type = conn_info['type']
-            q_table = f'"{table_name}"' if db_type == 'postgresql' else f'`{table_name}`'
+            db_type = conn_info['type'].lower()
+            is_pg = any(t in db_type for t in ['postgresql', 'postgres', 'neon', 'neon_db'])
+            q_table = f'"{table_name}"' if is_pg else f'`{table_name}`'
             query = f"SELECT * FROM {q_table} LIMIT {limit}"
             return await db_connector.query(connection_id, query)
         except:
@@ -209,12 +212,14 @@ class DataIntelligenceAnalyzer:
         try:
             # Use first timestamp column (usually created_at)
             ts_col = timestamp_cols[0]
-            conn_info = db_connector.get_connection(connection_id)
-            db_type = conn_info['type']
-            q_table = f'"{table_name}"' if db_type == 'postgresql' else f'`{table_name}`'
+            db_type = conn_info['type'].lower()
+            is_mysql = 'mysql' in db_type
+            is_pg = any(t in db_type for t in ['postgresql', 'postgres', 'neon', 'neon_db'])
+            
+            q_table = f'"{table_name}"' if is_pg else f'`{table_name}`'
             
             # Get counts for last 30 days (DB agnostic)
-            if db_type == 'mysql':
+            if is_mysql:
                 query = f"""
                     SELECT 
                         DATE({ts_col}) as date,

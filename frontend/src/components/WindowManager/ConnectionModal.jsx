@@ -6,10 +6,10 @@ const ConnectionModal = ({ onClose }) => {
     const { setConnectionId } = useWindowManager();
     const [config, setConfig] = useState({
         db_type: 'postgresql',
-        host: 'localhost',
+        host: '',
         port: '5432',
-        database: 'postgres',
-        username: 'postgres',
+        database: '',
+        username: '',
         password: ''
     });
     const [loading, setLoading] = useState(false);
@@ -46,9 +46,12 @@ const ConnectionModal = ({ onClose }) => {
             // Ensure port is an integer
             const payload = {
                 ...config,
+                host: config.host.trim(),
+                database: config.database.trim(),
+                username: config.username.trim(),
                 port: parseInt(config.port, 10)
             };
-            console.log('Attempting to connect with:', payload);
+            console.log('Attempting to connect with (trimmed):', payload);
             const response = await fetch('/api/connect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

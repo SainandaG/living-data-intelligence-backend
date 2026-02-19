@@ -1,0 +1,300 @@
+﻿
+> frontend@0.0.0 lint
+> eslint .
+
+
+C:\Users\karth\living-data-intelligence-backend\frontend\public\static\js\anomaly-overlay.js
+  42:34  error  'THREE' is not defined  no-undef
+  43:34  error  'THREE' is not defined  no-undef
+  49:26  error  'THREE' is not defined  no-undef
+
+C:\Users\karth\living-data-intelligence-backend\frontend\public\static\js\particle-system.js
+   9:30  error  'THREE' is not defined  no-undef
+  17:30  error  'THREE' is not defined  no-undef
+  23:30  error  'THREE' is not defined  no-undef
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\App.jsx
+    1:38  error    'useRef' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                               no-unused-vars
+    2:27  error    'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                               no-unused-vars
+   26:10  error    'agentService' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                         no-unused-vars
+  138:11  error    'openWindow' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                  no-unused-vars
+  149:10  error    'loading' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                     no-unused-vars
+  189:24  error    'wsConnected' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                 no-unused-vars
+  270:6   warning  React Hook useEffect has a missing dependency: 'fetchRealGraphData'. Either include it or remove the dependency array       react-hooks/exhaustive-deps
+  476:6   warning  React Hook React.useCallback has a missing dependency: 'graphData.nodes'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  534:41  error    'target' is defined but never used                                                                                          no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\AnalyticsView.jsx
+    1:17  error    'useEffect' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                   no-unused-vars
+    1:38  error    'useRef' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                      no-unused-vars
+    3:10  error    'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                      no-unused-vars
+    6:41  error    'connectionId' is defined but never used                                                                                                                                                           no-unused-vars
+   10:11  warning  The 'tableData' logical expression could make the dependencies of useMemo Hook (at line 21) change on every render. To fix this, wrap the initialization of 'tableData' in its own useMemo() Hook  react-hooks/exhaustive-deps
+   54:41  error    'i' is defined but never used                                                                                                                                                                      no-unused-vars
+  361:37  error    'Icon' is defined but never used                                                                                                                                                                   no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\ChatInterface.jsx
+    3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  138:65  error  'node' is defined but never used                                               no-unused-vars
+  147:65  error  'node' is defined but never used                                               no-unused-vars
+  154:62  error  'node' is defined but never used                                               no-unused-vars
+  161:62  error  'node' is defined but never used                                               no-unused-vars
+  168:62  error  'node' is defined but never used                                               no-unused-vars
+  175:64  error  'node' is defined but never used                                               no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\DataFlowView.jsx
+    4:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  260:55  error  'Icon' is defined but never used                                               no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\EdgeStatsPanel.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\HealthDashboard.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\IntelligencePanel.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  5:70  error  'onSimulate' is defined but never used                                         no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\LatentWorld.jsx
+   16:7   error    'glowPrimary' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                      no-unused-vars
+   37:52  error    'schemaData' is defined but never used                                                                                                                                                                                                                           no-unused-vars
+   42:11  error    'composerRef' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                      no-unused-vars
+   49:12  error    'error' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                            no-unused-vars
+   54:12  error    'hoveredId' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                        no-unused-vars
+   54:23  error    'setHoveredId' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                     no-unused-vars
+  205:23  error    'composer' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                  no-unused-vars
+  296:36  warning  The ref value 'mountRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'mountRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+  296:87  error    'e' is defined but never used                                                                                                                                                                                                                                    no-unused-vars
+  296:90  error    Empty block statement                                                                                                                                                                                                                                            no-empty
+  299:22  warning  The ref value 'sceneRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'sceneRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+  421:34  error    'e' is defined but never used                                                                                                                                                                                                                                    no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\Record3DGraph.jsx
+   58:8   warning  React Hook useEffect has a missing dependency: 'initThree'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  156:31  error    'i' is defined but never used                                                                                 no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\RecordForceGraph.jsx
+    7:7   error  'uuid' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       no-unused-vars
+   97:20  error  'coreStats' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  no-unused-vars
+  142:21  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  140 |             // Distribute evenly on sphere surface using Golden Spiral method for cleaner look, 
+  141 |             // or random for organic cloud. Let's use Random for organic.
+> 142 |             theta = Math.random() * Math.PI * 2;
+      |                     ^^^^^^^^^^^^^ Cannot call impure function
+  143 |             phi = Math.acos((Math.random() * 2) - 1);
+  144 |
+  145 |             const x = radius * Math.sin(phi) * Math.cos(theta);  react-hooks/purity
+  143:30  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  141 |             // or random for organic cloud. Let's use Random for organic.
+  142 |             theta = Math.random() * Math.PI * 2;
+> 143 |             phi = Math.acos((Math.random() * 2) - 1);
+      |                              ^^^^^^^^^^^^^ Cannot call impure function
+  144 |
+  145 |             const x = radius * Math.sin(phi) * Math.cos(theta);
+  146 |             const y = radius * Math.sin(phi) * Math.sin(theta);                          react-hooks/purity
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\SchemaView.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\SemanticDiscoveryPanel.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\ThreeGraph.jsx
+   166:35  error    'manifoldData' is defined but never used                                                                                                                                                                                                                                                                                                                                no-unused-vars
+   195:11  error    'legendGroup' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                             no-unused-vars
+   205:27  error    'manifoldData' is defined but never used                                                                                                                                                                                                                                                                                                                                no-unused-vars
+   380:79  error    'clusteringMethod' is assigned a value but never used                                                                                                                                                                                                                                                                                                                   no-unused-vars
+   821:11  error    'nodeColorBuffer' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                         no-unused-vars
+   824:11  error    'nodeGeometry' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                            no-unused-vars
+   825:11  error    'shellGeometry' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                           no-unused-vars
+   832:11  error    'nodeMaterial' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                            no-unused-vars
+   860:8   warning  React Hook useMemo has a missing dependency: 'shaderUniforms.time'. Either include it or remove the dependency array                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+   862:11  error    'shellMaterial' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                           no-unused-vars
+   888:8   warning  React Hook useMemo has a missing dependency: 'shaderUniforms.time'. Either include it or remove the dependency array                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+   915:8   warning  React Hook useEffect has a missing dependency: 'currentLens'. Either include it or remove the dependency array                                                                                                                                                                                                                                                          react-hooks/exhaustive-deps
+   917:12  error    'clusterMetadata' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                         no-unused-vars
+   918:12  error    'clusterMetadataLoading' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                  no-unused-vars
+  1001:47  error    'instruction' is defined but never used                                                                                                                                                                                                                                                                                                                                 no-unused-vars
+  1032:8   warning  React Hook useCallback has missing dependencies: 'focusOnNode' and 'zoomToNodes'. Either include them or remove the dependency array                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+  1048:8   warning  React Hook useCallback has a missing dependency: 'focusOnNode'. Either include it or remove the dependency array                                                                                                                                                                                                                                                        react-hooks/exhaustive-deps
+  1058:8   warning  React Hook useCallback has a missing dependency: 'resetCamera'. Either include it or remove the dependency array                                                                                                                                                                                                                                                        react-hooks/exhaustive-deps
+  1322:9   warning  React Hook useImperativeHandle has missing dependencies: 'focusOnNode', 'resetCamera', and 'zoomToNodes'. Either include them or remove the dependency array                                                                                                                                                                                                            react-hooks/exhaustive-deps
+  1547:15  error    'cleanupContextHandlers' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                  no-unused-vars
+  1724:15  error    'getNeighbors' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                            no-unused-vars
+  1884:75  warning  The ref value 'cameraAnimRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'cameraAnimRef.current' to a variable inside the effect, and use that variable in the cleanup function                                                                                               react-hooks/exhaustive-deps
+  1887:32  warning  The ref value 'mountRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'mountRef.current' to a variable inside the effect, and use that variable in the cleanup function                                                                                                         react-hooks/exhaustive-deps
+  1887:79  error    'e' is defined but never used                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+  1887:82  error    Empty block statement                                                                                                                                                                                                                                                                                                                                                   no-empty
+  1908:8   warning  React Hook useEffect has missing dependencies: 'onNodeClick', 'onNodeHover', 'paused', 'shaderUniforms', 'spawnParticleForTarget', 'stopCameraTransition', 'updateCamera', and 'updateGlow'. Either include them or remove the dependency array. If 'onNodeHover' changes too often, find the parent component that defines it and wrap that definition in useCallback  react-hooks/exhaustive-deps
+  2002:19  error    'scene' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                   no-unused-vars
+  2227:48  error    'i' is defined but never used                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+  2542:8   warning  React Hook React.useEffect has missing dependencies: 'cameraFocus' and 'dummyObject'. Either include them or remove the dependency array                                                                                                                                                                                                                                react-hooks/exhaustive-deps
+  2547:9   error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2583:31  error    'scale' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                   no-unused-vars
+  2589:59  error    'activeLens' is not defined                                                                                                                                                                                                                                                                                                                                             no-undef
+  2599:9   error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2604:9   error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2639:9   error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2643:9   error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2718:40  error    'nodeMap' is not defined                                                                                                                                                                                                                                                                                                                                                no-undef
+  2719:40  error    'nodeMap' is not defined                                                                                                                                                                                                                                                                                                                                                no-undef
+  2737:13  error    Unreachable code                                                                                                                                                                                                                                                                                                                                                        no-unreachable
+  2740:8   warning  React Hook useEffect has missing dependencies: 'clusteringMethod' and 'dummyObject'. Either include them or remove the dependency array                                                                                                                                                                                                                                 react-hooks/exhaustive-deps
+  2747:12  error    'viewMode' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                                no-unused-vars
+  2748:12  error    'drilldownNode' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                                                                                                                                           no-unused-vars
+  2861:66  error    'i' is defined but never used                                                                                                                                                                                                                                                                                                                                           no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Dashboard\UIOverlay.jsx
+    6:13  error    'openWindow' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u                                                                                                                                                 no-unused-vars
+  456:8   warning  React Hook useEffect has a missing dependency: 'onColumnClick'. Either include it or remove the dependency array. If 'onColumnClick' changes too often, find the parent component that defines it and wrap that definition in useCallback  react-hooks/exhaustive-deps
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Evolution\EvolutionMathOverlay.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Evolution\EvolutionOverlay.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Evolution\NodeFormationSimulation.jsx
+    4:10  error    'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                                       no-unused-vars
+   53:8   warning  React Hook useMemo has unnecessary dependencies: 'targetRadius' and 'topology'. Either exclude them or remove the dependency array  react-hooks/exhaustive-deps
+  164:15  error    'state' is defined but never used                                                                                                   no-unused-vars
+  213:35  error    'i' is defined but never used                                                                                                       no-unused-vars
+  306:22  error    'e' is defined but never used                                                                                                       no-unused-vars
+  604:47  error    'i' is defined but never used                                                                                                       no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Evolution\TimelinePlayer.jsx
+   3:10  error    'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                      no-unused-vars
+  84:8   warning  React Hook useEffect has a missing dependency: 'updateSnapshot'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\AnomalyDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\BlueprintOverlay.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\DeepStatusDashboard.jsx
+   2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                no-unused-vars
+  48:11  error  'globalScore' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  49:11  error  'nodeScore' is assigned a value but never used. Allowed unused vars must match /^[A-Z_]/u    no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\HealthDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\IntelligenceHub.jsx
+  1:27  error  'useRef' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\OntologyExplorer.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\PatternDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\PredictionDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\RecommendationDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Intelligence\RootCauseDashboard.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Layout\Sidebars.jsx
+    5:7   error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-refresh/only-export-components
+    5:33  error  'clusters' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             no-unused-vars
+    5:43  error  'onClusterClick' is defined but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       no-unused-vars
+   82:7   error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-refresh/only-export-components
+  194:58  error  Error: Cannot call impure function during render
+
+`Math.random` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  192 |                                     <span className="text-[var(--primary-cyan)] font-bold">
+  193 |                                         {/* Simulate real variance if exact ping not available */}
+> 194 |                                         {Math.floor(15 + Math.random() * 20)}ms
+      |                                                          ^^^^^^^^^^^^^ Cannot call impure function
+  195 |                                     </span>
+  196 |                                 </div>
+  197 |                                 <div className="h-1.5 bg-black/30 rounded-full overflow-hidden">  react-hooks/purity
+  354:7   error  Fast refresh only works when a file only exports components. Move your component(s) to a separate file                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           react-refresh/only-export-components
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\UI\CollapsiblePanel.jsx
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Voice\AgentStatusPanel.jsx
+  30:9  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  28 |
+  29 |     useEffect(() => {
+> 30 |         fetchData();
+     |         ^^^^^^^^^ Avoid calling setState() directly within an effect
+  31 |         // Faster polling for dynamic feel
+  32 |         const interval = setInterval(fetchData, 5000);
+  33 |         return () => clearInterval(interval);  react-hooks/set-state-in-effect
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\Voice\VoiceControl.jsx
+    1:38  error    'useRef' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                         no-unused-vars
+    3:10  error    'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u                                         no-unused-vars
+   82:8   warning  React Hook useEffect has a missing dependency: 'status'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  142:8   warning  React Hook useEffect has a missing dependency: 'handleVoiceResult'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\WindowManager\ConnectionModal.jsx
+  77:26  error  'jsonErr' is defined but never used  no-unused-vars
+  83:30  error  'textErr' is defined but never used  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\components\WindowManager\Window.jsx
+  1:25  error  'useEffect' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u     no-unused-vars
+  7:41  error  'Component' is defined but never used                                             no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\context\CommandRegistryContext.jsx
+  78:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  91:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\context\WindowManagerContext.jsx
+  5:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\hooks\useGlow.js
+  1:10  error  'useRef' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\hooks\useVoiceRecognition.js
+  23:13  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  21 |
+  22 |         if (!SpeechRecognition) {
+> 23 |             setError('Speech Recognition API is not supported in this browser.');
+     |             ^^^^^^^^ Avoid calling setState() directly within an effect
+  24 |             return;
+  25 |         }
+  26 |  react-hooks/set-state-in-effect
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\utils\SoundSystem.js
+   18:18  error  'e' is defined but never used  no-unused-vars
+  123:40  error  'e' is defined but never used  no-unused-vars
+  123:43  error  Empty block statement          no-empty
+  135:26  error  'e' is defined but never used  no-unused-vars
+  135:29  error  Empty block statement          no-empty
+
+C:\Users\karth\living-data-intelligence-backend\frontend\src\utils\errorHandler.js
+  75:14  error  'e' is defined but never used  no-unused-vars
+
+Γ£û 151 problems (128 errors, 23 warnings)
+

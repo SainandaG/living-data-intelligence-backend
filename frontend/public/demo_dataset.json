@@ -1,0 +1,27 @@
+{
+    "nodes": [
+        {
+            "id": "demo_node_1",
+            "name": "Demo Node 1",
+            "group": 1,
+            "vitality": 80
+        },
+        {
+            "id": "demo_node_2",
+            "name": "Demo Node 2",
+            "group": 2,
+            "vitality": 60
+        }
+    ],
+    "edges": [
+        {
+            "source": "demo_node_1",
+            "target": "demo_node_2",
+            "confidence": 0.9
+        }
+    ],
+    "latent_manifold": {
+        "emitters": []
+    },
+    "intelligence_stream": []
+}

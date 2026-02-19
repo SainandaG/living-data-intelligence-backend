@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
 import os
 import json
-import google.generativeai as genai
+from google import genai
 from app.models.schemas import Schema, Table
 from typing import List, Dict, Any
 
@@ -10,9 +11,13 @@ class AIClassifier:
     def __init__(self):
         api_key = os.getenv("GOOGLE_API_KEY")
         if api_key:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('models/gemini-2.0-flash')
-            self.has_ai = True
+            try:
+                self.client = genai.Client(api_key=api_key)
+                self.model_id = 'gemini-2.0-flash'
+                self.has_ai = True
+            except Exception as e:
+                print(f"⚠️ AI Classifier: Initialization failed: {e}")
+                self.has_ai = False
         else:
             self.has_ai = False
             print("⚠️ AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
@@ -31,21 +36,27 @@ class AIClassifier:
                 cols = [c.name for c in t.columns]
                 table_info.append(f"Table: {t.name}, Columns: {', '.join(cols)}")
             
-            prompt = f"""
-            Analyze the following database schema and classify each table.
-            For each table, determine:
-            1. 'table_type': either 'fact' (transactional, high volume, metrics) or 'dimension' (entities, master data, attributes).
-            2. 'business_entity': a single word describing the core entity (e.g., customer, transaction, account, product, fraud).
-            3. 'importance_score': a number from 1-20 based on its central role in the schema.
+                prompt = f"""
+                Analyze the following database schema and classify each table as a Palantir-style Ontology Object.
+                For each table, determine:
+                1. 'table_type': either 'fact' (transactional, metrics) or 'dimension' (entities, master data).
+                2. 'business_entity': a single word describing the core entity (e.g., customer, transaction, asset).
+                3. 'importance_score': a number from 1-20.
+                4. 'decision_provenance': a brief sentence explaining WHY the table was classified this way (e.g., "Contains high-volume financial transactions and foreign keys to accounts").
+                5. 'property_mapping': a dictionary mapping technical column names to semantic Palantir-style properties (e.g., {{'uid': 'ObjectID', 'created_at': 'Timestamp'}}).
 
-            Schema:
-            {chr(10).join(table_info)}
+                Schema:
+                {chr(10).join(table_info)}
 
-            Return ONLY a JSON object where keys are table names and values are objects with these three fields.
-            """
+                Return ONLY a JSON object where keys are table names and values are objects with these fields.
+                """
 
             import asyncio
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_id,
+                contents=prompt
+            )
             # Remove markdown code blocks if present
             clean_json = response.text.strip().replace('```json', '').replace('```', '')
             ai_data = json.loads(clean_json)
@@ -56,6 +67,8 @@ class AIClassifier:
                     table.table_type = data.get('table_type', 'dimension')
                     table.business_entity = data.get('business_entity', 'other')
                     table.importance_score = data.get('importance_score', 10)
+                    table.decision_provenance = data.get('decision_provenance', "Classified based on schema structure and column naming patterns.")
+                    table.property_mapping = data.get('property_mapping', {})
             
             return schema
 
@@ -86,6 +99,8 @@ class AIClassifier:
                 table.table_type = t_type
                 table.business_entity = b_entity
                 table.importance_score = importance
+                table.decision_provenance = self._generate_heuristic_provenance(table, t_type, b_entity)
+                table.property_mapping = self._generate_heuristic_property_mapping(table)
         
         return schema
     
@@ -171,7 +186,9 @@ class AIClassifier:
             'loan': ['loan', 'credit', 'mortgage'],
             'card': ['card', 'debit', 'credit_card'],
             'fraud': ['fraud', 'alert', 'suspicious'],
-            'audit': ['audit', 'log', 'history']
+            'audit': ['audit', 'log', 'history'],
+            'asset': ['battery', 'batteries', 'iot', 'device', 'vehicle'],
+            'infrastructure': ['grid', 'station', 'warehouse', 'bess', 'storage']
         }
         
         for entity, keywords in entities.items():
@@ -268,6 +285,45 @@ class AIClassifier:
                 })
                 
         return anomalies
+
+    def _generate_heuristic_provenance(self, table: Any, t_type: str, b_entity: str) -> str:
+        """Generate a heuristic explanation for classification"""
+        def get(obj, attr, default=None):
+            return obj.get(attr, default) if isinstance(obj, dict) else getattr(obj, attr, default)
+            
+        row_count = get(table, 'row_count', 0)
+        fks = get(table, 'foreign_keys', [])
+        
+        reasons = []
+        if t_type == 'fact':
+            reasons.append(f"Identified as 'fact' due to high relational complexity ({len(fks)} links)")
+            if row_count > 10000:
+                reasons.append("significant data volume")
+        else:
+            reasons.append("Identified as 'dimension' acting as a master entity or reference table")
+            
+        if b_entity != 'other':
+            reasons.append(f"categorized under business domain '{b_entity}' based on naming markers")
+            
+        return " ".join(reasons).capitalize() + "."
+
+    def _generate_heuristic_property_mapping(self, table: Any) -> Dict[str, str]:
+        """Map technical columns to semantic Palantir-style properties heuristically"""
+        def get(obj, attr, default=None):
+            return obj.get(attr, default) if isinstance(obj, dict) else getattr(obj, attr, default)
+            
+        columns = get(table, 'columns', [])
+        mapping = {}
+        
+        for col in columns:
+            name = get(col, 'name', '').lower()
+            if name in ['id', 'uid', 'uuid', 'pk']: mapping[name] = 'ObjectID'
+            elif 'created' in name or 'timestamp' in name: mapping[name] = 'EventTime'
+            elif 'amount' in name or 'price' in name or 'cost' in name: mapping[name] = 'FinancialMetric'
+            elif 'name' in name or 'title' in name: mapping[name] = 'DisplayName'
+            elif 'status' in name or 'state' in name: mapping[name] = 'LifecycleStatus'
+            
+        return mapping
 
     def generate_explanation(self, anomaly_id: str) -> str:
         """Generate a natural language story for an anomaly"""

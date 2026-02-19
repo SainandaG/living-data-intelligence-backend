@@ -1,18 +1,23 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, Zap, Shield, GitBranch, Terminal } from 'lucide-react';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 
 const BlueprintOverlay = ({ connectionId, tableName }) => {
     const [analysis, setAnalysis] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchAnalysis = async () => {
             try {
-                const res = await axios.get(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
-                setAnalysis(res.data);
+                setServiceUnavailable(false);
+                const res = await apiClient.get(`/evolution/analysis/table/${connectionId}/${tableName}`);
+                setAnalysis(res);
             } catch (err) {
+                if (err.response?.status === 404) {
+                    setServiceUnavailable(true);
+                }
                 console.error("Blueprint fetch failed:", err);
             } finally {
                 setLoading(false);
@@ -23,6 +28,13 @@ const BlueprintOverlay = ({ connectionId, tableName }) => {
     }, [connectionId, tableName]);
 
     if (loading) return null;
+    if (serviceUnavailable) {
+        return (
+            <div className="mt-8 p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm">
+                Evolution service not available. The backend evolution module may not be loaded.
+            </div>
+        );
+    }
 
     const metrics = analysis?.metrics || { gravity: 1.0, entropy: 0.1, vitality: 50 };
     const proofs = analysis?.proofs || {};

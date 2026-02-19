@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Activity,
@@ -8,7 +8,8 @@ import {
     GitBranch,
     Lightbulb,
     Zap,
-    X
+    X,
+    Layers
 } from 'lucide-react';
 
 import HealthDashboard from './HealthDashboard';
@@ -18,9 +19,11 @@ import PredictionDashboard from './PredictionDashboard';
 import RootCauseDashboard from './RootCauseDashboard';
 import RecommendationDashboard from './RecommendationDashboard';
 import DeepStatusDashboard from './DeepStatusDashboard';
+import OntologyExplorer from './OntologyExplorer';
 
 const dashboards = [
     { id: 'health', name: 'System Health', icon: Activity, component: HealthDashboard, color: '#00ff88' },
+    { id: 'ontology', name: 'Ontology & Entities', icon: Layers, component: OntologyExplorer, color: '#00D7FF' },
     { id: 'deep-status', name: 'Deep Diagnostics', icon: Zap, component: DeepStatusDashboard, color: '#00D7FF' },
     { id: 'patterns', name: 'Behavior Patterns', icon: BarChart3, component: PatternDashboard, color: '#00ccff' },
     { id: 'anomalies', name: 'Risk Detection', icon: AlertTriangle, component: AnomalyDashboard, color: '#ff4757' },
@@ -43,12 +46,17 @@ export default function IntelligenceHub({ connectionId, selectedNode, onClose })
         return localStorage.getItem('intelligence_active_tab') || 'health';
     });
 
+    // Track which tabs have been visited to lazy-load them
+    const [visitedTabs, setVisitedTabs] = useState(new Set([activeTab]));
+
     React.useEffect(() => {
         localStorage.setItem('intelligence_active_tab', activeTab);
+        setVisitedTabs(prev => {
+            const newSet = new Set(prev);
+            newSet.add(activeTab);
+            return newSet;
+        });
     }, [activeTab]);
-
-    const ActiveComponent = dashboards.find(d => d.id === activeTab)?.component || HealthDashboard;
-    const activeColor = dashboards.find(d => d.id === activeTab)?.color || '#00ff88';
 
     // Extract table name from selectedNode or default to 'users'
     const tableName = selectedNode?.id && selectedNode.id !== 'hub' ? selectedNode.id : 'users';
@@ -133,24 +141,33 @@ export default function IntelligenceHub({ connectionId, selectedNode, onClose })
                         </div>
                     </div>
 
-                    {/* Main Content Area */}
+                    {/* Main Content Area - Cached / Keep-Alive Implementation */}
                     <div className="flex-1 overflow-y-auto bg-black/40 relative">
-                        <AnimatePresence mode="wait">
-                            <motion.div
-                                key={activeTab}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                transition={{ duration: 0.2 }}
-                                className="h-full"
-                            >
-                                <ActiveComponent
-                                    connectionId={connectionId}
-                                    tableName={tableName}
-                                    setActiveTab={setActiveTab}
-                                />
-                            </motion.div>
-                        </AnimatePresence>
+                        {dashboards.map((db) => {
+                            // Only render if it's the active tab OR has been visited (lazy load)
+                            if (!visitedTabs.has(db.id)) return null;
+
+                            const Component = db.component;
+                            const isActive = activeTab === db.id;
+
+                            return (
+                                <div
+                                    key={db.id}
+                                    className="h-full w-full"
+                                    style={{
+                                        display: isActive ? 'block' : 'none',
+                                        // Use visibility: hidden for better accessibility/focus handling if needed, 
+                                        // but display: none is better for performance here to stop layout recalc
+                                    }}
+                                >
+                                    <Component
+                                        connectionId={connectionId}
+                                        tableName={tableName}
+                                        setActiveTab={setActiveTab}
+                                    />
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             </div>

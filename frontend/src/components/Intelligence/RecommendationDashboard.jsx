@@ -1,22 +1,24 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 import { Lightbulb, Sparkles, ArrowRight, CheckCircle2, AlertCircle, TrendingUp, Activity } from 'lucide-react';
 
 export default function RecommendationDashboard({ connectionId, tableName, setActiveTab }) {
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Use tableName prop if available, otherwise fetch global recommendations
+                setServiceUnavailable(false);
                 const url = tableName
-                    ? `/api/intelligence/recommendations/${connectionId}/${tableName}`
-                    : `/api/intelligence/recommendations/${connectionId}`;
-                const res = await axios.get(url);
-                setRecommendations(res.data.recommendations || []);
+                    ? `/intelligence/recommendations/${connectionId}/${tableName}`
+                    : `/intelligence/recommendations/${connectionId}`;
+                const res = await apiClient.get(url);
+                setRecommendations(res.recommendations || []);
             } catch (err) {
+                if (err.response?.status === 404) setServiceUnavailable(true);
                 console.error("Failed to fetch recommendations:", err);
             } finally {
                 setLoading(false);
@@ -26,6 +28,15 @@ export default function RecommendationDashboard({ connectionId, tableName, setAc
         fetchData();
     }, [connectionId, tableName]);
 
+    if (serviceUnavailable) {
+        return (
+            <div className="p-8 flex items-center justify-center h-full">
+                <div className="text-center p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm max-w-md">
+                    Intelligence service not available. The backend intelligence module may not be loaded.
+                </div>
+            </div>
+        );
+    }
     if (loading) return (
         <div className="p-8 flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">

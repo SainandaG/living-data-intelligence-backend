@@ -1,3 +1,4 @@
+
 import psycopg2
 from psycopg2 import pool
 import pymysql
@@ -8,8 +9,9 @@ import time
 
 class DatabaseConnector:
     def __init__(self):
+        print(f"⚙️ DatabaseConnector initialized at {id(self)}")
         self.connections: Dict[str, Dict[str, Any]] = {}
-        self.locks: Dict[str, asyncio.Lock] = {}
+        self.locks: Dict[str, asyncio.Lock] = {} # Locks for non-pooled DBs (MySQL)
         self.connection_counter = 0
 
     def quote_identifier(self, connection_id: str, identifier: str) -> str:
@@ -30,31 +32,25 @@ class DatabaseConnector:
         start_time = time.perf_counter()
         self.connection_counter += 1
         connection_id = f"conn_{self.connection_counter}"
-        self.locks[connection_id] = asyncio.Lock()
         
+        
+        config['host'] = config.get('host', '').strip()
+        config['database'] = config.get('database', '').strip()
+        config['username'] = config.get('username', '').strip()
         
         db_type = config['db_type'].lower()
-        host = config.get('host', '').lower()
+        host = config['host'].lower()
         
         with open("connection_debug.log", "a") as f:
             f.write(f"\n--- {time.ctime()} ---\n")
             f.write(f"Incoming Host: {host}, DB Type: {db_type}\n")
         
-        # Auto-detect mock mode: if host is 'mock', use mock database regardless of db_type
+        # Reject mock connections — mock mode has been removed
         if host == 'mock':
-            db_type = 'mock'
-            print(f"🎭 Mock mode auto-detected (host='mock')")
+            raise ValueError("Mock database mode is no longer supported. Please provide a real database connection.")
             
-        # Optimization: Neon pooler endpoints are often much slower/unstable than direct ones
-        # and Neon ALWAYS requires SSL.
+        # Optimization: Neon ALWAYS requires SSL.
         if 'neon.tech' in host:
-            if '-pooler' in host:
-                new_host = host.replace('-pooler', '')
-                config['host'] = new_host
-                with open("connection_debug.log", "a") as f:
-                    f.write(f"AUTO-FIX: Stripped -pooler. New Host: {new_host}\n")
-                print(f"🚀 Optimized Neon connection: Stripped -pooler suffix ({host} -> {new_host})")
-            
             # Force db_type to neon for SSL requirement
             if db_type != 'neon':
                 db_type = 'neon'
@@ -73,7 +69,7 @@ class DatabaseConnector:
                 elif db_type in ['mongodb', 'mongo']:
                     return await asyncio.to_thread(self._connect_mongodb_sync, config)
                 elif db_type == 'mock':
-                    return "MOCK_CLIENT"
+                    raise ValueError("Mock database mode is no longer supported. Please use a real database connection.")
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -89,6 +85,9 @@ class DatabaseConnector:
                     'database': config['database']
                 }
             }
+            
+            # Initialize lock for this connection (Used for MySQL/Mongo)
+            self.locks[connection_id] = asyncio.Lock()
             
             duration = time.perf_counter() - start_time
             print(f"DONE: Connected to {db_type} database: {config['database']} (in {duration:.3f}s)")
@@ -191,17 +190,23 @@ class DatabaseConnector:
     async def query(self, connection_id: str, sql: str, params: tuple = ()):
         """Execute a query and return results with concurrency control"""
         start_time = time.perf_counter()
-        lock = self.locks.get(connection_id)
+        
         try:
-            if lock:
-                async with lock:
+            # Restore locking for MySQL/Mongo (Not Thread Safe)
+            # Postgres uses a pool, so it doesn't need this lock.
+            conn = self.connections.get(connection_id)
+            if conn and conn['type'] in ['mysql', 'mariadb', 'mongodb', 'mongo']:
+                async with self.locks[connection_id]:
                     result = await asyncio.to_thread(self._query_sync, connection_id, sql, params)
             else:
+                # Postgres (Pooled) - Run in parallel
                 result = await asyncio.to_thread(self._query_sync, connection_id, sql, params)
             
             duration = time.perf_counter() - start_time
             if duration > 0.5: # Log slow queries
-                print(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
+                # Suppress expected background schema ops
+                if "CREATE SCHEMA" not in sql and "neural_snapshots" not in sql:
+                    print(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
             return result
         except Exception as e:
             duration = time.perf_counter() - start_time
@@ -251,7 +256,7 @@ class DatabaseConnector:
                 return result
                 
             elif db_type == 'mock':
-                return self._get_mock_data(sql, params)
+                raise ValueError("Mock database mode is no longer supported.")
             else:
                 raise ValueError(f"Query not supported for {db_type}")
         except Exception as e:
@@ -281,42 +286,7 @@ class DatabaseConnector:
         for connection_id in list(self.connections.keys()):
             await self.close(connection_id)
 
-    def _get_mock_data(self, sql: str, params: tuple):
-        """Return simulated data for testing."""
-        sql_lower = sql.lower()
-        
-        if "information_schema.tables" in sql_lower:
-            return [
-                {"table_name": "users", "table_schema": "public"},
-                {"table_name": "orders", "table_schema": "public"},
-                {"table_name": "products", "table_schema": "public"}
-            ]
-        elif "information_schema.columns" in sql_lower:
-            return [
-                {"table_name": "users", "column_name": "id", "data_type": "integer", "is_nullable": "NO", "column_default": None, "character_maximum_length": None},
-                {"table_name": "users", "column_name": "created_at", "data_type": "timestamp", "is_nullable": "NO", "column_default": None, "character_maximum_length": None},
-                {"table_name": "orders", "column_name": "id", "data_type": "integer", "is_nullable": "NO", "column_default": None, "character_maximum_length": None},
-                {"table_name": "orders", "column_name": "created_at", "data_type": "timestamp", "is_nullable": "NO", "column_default": None, "character_maximum_length": None},
-                {"table_name": "products", "column_name": "id", "data_type": "integer", "is_nullable": "NO", "column_default": None, "character_maximum_length": None},
-                {"table_name": "products", "column_name": "created_at", "data_type": "timestamp", "is_nullable": "NO", "column_default": None, "character_maximum_length": None}
-            ]
-        elif "pg_class" in sql_lower:
-            return [
-                {"table_name": "users", "row_count": 1000},
-                {"table_name": "orders", "row_count": 5000},
-                {"table_name": "products", "row_count": 200}
-            ]
-        elif "min(\"created_at\")" in sql_lower or "min(created_at)" in sql_lower:
-            # Simulate birth dates
-            from datetime import datetime, timedelta
-            if "from \"users\"" in sql_lower:
-                return [{"birth_date": datetime.now() - timedelta(days=365)}]
-            if "from \"orders\"" in sql_lower:
-                return [{"birth_date": datetime.now() - timedelta(days=200)}]
-            if "from \"products\"" in sql_lower:
-                return [{"birth_date": datetime.now() - timedelta(days=300)}]
-        
-        return []
+    # _get_mock_data has been removed — mock mode is no longer supported
 
 # Global instance
 db_connector = DatabaseConnector()

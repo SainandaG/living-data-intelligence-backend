@@ -14,6 +14,7 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
                 setError(null);
                 console.log(`[IntelligencePanel] Fetching analysis for ${connectionId}/${tableName}`);
                 const response = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
+                if (response.status === 404) throw new Error('Evolution service not loaded');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
                 console.log('[IntelligencePanel] Analysis data:', data);
@@ -21,25 +22,7 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
             } catch (err) {
                 console.error('[IntelligencePanel] Analysis fetch error:', err);
                 setError(err.message);
-                // Set fallback data so panel still renders
-                setAnalysis({
-                    table_name: tableName,
-                    metrics: {
-                        gravity: 1.5,
-                        vitality: 50.0,
-                        entropy: 0.1234,
-                        hub_score: 0.5,
-                        in_degree: 0,
-                        out_degree: 0,
-                        row_count: 0
-                    },
-                    proofs: {
-                        gravity: "G = σ(log10(N) + C_s - 3.0) = 1.50",
-                        vitality: "V = min(100, 20log10(N) + 5G) = 50.0%",
-                        entropy: "H(x) = -Σ P(x)log2 P(x) = 0.1234"
-                    },
-                    narrative: `Analyzing node '${tableName}'... Neural Core is computing structural metrics.`
-                });
+                // analysis stays null — defaults at render handle display
             } finally {
                 setLoading(false);
             }
@@ -57,6 +40,7 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
             if (!connectionId || !tableName) return;
             try {
                 const res = await fetch(`/api/explainability/justification/${connectionId}/${tableName}`);
+                if (res.status === 404) return; // Explainability service not loaded
                 if (res.ok) {
                     const data = await res.json();
                     setJustification(data.justification);

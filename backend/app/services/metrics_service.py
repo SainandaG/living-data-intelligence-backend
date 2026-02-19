@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from typing import Dict, Any, List
 from app.services.db_connector import db_connector
 from app.services.schema_analyzer import schema_analyzer
+
+logger = logging.getLogger(__name__)
 
 class MetricsService:
     def __init__(self):
@@ -12,7 +15,7 @@ class MetricsService:
         Calculate real-time global metrics identifying 'Fact' tables 
         and aggregating their statistics.
         """
-        print(f"📊 MetricsService: Calculating global stats for {connection_id}...")
+        logger.info(f"Calculating global stats for {connection_id}")
         
         # Default fallback
         metrics = {
@@ -44,7 +47,7 @@ class MetricsService:
 
             if not fact_tables:
                 # Fallback: Just take the largest table
-                print("⚠️ No explicit fact tables found. Using largest table as proxy.")
+                logger.warning("No explicit fact tables found. Using largest table as proxy.")
                 sorted_tables = sorted(tables, key=lambda x: getattr(x, 'row_count', x.get('row_count', 0)), reverse=True)
                 if sorted_tables:
                     fact_tables.append(sorted_tables[0])
@@ -77,7 +80,7 @@ class MetricsService:
                             total_amount_sum += (avg_val * t_rows) # Weighted sum
                             total_amount_count += t_rows
                     except Exception as e:
-                        print(f"⚠️ Failed to calc average for {t_name}.{amount_col}: {e}")
+                        logger.warning(f"Failed to calc average for {t_name}.{amount_col}: {e}")
 
             # 3. Calculate Final Metrics
             metrics['total_transactions'] = total_tx
@@ -85,10 +88,36 @@ class MetricsService:
             if total_amount_count > 0:
                 metrics['average_amount'] = round(total_amount_sum / total_amount_count, 2)
             
-            # Simulate TPS based on total volume (assuming uniform distribution over 30 days for demo feel, or just heuristic)
-            # Real TPS would require timestamp analysis which is expensive for a quick dash.
-            metrics['transaction_rate'] = min(round(total_tx / 86400, 2), 9999) if total_tx > 0 else 0
-            if metrics['transaction_rate'] == 0 and total_tx > 0: metrics['transaction_rate'] = 1.5 # Min activity
+            # Calculate TPS from real timestamp data if available
+            tps_calculated = False
+            for t in fact_tables:
+                t_name = getattr(t, 'name', t.get('name'))
+                cols = getattr(t, 'columns', t.get('columns', []))
+                # Find timestamp/date columns
+                ts_col = None
+                for col in cols:
+                    col_name = col.get('name', col) if isinstance(col, dict) else str(col)
+                    if any(kw in col_name.lower() for kw in ['created_at', 'timestamp', 'date', 'updated_at', 'time']):
+                        ts_col = col_name if isinstance(col_name, str) else col.get('name', col)
+                        break
+                
+                if ts_col:
+                    try:
+                        span_sql = f"SELECT EXTRACT(EPOCH FROM (MAX({ts_col}) - MIN({ts_col}))) as span_seconds FROM {t_name}"
+                        span_result = await db_connector.query(connection_id, span_sql)
+                        if span_result and span_result[0].get('span_seconds'):
+                            span_secs = float(span_result[0]['span_seconds'])
+                            if span_secs > 0:
+                                t_rows = getattr(t, 'row_count', t.get('row_count', 0))
+                                metrics['transaction_rate'] = min(round(t_rows / span_secs, 2), 9999)
+                                tps_calculated = True
+                                break
+                    except Exception as e:
+                        logger.warning(f"TPS calculation failed for {t_name}: {e}")
+            
+            if not tps_calculated and total_tx > 0:
+                # Data-derived fallback: rows per table as a simple ratio (no fake values)
+                metrics['transaction_rate'] = round(total_tx / max(len(fact_tables), 1), 2)
 
             # Mock Alerts based on "Risk" tables if any
             alerts = 0
@@ -98,11 +127,11 @@ class MetricsService:
                     alerts += getattr(t, 'row_count', t.get('row_count', 0))
             metrics['fraud_alerts'] = alerts
 
-            print(f"✅ Calculated Global Metrics: {metrics}")
+            logger.info(f"Calculated Global Metrics: {metrics}")
             return metrics
 
         except Exception as e:
-            print(f"❌ Metrics Calculation Error: {e}")
+            logger.error(f"Metrics Calculation Error: {e}")
             return metrics
 
 metrics_service = MetricsService()

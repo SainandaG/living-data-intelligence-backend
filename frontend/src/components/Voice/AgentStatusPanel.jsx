@@ -27,6 +27,7 @@ const AgentStatusPanel = () => {
     };
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         fetchData();
         // Faster polling for dynamic feel
         const interval = setInterval(fetchData, 5000);

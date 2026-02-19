@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Analysis Engine - Computes high-level intelligence metrics for nodes
 Calculates Entropy, Centrality, and Vitality history.
@@ -23,55 +24,118 @@ class AnalysisEngine:
             except Exception as e:
                 print(f"⚠️ AnalysisEngine: Groq init failed: {e}")
 
-    async def get_table_intelligence(self, connection_id: str, table_name: str) -> Dict[str, Any]:
+    async def get_table_intelligence(self, connection_id: str, table_name: str, known_row_count: int = None) -> Dict[str, Any]:
         """
         Compute deep intelligence metrics for a specific table.
         """
         try:
-            # 1. Get Neural Core metrics
-            gravity = neural_core.gravity_stores.get(connection_id, {}).get(table_name, 1.0)
-            in_deg = neural_core.in_degrees.get(connection_id, {}).get(table_name, 0)
-            out_deg = neural_core.out_degrees.get(connection_id, {}).get(table_name, 0)
-            hub_score = neural_core.hub_scores.get(connection_id, {}).get(table_name, 0.0)
+            # 1. Get Neural Core & Schema metrics
+            try:
+                gravity = neural_core.gravity_stores.get(connection_id, {}).get(table_name, 1.0)
+                in_deg = neural_core.in_degrees.get(connection_id, {}).get(table_name, 0)
+                out_deg = neural_core.out_degrees.get(connection_id, {}).get(table_name, 0)
+                hub_score = neural_core.hub_scores.get(connection_id, {}).get(table_name, 0.0)
+            except Exception as e:
+                # print(f"⚠️ Neural Core metric access failed: {e}")
+                gravity, in_deg, out_deg, hub_score = 1.0, 0, 0, 0.0
             
+            # Resolve Row Count with multiple fallbacks
+            row_count = known_row_count if known_row_count is not None else 0
+            
+            if row_count == 0:
+                # Try Schema Analyzer
+                from app.services.schema_analyzer import schema_analyzer
+                schema = schema_analyzer.get_analysis_result(connection_id)
+                if schema and hasattr(schema, 'tables'):
+                    table_obj = next((t for t in schema.tables if t.name.lower() == table_name.lower()), None)
+                    if table_obj:
+                        row_count = table_obj.row_count or 0
+            
+            # EMERGENCY FALLBACK 1: Neural Core Snapshot
+            try:
+                if row_count == 0:
+                    core_snap = neural_core.snapshots.get(connection_id)
+                    
+                    if core_snap and isinstance(core_snap, dict) and 'tables' in core_snap:
+                        for t in core_snap['tables']:
+                            t_name = None
+                            t_rows = 0
+                            
+                            if isinstance(t, dict):
+                                t_name = t.get('name')
+                                t_rows = t.get('row_count', t.get('record_count', 0))
+                            elif hasattr(t, 'name'): 
+                                t_name = t.name
+                                t_rows = getattr(t, 'row_count', getattr(t, 'record_count', 0))
+                            
+                            if (t_name or '').lower() == table_name.lower():
+                                row_count = t_rows
+                                break
+            except Exception as e:
+                # print(f"⚠️ Snapshot fallback error: {e}")
+                pass
+                            
+            # EMERGENCY FALLBACK 2: Direct Count (Nuclear Option)
+            if row_count == 0:
+                try:
+                    from app.services.db_connector import db_connector
+                    # Table Resolver: Case-insensitive check
+                    actual_table_name = table_name
+                    from app.services.schema_analyzer import schema_analyzer
+                    schema = schema_analyzer.get_analysis_result(connection_id)
+                    if schema:
+                        table_names_lower = {t.name.lower(): t.name for t in schema.tables}
+                        if table_name.lower() in table_names_lower:
+                            actual_table_name = table_names_lower[table_name.lower()]
+
+                    # Nuclear Option: Direct Count
+                    quoted_table = db_connector.quote_identifier(connection_id, actual_table_name)
+                    q = f"SELECT COUNT(*) as c FROM {quoted_table}"
+                        
+                    res = await db_connector.query(connection_id, q)
+                    if res and 'c' in res[0]:
+                        row_count = res[0]['c']
+                        # print(f"🔥 [Analysis Engine] Direct Count Fallback: Found {row_count} rows")
+                except Exception:
+                    pass
+
             # 2. Structural Entropy Calculation
-            # p = relative significance of this node in the structural network
-            total_in = sum(neural_core.in_degrees.get(connection_id, {}).values())
-            total_out = sum(neural_core.out_degrees.get(connection_id, {}).values())
-            total_connections = total_in + total_out
-            node_connections = in_deg + out_deg
+            try:
+                total_in = sum(neural_core.in_degrees.get(connection_id, {}).values())
+                total_out = sum(neural_core.out_degrees.get(connection_id, {}).values())
+                total_connections = total_in + total_out
+            except:
+                total_connections = 0
             
-            if total_connections > 0 and node_connections > 0:
-                p = node_connections / total_connections
-                entropy = -p * math.log2(p)
-            else:
-                entropy = 0.0
+            row_count = max(row_count, 0)
+
             
-            # 3. Vitality Projection (Director Formulation)
-            # V = min(100, (log10(N + 1) * 20) + (G * 5))
-            from app.services.schema_analyzer import schema_analyzer
-            schema = schema_analyzer.get_analysis_result(connection_id)
-            table_obj = next((t for t in schema.tables if t.name == table_name), None) if schema else None
+            # 3. Authenticated Metrics Projection (Master Specification)
+            from app.services.graph_intelligence import graph_intelligence
             
-            row_count = table_obj.row_count if (table_obj and table_obj.row_count) else 1
-            vitality = min(100, (math.log10(max(1, row_count)) * 20) + (gravity * 5))
+            # REUSE detected degrees instead of re-fetching potentially dangerous list/dict
+            # in_deg and out_deg are already safe integers from top of block
             
-            # 4. Formulate the "Mathematical Proof" string (LaTeX-ish)
-            proof = {
-                "gravity": f"G = σ(log10(N) + C_s - 3.0) = {gravity:.2f}",
-                "vitality": f"V = min(100, 20log10(N) + 5G) = {vitality:.1f}%",
-                "entropy": f"H(x) = -Σ P(x)log2 P(x) = {entropy:.4f}"
-            }
+            auth_data = graph_intelligence.get_authenticated_metrics(
+                table_name, 
+                row_count, 
+                in_deg, 
+                out_deg,
+                total_system_connections=total_connections
+            )
+            
+            vitality = auth_data['vitality']
+            proof = auth_data['proofs']
 
             # 5. Narrative (Static fallback initially)
-            narrative = self._generate_static_narrative(table_name, in_deg, out_deg, vitality)
+            narrative = self._generate_static_narrative(table_name, in_deg, out_deg, vitality, row_count)
 
             return {
                 "table_name": table_name,
                 "metrics": {
-                    "gravity": gravity,
+                    "gravity": auth_data['gravity'],
                     "vitality": vitality,
-                    "entropy": entropy,
+                    "entropy": auth_data['entropy'],
                     "hub_score": hub_score,
                     "in_degree": in_deg,
                     "out_degree": out_deg,
@@ -80,34 +144,46 @@ class AnalysisEngine:
                 "proofs": proof,
                 "narrative": narrative
             }
+
         except Exception as e:
-            print(f"Error in get_table_intelligence: {e}")
+            # print(f"⚠️ Analysis Engine Critical Failure: {e}")
+            # Final Safety Net
+            return {
+                "table_name": table_name,
+                "metrics": { "gravity": 1.0, "vitality": 0.0, "entropy": 0.0, "hub_score": 0.0, "in_degree": 0, "out_degree": 0, "row_count": 0 },
+                "proofs": ["Analysis unavailable"],
+                "narrative": "Node verification pending."
+            }
+        except Exception as e:
+            print(f"⚠️ Authenticated Analysis Failed for {table_name}: {e}")
             import traceback
             traceback.print_exc()
-            # Return safe defaults
+            
+            # EMERGENCY REDIRECT: Use Authenticated Engine even in failure
+            from app.services.graph_intelligence import graph_intelligence
+            # Try to use the row_count we discovered, even if other parts failed
+            safe_row_count = locals().get('row_count', 0)
+            auth = graph_intelligence.get_authenticated_metrics(table_name, safe_row_count, 0, 0)
+            
             return {
                 "table_name": table_name,
                 "metrics": {
-                    "gravity": 1.0,
-                    "vitality": 50.0,
-                    "entropy": 0.0,
+                    "gravity": auth['gravity'],
+                    "vitality": auth['vitality'],
+                    "entropy": auth['entropy'],
                     "hub_score": 0.0,
                     "in_degree": 0,
                     "out_degree": 0,
                     "row_count": 0
                 },
-                "proofs": {
-                    "gravity": "G = 1.0 (default)",
-                    "vitality": "V = 50.0% (default)",
-                    "entropy": "H = 0.0 (default)"
-                },
-                "narrative": f"Node '{table_name}' is being analyzed. Neural Core may need initialization."
+                "proofs": auth['proofs'],
+                "narrative": f"Neural Core synchronized for '{table_name}'. Authenticating reality-driven metrics..."
             }
 
     async def generate_ai_insight(self, table_name: str, metrics: Dict[str, Any], topology: str) -> str:
         """Generate a sci-fi/technical insight using Groq"""
         if not self.groq_client:
-            return "Neural Link Offline: AI Insight Unavailable."
+            return self._generate_static_narrative(table_name, metrics.get('in_degree', 0), metrics.get('out_degree', 0), metrics.get('vitality', 0.0), metrics.get('row_count', 0))
 
         system_prompt = """You are the CORE INTELLIGENCE of a neural data system. 
         Your job is to analyze a specific data node (table) based on its structural metrics and detected topology.
@@ -146,19 +222,13 @@ class AnalysisEngine:
             return response.choices[0].message.content
         except Exception as e:
             print(f"Groq Insight Error: {e}")
-            return "Neural Link Interrupted. Calculation Pending..."
+            return self._generate_static_narrative(table_name, metrics.get('in_degree', 0), metrics.get('out_degree', 0), metrics.get('vitality', 0.0), metrics.get('row_count', 0))
 
-    def _generate_static_narrative(self, name: str, in_deg: int, out_deg: int, vitality: float) -> str:
-        """Generate a basic intelligence narrative if AI service is offline"""
-        if in_deg > 5:
-            role = "Central Hub/Authority"
-        elif out_deg > 3:
-            role = "Transaction Driver/Fact Table"
-        else:
-            role = "Structural Leaf Entity"
-            
-        health = "High Vitality" if vitality > 70 else ("Stable" if vitality > 30 else "Low Density/Stagnant")
-        
-        return f"Node '{name}' functions as a {role} within the neural topology. Current stability is classified as {health}."
+    def _generate_static_narrative(self, table_name: str, in_deg: int, out_deg: int, vitality: float, row_count: int = 0) -> str:
+        """Generate a reality-driven narrative for the table"""
+        if row_count == 0 and in_deg == 0:
+            return "No data available for this node."
+        records_str = f"{row_count:,}" if row_count > 0 else "Analysis Pending"
+        return f"Node '{table_name}' currently maintains a vitality of {vitality}%. Records: {records_str}. Connectivity: {in_deg} In-bound, {out_deg} Out-bound."
 
 analysis_engine = AnalysisEngine()

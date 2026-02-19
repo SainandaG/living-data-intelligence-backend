@@ -5,8 +5,15 @@
  * - Standardized error messages
  * - Severity levels
  * - Console logging
- * - Future integration with toast notifications
+ * - Pluggable external error reporter (Sentry, LogRocket, etc.)
  */
+
+/**
+ * Pluggable error reporter — call setErrorReporter() at app init to wire up
+ * an external service. Example: setErrorReporter((err, log) => Sentry.captureException(err, { extra: log }))
+ */
+let _errorReporter = null;
+export const setErrorReporter = (reporterFn) => { _errorReporter = reporterFn; };
 
 /**
  * Handle API errors with consistent formatting
@@ -141,8 +148,10 @@ export const logError = (error, context, metadata = {}) => {
 
     console.error('[Error Log]', errorLog);
 
-    // TODO: Send to error tracking service (e.g., Sentry, LogRocket)
-    // Example: Sentry.captureException(error, { contexts: { custom: errorLog } });
+    // Forward to external error tracker if configured via setErrorReporter()
+    if (_errorReporter) {
+        try { _errorReporter(error, errorLog); } catch (_) { /* silent */ }
+    }
 };
 
 /**

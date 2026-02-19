@@ -32,6 +32,112 @@ import soundSystem from './utils/SoundSystem';
 import { useWebSocket } from './hooks/useWebSocket';
 import apiClient from './utils/apiClient';
 
+// ============ HOVER INTERFACE: Intelligence Preview ============
+const IntelligencePreview = ({ node }) => {
+  if (!node) return null;
+  return (
+    <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white z-50 pointer-events-none transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 shadow-2xl min-w-[320px]">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: '#' + (typeof node.color === 'number' ? node.color.toString(16).padStart(6, '0') : (node.color || '22d3ee').toString().replace('0x', '')) }}></div>
+        <h3 className="text-lg font-bold tracking-tight">{node.name || node.id || 'Unknown Entity'}</h3>
+        <span className="text-[10px] uppercase tracking-widest opacity-50 px-2 py-0.5 rounded border border-white/10 bg-white/5 font-mono">Heuristic Preview</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 text-sm font-light">
+        <div>
+          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Vitality Score</p>
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full transition-all duration-1000" style={{ width: `${node.vitality || 100}%`, backgroundColor: (node.vitality < 40 ? '#ef4444' : (node.vitality < 70 ? '#fbbf24' : '#10b981')) }}></div>
+            </div>
+            <span className="font-mono text-xs">{Math.round(node.vitality || 100)}%</span>
+          </div>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Neural Gravity</p>
+          <p className="font-mono text-cyan-400 font-bold">{(node.neural_gravity || node.gravity_score || 1.0).toFixed(2)}G</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 text-sm font-light mt-2">
+        <div>
+          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Ontology Class</p>
+          <p className="font-bold text-white uppercase tracking-tighter">
+            {node.entity || node.table_type || 'Unclassified'}
+          </p>
+        </div>
+      </div>
+
+      {node.avg_temperature && (
+        <div className="mt-2 p-2 bg-slate-900/50 border border-slate-700/50 rounded space-y-2">
+
+          {/* Temperature */}
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[9px] uppercase opacity-60 tracking-wider text-orange-200">Temp</span>
+              <span className={`text-xs font-bold font-mono ${node.avg_temperature > 45 ? 'text-red-400 animate-pulse' : 'text-orange-400'}`}>
+                {Number(node.avg_temperature).toFixed(1)}°C
+              </span>
+            </div>
+            <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-500 ${node.avg_temperature > 45 ? 'bg-red-500' : 'bg-orange-500'}`}
+                style={{ width: `${Math.min(100, (node.avg_temperature / 60) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Voltage (if available) */}
+          {node.avg_voltage && (
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[9px] uppercase opacity-60 tracking-wider text-blue-200">Voltage</span>
+                <span className="text-xs font-bold font-mono text-blue-400">{Number(node.avg_voltage).toFixed(1)}V</span>
+              </div>
+              <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${Math.min(100, (node.avg_voltage / 60) * 100)}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Current (if available) */}
+          {node.avg_current && (
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-[9px] uppercase opacity-60 tracking-wider text-yellow-200">Current</span>
+                <span className="text-xs font-bold font-mono text-yellow-400">{Number(node.avg_current).toFixed(1)}A</span>
+              </div>
+              <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full bg-yellow-500 transition-all duration-500" style={{ width: `${Math.min(100, (node.avg_current / 20) * 100)}%` }} />
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {node.decision_provenance && (
+        <div className="mt-3 p-2 bg-white/5 rounded-lg border border-white/5">
+          <p className="text-[9px] uppercase font-bold text-cyan-400/80 tracking-widest mb-1 flex items-center gap-1">
+            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse"></span>
+            Decision Provenance
+          </p>
+          <p className="text-[11px] text-gray-300 italic leading-snug">
+            "{node.decision_provenance}"
+          </p>
+        </div>
+      )}
+
+      {(node.last_activity) && (
+        <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center text-[11px] opacity-60 italic font-mono">
+          <span>Signal Quality: High</span>
+          <span>{node.last_activity || 'Heartbeat Active'}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Simple Error Boundary for Debugging
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -93,6 +199,7 @@ const MainDashboard = () => {
   const [rlActive, setRlActive] = useState(false);
   const [clusteringMethod, setClusteringMethod] = useState('heuristic');
   const [mlInsights, setMlInsights] = useState(null);
+  const [simUpdate, setSimUpdate] = useState(null); // Toast for simulation updates 
   const [gravitySuggestions, setGravitySuggestions] = React.useState([]);
   const [viewMode, setViewMode] = useState('overview');
   const [drillDownTable, setDrillDownTable] = useState(null);
@@ -106,6 +213,7 @@ const MainDashboard = () => {
   const [breadcrumbs, setBreadcrumbs] = useState([]);
   const [activeLens, setActiveLens] = useState('ops'); // New Lens State
   const [activeLayoutMode, setActiveLayoutMode] = useState('galaxy'); // SAI Layout Mode
+  const [hoveredNode, setHoveredNode] = useState(null); // Intelligence Preview State
 
   // Lens Switch Handler
   const handleToggleLens = React.useCallback((lens) => {
@@ -126,7 +234,7 @@ const MainDashboard = () => {
   }, []);
 
   // --- REAL-TIME SYNC (WebSocket) ---
-  const wsUrl = connectionId ? `ws://localhost:8001/ws/${connectionId}` : null;
+  const wsUrl = connectionId ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${connectionId}` : null;
   const { isConnected: wsConnected, lastMessage } = useWebSocket(wsUrl);
 
 
@@ -167,6 +275,31 @@ const MainDashboard = () => {
         gravity: aiStats.avg_gravity ? `${aiStats.avg_gravity.toFixed(2)}x` : '1.0x',
         optimization: 'Active'
       }));
+
+      // Live Node Update: Inject Battery Temp without reload
+      if (metrics.avg_battery_temp) {
+        // VISUALIZATION: Notify user of update
+        const temp = parseFloat(metrics.avg_battery_temp).toFixed(1);
+        const volt = metrics.avg_battery_volt ? parseFloat(metrics.avg_battery_volt).toFixed(1) : '—';
+        const curr = metrics.avg_battery_curr ? parseFloat(metrics.avg_battery_curr).toFixed(1) : '—';
+
+        setSimUpdate(`🔋 Battery Update: ${temp}°C | ${volt}V | ${curr}A`);
+        setTimeout(() => setSimUpdate(null), 4000);
+
+        setGraphData(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(n =>
+            n.name === 'batteries'
+              ? {
+                ...n,
+                avg_temperature: metrics.avg_battery_temp,
+                avg_voltage: metrics.avg_battery_volt,
+                avg_current: metrics.avg_battery_curr
+              }
+              : n
+          )
+        }));
+      }
 
       // 4. Update Node Evolution (Incremental)
       if (lastMessage.evolved_nodes) {
@@ -342,8 +475,9 @@ const MainDashboard = () => {
           glow_intensity: node.node_glow || 0.5,
           node_glow: node.node_glow || 1.0,
           importance_score: node.importance_score || 1.0,
+          cluster: node.cluster, // [FIX] Preserve cluster property for coloring
           foreign_keys: node.foreign_keys || [],
-          customMetrics: node.customMetrics || { 'Data Quality': '95%', 'Last Update': '2m ago' }
+          customMetrics: node.customMetrics || {}
         };
       });
       const edgesTransformed = (rawData.edges || []).map(e => ({
@@ -355,31 +489,8 @@ const MainDashboard = () => {
         edge_glow: e.edge_glow || 1.0
       }));
 
-      // MOCK DATA FALLBACK: If backend connection failed/missing data, generate shim
-      // This ensures visual verification of SAI features is possible
-      let finalLatentManifold = rawData.latent_manifold;
-      if (!finalLatentManifold) {
-        console.warn('[App] Injecting Mock Manifold Data for Verification');
-        const mockEmitters = [];
-        const categories = ['dimension', 'fact', 'time_intelligence', 'fraud'];
-        const colors = { dimension: '#22d3ee', fact: '#fbbf24', time_intelligence: '#a78bfa', fraud: '#ef4444' };
-
-        for (let i = 0; i < 40; i++) {
-          const cat = categories[i % 4];
-          // Create distinct clusters for testing arrows
-          const angle = (i % 4) * (Math.PI / 2);
-          const dist = 5000;
-          mockEmitters.push({
-            x: Math.cos(angle) * dist + (Math.random() - 0.5) * 2000,
-            y: 1000 + Math.random() * 2000,
-            z: Math.sin(angle) * dist + (Math.random() - 0.5) * 2000,
-            color: colors[cat],
-            classification: cat,
-            weight: 0.5 + Math.random()
-          });
-        }
-        finalLatentManifold = { emitters: mockEmitters };
-      }
+      // Use real latent manifold data from backend (no mock data injection)
+      const finalLatentManifold = rawData.latent_manifold || null;
 
       setGraphData({
         nodes: nodesTransformed,
@@ -392,26 +503,8 @@ const MainDashboard = () => {
       setTimeout(() => setAiStatus(null), 5000);
     } catch (e) {
       console.error('Error fetching graph data:', e);
-      setAiStatus("Backend Unavailable: Loading Offline Demo...");
-
-      // OFFLINE MODE (Static Demo Dataset)
-      // Replaces random noise generation with deterministic demo data
-      fetch('/demo_dataset.json')
-        .then(res => res.json())
-        .then(demoData => {
-          setGraphData({
-            nodes: demoData.nodes || [],
-            edges: demoData.edges || [],
-            latent_manifold: demoData.latent_manifold || { emitters: [] },
-            intelligence_stream: []
-          });
-          setAiStatus("Offline Mode Active");
-        })
-        .catch(err => {
-          console.error("Offline Mode Failed:", err);
-          setAiStatus("System Offline");
-        });
-
+      setAiStatus(`Backend Unavailable: ${e.message}`);
+      // No demo fallback — show honest empty state
     } finally { setLoading(false); }
   }, [fetchGravitySuggestions, graphData.nodes.length]);
 
@@ -493,11 +586,11 @@ const MainDashboard = () => {
         });
         /*
         await fetch('/api/ai/optimize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ active: true, connection_id: connectionId, method: newMethod })
+        method: 'POST',
+      headers: {'Content-Type': 'application/json' },
+      body: JSON.stringify({active: true, connection_id: connectionId, method: newMethod })
         });
-        */
+      */
         if (connectionId) fetchRealGraphData(connectionId);
       } catch (e) { console.error("Failed to update clustering", e); }
     }
@@ -507,7 +600,7 @@ const MainDashboard = () => {
 
   const sidebarProps = {
     actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity },
-    clusters: [{ name: 'Accounts Cluster', nodeCount: 15, active: true }, { name: 'Transaction Cluster', nodeCount: 42, active: false }],
+    clusters: mlInsights?.clusters || [],
     onClusterClick: console.log,
     selectedNode,
     mlInsights,
@@ -559,6 +652,13 @@ const MainDashboard = () => {
         onToggleLayoutMode={handleToggleLayoutMode}
       />
 
+      {/* SIMULATION TOAST */}
+      {simUpdate && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-black/80 border border-green-500/50 text-green-400 px-6 py-3 rounded-full shadow-lg backdrop-blur-md animate-bounce">
+          <span className="text-lg font-mono font-bold">{simUpdate}</span>
+        </div>
+      )}
+
       {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
       <div
         className={`fixed inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent'
@@ -572,9 +672,13 @@ const MainDashboard = () => {
           data={graphData}
           tps={liveStats.tps}
           onNodeClick={handleNodeClick}
+          onNodeHover={setHoveredNode}
           activeLens={activeLens}
+          clusteringMethod={clusteringMethod} // [FIX] Pass clustering method for visual updates
+          paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent'} // [FIX] Stop rendering when hidden
         />
       </div>
+      <IntelligencePreview node={hoveredNode} />
       <AgentStatusPanel />
       <VoiceControl
         onActionTriggered={handleAgentAction}
@@ -664,7 +768,5 @@ const MainDashboard = () => {
     </DashboardLayout >
   );
 };
-
-const ConnectionManagerWrapper = ({ onClose }) => <ConnectionModal onClose={onClose} />;
 
 export default App;

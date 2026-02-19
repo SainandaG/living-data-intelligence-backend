@@ -40,15 +40,12 @@ const AnalystChat = () => {
 
         } catch (error) {
             console.error(error);
-            // Fallback for demo if backend is offline or errors
-            setTimeout(() => {
-                const errorMsg = {
-                    id: Date.now() + 1,
-                    type: 'bot',
-                    text: `Warning: Backend connection failed. (${error.message}). I am running in local simulation mode.`
-                };
-                setMessages(prev => [...prev, errorMsg]);
-            }, 1000);
+            const errorMsg = {
+                id: Date.now() + 1,
+                type: 'bot',
+                text: `⚠️ Request failed: ${error.message}. Please check your backend connection and try again.`
+            };
+            setMessages(prev => [...prev, errorMsg]);
         } finally {
             setIsTyping(false);
         }

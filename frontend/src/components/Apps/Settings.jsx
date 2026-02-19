@@ -1,15 +1,25 @@
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, Shield, Wifi, Globe, Moon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, Shield, Wifi, Globe, Monitor, Volume2, VolumeX } from 'lucide-react';
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('general');
+    const [settings, setSettings] = useState({
+        systemName: 'Living Data Intelligence',
+        language: 'English (US)',
+        darkMode: true,
+        soundEnabled: true,
+        autoRefresh: true,
+        refreshInterval: 30,
+    });
 
     const tabs = [
         { id: 'general', label: 'General', icon: SettingsIcon },
-        { id: 'network', label: 'Network', icon: Wifi },
-        { id: 'security', label: 'Security', icon: Shield },
-        { id: 'display', label: 'Display', icon: Globe },
+        { id: 'display', label: 'Display', icon: Monitor },
     ];
+
+    const handleChange = (key, value) => {
+        setSettings(prev => ({ ...prev, [key]: value }));
+    };
 
     return (
         <div className="flex h-full text-white">
@@ -35,33 +45,72 @@ const Settings = () => {
                     <div className="space-y-6">
                         <h2 className="text-2xl font-bold">General Settings</h2>
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
-                                <div>
-                                    <div className="font-medium">System Name</div>
-                                    <div className="text-sm text-gray-400">Living Data Intelligence Node 01</div>
-                                </div>
-                                <button className="glass-button">Edit</button>
-                            </div>
-                            <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
-                                <div>
-                                    <div className="font-medium">Language</div>
-                                    <div className="text-sm text-gray-400">English (US)</div>
-                                </div>
-                                <button className="glass-button">Change</button>
-                            </div>
+                            <SettingRow label="System Name" description={settings.systemName} />
+                            <SettingRow label="Language" description={settings.language} />
+                            <SettingToggle
+                                label="Sound Effects"
+                                description="Enable UI sound effects"
+                                icon={settings.soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+                                value={settings.soundEnabled}
+                                onChange={(v) => handleChange('soundEnabled', v)}
+                            />
+                            <SettingToggle
+                                label="Auto Refresh"
+                                description={`Refresh data every ${settings.refreshInterval}s`}
+                                value={settings.autoRefresh}
+                                onChange={(v) => handleChange('autoRefresh', v)}
+                            />
                         </div>
                     </div>
                 )}
-                {/* Other tabs placeholders */}
-                {activeTab !== 'general' && (
-                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                        <SettingsIcon size={48} className="mb-4 opacity-20" />
-                        <p>Settings for {activeTab} coming soon.</p>
+                {activeTab === 'display' && (
+                    <div className="space-y-6">
+                        <h2 className="text-2xl font-bold">Display Settings</h2>
+                        <div className="space-y-4">
+                            <SettingToggle
+                                label="Dark Mode"
+                                description="Use dark theme throughout the interface"
+                                icon={<Monitor size={18} />}
+                                value={settings.darkMode}
+                                onChange={(v) => handleChange('darkMode', v)}
+                            />
+                        </div>
                     </div>
                 )}
             </div>
         </div>
     );
 };
+
+function SettingRow({ label, description }) {
+    return (
+        <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
+            <div>
+                <div className="font-medium">{label}</div>
+                <div className="text-sm text-gray-400">{description}</div>
+            </div>
+        </div>
+    );
+}
+
+function SettingToggle({ label, description, icon, value, onChange }) {
+    return (
+        <div className="flex items-center justify-between p-4 bg-white/5 rounded-lg border border-white/10">
+            <div className="flex items-center gap-3">
+                {icon && <span className="text-gray-400">{icon}</span>}
+                <div>
+                    <div className="font-medium">{label}</div>
+                    <div className="text-sm text-gray-400">{description}</div>
+                </div>
+            </div>
+            <button
+                onClick={() => onChange(!value)}
+                className={`w-12 h-6 rounded-full transition-colors relative ${value ? 'bg-cyan-500' : 'bg-white/20'}`}
+            >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${value ? 'left-[26px]' : 'left-0.5'}`} />
+            </button>
+        </div>
+    );
+}
 
 export default Settings;

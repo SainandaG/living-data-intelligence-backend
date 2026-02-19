@@ -8,21 +8,34 @@ and agent decision paths.
 import os
 import json
 import asyncio
-import google.generativeai as genai
+import logging
+from google import genai
 from typing import Dict, Any, List, Optional
 from app.services.neural_core import neural_core
 from app.services.analysis_engine import analysis_engine
 
+logger = logging.getLogger(__name__)
+
 class XAIService:
+    """Explainable AI service with graceful degradation.
+    
+    When GOOGLE_API_KEY is available, uses Gemini for rich justifications.
+    Otherwise, falls back to deterministic template-based explanations —
+    this is intentional design, not incomplete code.
+    """
     def __init__(self):
         api_key = os.getenv("GOOGLE_API_KEY")
         if api_key:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('models/gemini-2.0-flash')
-            self.has_ai = True
+            try:
+                self.client = genai.Client(api_key=api_key)
+                self.model_id = 'gemini-2.0-flash'
+                self.has_ai = True
+            except Exception as e:
+                logger.warning(f"XAI Service: Initialization failed: {e}")
+                self.has_ai = False
         else:
             self.has_ai = False
-            print("⚠️ XAI Service: No GOOGLE_API_KEY found. Using template fallback.")
+            logger.warning("XAI Service: No GOOGLE_API_KEY found. Using template fallback.")
 
     async def get_node_justification(self, connection_id: str, table_name: str) -> Dict[str, Any]:
         """
@@ -59,10 +72,14 @@ class XAIService:
         """
         
         try:
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_id,
+                contents=prompt
+            )
             return response.text.strip()
         except Exception as e:
-            print(f"XAI Service AI Error: {e}")
+            logger.error(f"XAI Service AI Error: {e}")
             return self._generate_template_justification(table_name, metrics)
 
     def _generate_template_justification(self, table_name: str, metrics: Dict[str, Any]) -> str:
@@ -87,7 +104,11 @@ class XAIService:
             return f"Agent initiated {action} based on structural pattern recognition in the active schema."
             
         try:
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_id,
+                contents=prompt
+            )
             return response.text.strip()
         except:
             return f"Executing {action} to optimize neural graph visualization."

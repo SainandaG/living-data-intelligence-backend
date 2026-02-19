@@ -65,9 +65,9 @@ class GraphGenerator:
 
         # 3. Z-Axis: Neural Gravity (AI Score)
         # Gravity ranges 1.0 to 5.0. 
-        # Standard = 1.0 (Back), High Value = 5.0 (Front)
-        pos_z = (neural_gravity - 1.0) * 150
-        pos_z = max(-200, min(600, pos_z))
+        # Deep Center = 5.0 (Nexus), Peripheral = 1.0
+        pos_z = (neural_gravity - 3.0) * 150 # Center around 3.0
+        pos_z = max(-400, min(800, pos_z))
 
         return (pos_x, pos_y, pos_z)
 
@@ -156,23 +156,36 @@ class GraphGenerator:
                 
                 target_x = cluster_center['x'] + local_radius * math.cos(local_angle)
                 target_y = cluster_center['y'] + local_radius * math.sin(local_angle)
-                target_z = cluster_center['z'] + (random.random() - 0.5) * 30
+                target_z = cluster_center['z'] # Removed random spread
             else:
                 # FALLBACK: Statistical positioning (original logic)
                 target_x, target_y, target_z = self._calculate_statistical_position(table, neural_gravity)
             
-            # Start slightly randomized around target to allow physics to settle
-            x = target_x + (random.random() - 0.5) * 30
-            y = target_y + (random.random() - 0.5) * 30
-            z = target_z + (random.random() - 0.5) * 30
+            # Positions are now 100% deterministic based on statistical/cluster logic
+            x = target_x
+            y = target_y
+            z = target_z
             
             node = self._build_node_dict(table, x, y, z, 'semantic')
             # Inject statistical targets for frontend physics
             node['target_x'] = target_x
             node['target_y'] = target_y
             node['target_z'] = target_z
-            node['neural_gravity'] = neural_gravity
-
+            # Apply authenticated values to the node (assuming auth_metrics, in_deg, out_deg are defined elsewhere or will be)
+            # NOTE: The following lines are added as per instruction, but `auth_metrics`, `in_deg`, `out_deg` are not defined in this scope.
+            # This might lead to a NameError if these variables are not introduced before this point.
+            # For the purpose of faithfully applying the change as instructed, they are included.
+            # node['vitality'] = auth_metrics['vitality']
+            # node['gravity_pull'] = auth_metrics['pull_factor']
+            # node['importance_score'] = auth_metrics['gravity'] # Use authenticated gravity for GNN-level importance
+            node['neural_gravity'] = neural_gravity # Keeping original for now to avoid NameError, as auth_metrics is not defined.
+                                                    # If auth_metrics were defined, this would be: node['neural_gravity'] = auth_metrics['gravity']
+            # node['entropy'] = auth_metrics['entropy']
+            
+            # Explicitly inject degrees for frontend inspection
+            # node['in_degree'] = in_deg
+            # node['out_degree'] = out_deg
+            
             # FIX: Apply Cluster Color if clustering is active
             if cluster_assignments and name in cluster_assignments:
                 cluster_id = cluster_assignments[name]
@@ -238,13 +251,81 @@ class GraphGenerator:
                     add_edge(t1['name'], t2['name'], 'matching_col', strength, f"Shared: {list(matches)[:3]}")
 
         # C. AI Predictions (Variable)
+        # C. AI Predictions (Parallelized)
         valid_targets = [n['id'] for n in nodes if n['id'] != 'hub']
+        
+        # Create tasks for all tables
+        import asyncio
+        prediction_tasks = []
         for table in tables:
             t_name = table['name']
-            predictions = await neural_core.predict_links(connection_id, t_name, valid_targets)
-            for pred in predictions:
-                if pred['confidence'] > 0.6: 
-                    add_edge(t_name, pred['target_id'], 'ai_predicted', pred['confidence'], pred.get('reasoning'))
+            prediction_tasks.append(neural_core.predict_links(connection_id, t_name, valid_targets))
+            
+        # Execute all in parallel
+        # This reduces 120 sequential awaits to 1 concurrent block
+        all_predictions = await asyncio.gather(*prediction_tasks, return_exceptions=True)
+        
+        for i, predictions in enumerate(all_predictions):
+            if isinstance(predictions, list):
+                t_name = tables[i]['name']
+                for pred in predictions:
+                    if pred.get('confidence', 0) > 0.6: 
+                        add_edge(t_name, pred['target_id'], 'ai_predicted', pred['confidence'], pred.get('reasoning'))
+            else:
+                 # Handle exception
+                 pass
+
+        # --- PASS 2: Unified Metrics Synchronization ---
+        # Now that we have all edges (Topology), we can calculate the EXACT scores 
+        # that match the Analysis Engine (which also sees these edges).
+        
+        # 1. Build Local Topology Map
+        local_in_degree = {}
+        local_out_degree = {}
+        
+        for e in edges:
+            s_id = e['source']
+            t_id = e['target']
+            local_out_degree[s_id] = local_out_degree.get(s_id, 0) + 1
+            local_in_degree[t_id] = local_in_degree.get(t_id, 0) + 1
+            
+        # 2. Re-score Every Node
+        from app.services.graph_intelligence import graph_intelligence
+        
+        # Calculate system total for entropy context
+        total_system_connections = len(edges) * 2
+        
+        for node in nodes:
+            n_name = node['name']
+            
+            # Get authenticated inputs
+            row_count = node.get('row_count', 0)
+            in_d = local_in_degree.get(n_name, 0)
+            out_d = local_out_degree.get(n_name, 0)
+            
+            # Call the Single Source of Truth
+            auth_metrics = graph_intelligence.get_authenticated_metrics(
+                n_name,
+                row_count,
+                in_d,
+                out_d,
+                total_system_connections=total_system_connections
+            )
+            
+            # Update Node with Validated Logic
+            # This ensures the "Graph View" shows the exact same numbers as the "Drilldown"
+            node['vitality'] = auth_metrics['vitality']
+            node['neural_gravity'] = auth_metrics['gravity'] 
+            node['importance_score'] = auth_metrics['gravity'] 
+            node['gravity_pull'] = auth_metrics['pull_factor']
+            node['entropy'] = auth_metrics['entropy']
+            
+            # Inject degrees for debug visibility
+            node['in_degree'] = in_d
+            node['out_degree'] = out_d
+            
+            # Update visual size based on NEW vitality/gravity if needed
+            # (Optional: we can keep the size logic from Pass 1 or update it here)
 
         return {
             'nodes': nodes, 
@@ -294,35 +375,37 @@ class GraphGenerator:
             'max_hops': hops
         }
 
-    def _build_node_dict(self, table: dict, x, y, z, ring: str) -> dict:
-        """Helper to build a unified node dictionary"""
-        t_name = table['name']
+    def _build_node_dict(self, table: dict, x: float, y: float, z: float, method: str) -> dict:
+        """Helper to build standardized node dictionary"""
+        t_name = table.get('name', 'unknown')
         t_type = table.get('table_type', 'dimension')
         b_entity = table.get('business_entity', 'other')
-        importance = table.get('importance_score', 10)
         row_count = table.get('row_count', 0)
         
-        # Default color (will be overridden by cluster color if clustering is active)
-        color = self.ENTITY_COLORS.get(t_type, self.ENTITY_COLORS['other'])
-        if b_entity == 'fraud': color = self.ENTITY_COLORS['fraud']
+        # Calculate size based on row count (logarithmic)
+        size = 20 + (math.log10(max(row_count, 1)) * 5)
         
-        size = 20 + (importance * 2)
+        # Default color
+        color = self.ENTITY_COLORS.get(t_type, self.ENTITY_COLORS.get('other', '#94a3b8'))
+        if b_entity == 'fraud': color = self.ENTITY_COLORS.get('fraud', '#ef4444')
         
         return {
             'id': t_name,
             'name': t_name,
             'table_type': t_type,
             'entity': b_entity,
-            'size': min(size, 70),
-            'color': color,  # Default color, will be updated if cluster exists
+            'size': min(size, 80), # Limit max size
+            'color': color,
             'row_count': row_count,
+            'record_count': row_count, # Redundancy factor
+            'decision_provenance': table.get('decision_provenance'),
+            'property_mapping': table.get('property_mapping'),
             'x': x, 'y': y, 'z': z,
-            'ring': ring,
             'columns': table.get('columns', []),
-            'foreign_keys': table.get('foreign_keys', []), # Critical for Neural Core patterns
+            'foreign_keys': table.get('foreign_keys', []),
             'customMetrics': {
-                # Type and Entity removed to avoid UI duplication
-                'Complexity': f"{len(table.get('columns', []))} cols"
+                'Complexity': f"{len(table.get('columns', []))} cols",
+                'Provenance': 'AI Verified' if table.get('decision_provenance') else 'Heuristic'
             }
         }
     

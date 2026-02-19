@@ -1,16 +1,33 @@
-// Placeholder sound files - these are minimal beep sounds for testing
-// Replace with actual audio files later
+// Sound system — uses Web Audio API for procedural sounds
+// No placeholder files needed
 
 export const SOUND_DATA = {
-    // Short click sound (100ms beep at 800Hz)
-    click: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
-
-    // Pulse sound (200ms beep at 440Hz)
-    pulse: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
-
-    // Confirm sound (150ms beep at 1000Hz)
-    confirm: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
-
-    // Ambient loop (silent for now - replace with actual ambient sound)
-    ambient: 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+    // Generated via Web Audio API at runtime — these keys are used as identifiers
+    click: null,
+    pulse: null,
+    confirm: null,
+    ambient: null
 };
+
+// Procedural sound generator using Web Audio API
+export function playSound(type, { volume = 0.3, duration = 0.1 } = {}) {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        const freqMap = { click: 800, pulse: 440, confirm: 1000, ambient: 220 };
+        osc.frequency.value = freqMap[type] || 440;
+        osc.type = type === 'ambient' ? 'sine' : 'square';
+
+        gain.gain.setValueAtTime(volume, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + duration);
+    } catch (e) {
+        // Audio not supported — silently skip
+    }
+}

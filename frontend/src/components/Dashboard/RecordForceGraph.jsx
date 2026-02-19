@@ -139,8 +139,13 @@ const Scene = ({ data, column }) => {
 
             // Distribute evenly on sphere surface using Golden Spiral method for cleaner look, 
             // or random for organic cloud. Let's use Random for organic.
-            theta = Math.random() * Math.PI * 2;
-            phi = Math.acos((Math.random() * 2) - 1);
+            // Deterministic random based on index
+            const seed = i * 12.9898;
+            const pseudoRandom1 = Math.abs(Math.sin(seed) * 43758.5453) % 1;
+            const pseudoRandom2 = Math.abs(Math.cos(seed) * 23421.631) % 1;
+
+            theta = pseudoRandom1 * Math.PI * 2;
+            phi = Math.acos((pseudoRandom2 * 2) - 1);
 
             const x = radius * Math.sin(phi) * Math.cos(theta);
             const y = radius * Math.sin(phi) * Math.sin(theta);
@@ -202,17 +207,27 @@ const Scene = ({ data, column }) => {
     );
 };
 
-const RecordForceGraph = ({ table, column, visible, onClose }) => {
+const RecordForceGraph = ({ table, column, visible, onClose, connectionId }) => {
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState([]);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         if (!visible || !table || !column) return;
 
         const fetchData = async () => {
             setLoading(true);
+            setServiceUnavailable(false);
             try {
-                const response = await fetch(`/api/data/sample/${table}/${column}`);
+                const url = connectionId
+                    ? `/api/data/sample/${table}/${column}?connection_id=${encodeURIComponent(connectionId)}`
+                    : `/api/data/sample/${table}/${column}`;
+                const response = await fetch(url);
+                if (response.status === 404) {
+                    setServiceUnavailable(true);
+                    setData([]);
+                    return;
+                }
                 const result = await response.json();
                 setData(result.data || []);
             } catch (err) {
@@ -223,9 +238,22 @@ const RecordForceGraph = ({ table, column, visible, onClose }) => {
         };
 
         fetchData();
-    }, [visible, table, column]);
+    }, [visible, table, column, connectionId]);
 
     if (!visible) return null;
+    if (serviceUnavailable) {
+        return (
+            <div className="record-constellation-overlay" style={{ background: 'rgba(0, 5, 16, 0.95)' }}>
+                <div className="constellation-header">
+                    <span className="breadcrumb-root">3D Statistical View</span>
+                    <button className="close-circle-btn" onClick={onClose}>×</button>
+                </div>
+                <div className="p-6 text-amber-200 text-sm border border-amber-500/20 rounded-2xl bg-amber-500/10 m-4">
+                    Data sample service not available. The backend data explorer module may not be loaded.
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="record-constellation-overlay" style={{ background: 'rgba(0, 5, 16, 0.95)' }}>

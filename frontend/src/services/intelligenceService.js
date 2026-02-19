@@ -1,5 +1,5 @@
 
-const API_BASE_URL = 'http://localhost:8001/api'; // Ensure this matches your backend port
+const API_BASE_URL = '/api';
 
 export const intelligenceService = {
     getLatentProjection: async () => {

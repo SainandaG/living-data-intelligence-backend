@@ -198,7 +198,6 @@ class T1Agent:
             raise ValueError("Missing table_name parameter")
         
         # Simulate action (in reality, this would be handled by frontend)
-        await asyncio.sleep(0.1)  # Simulate processing
         
         return {
             'action_type': 'graph_highlight',
@@ -214,8 +213,6 @@ class T1Agent:
         if not cluster_name:
             raise ValueError("Missing cluster_name parameter")
         
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'graph_zoom',
             'target': cluster_name,
@@ -225,8 +222,6 @@ class T1Agent:
     
     async def _handle_start_flow(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle start data flow action."""
-        await asyncio.sleep(0.05)
-        
         table_name = params.get('table_name')
         
         return {
@@ -238,8 +233,6 @@ class T1Agent:
     
     async def _handle_stop_flow(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle stop data flow action."""
-        await asyncio.sleep(0.05)
-        
         return {
             'action_type': 'graph_flow',
             'instruction': 'stop_flow',
@@ -248,8 +241,6 @@ class T1Agent:
     
     async def _handle_recalculate_gravity(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle gravity recalculation action."""
-        await asyncio.sleep(0.2)
-        
         return {
             'action_type': 'graph_layout',
             'instruction': 'recalculate_gravity',
@@ -258,8 +249,6 @@ class T1Agent:
     
     async def _handle_reset_view(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle reset camera view action."""
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'graph_camera',
             'target': 'overview',
@@ -269,8 +258,6 @@ class T1Agent:
     
     async def _handle_start_evolution(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle start evolution playback action."""
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'graph_evolution',
             'instruction': 'start_evolution',
@@ -279,8 +266,6 @@ class T1Agent:
     
     async def _handle_stop_evolution(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle stop evolution playback action."""
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'graph_evolution',
             'instruction': 'stop_evolution',
@@ -291,8 +276,6 @@ class T1Agent:
     
     async def _handle_run_anomaly(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle anomaly detection action."""
-        await asyncio.sleep(0.3)  # Simulate analysis
-        
         return {
             'action_type': 'analytics',
             'instruction': 'run_anomaly_detection',
@@ -302,8 +285,6 @@ class T1Agent:
     
     async def _handle_apply_clustering(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle clustering action."""
-        await asyncio.sleep(0.2)
-        
         return {
             'action_type': 'analytics',
             'instruction': 'apply_clustering',
@@ -315,8 +296,6 @@ class T1Agent:
     
     async def _handle_show_schema(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle show schema action."""
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'ui_navigation',
             'instruction': 'show_schema',
@@ -328,8 +307,6 @@ class T1Agent:
         table_name = params.get('table_name')
         if not table_name:
             raise ValueError("Missing table_name parameter")
-            
-        await asyncio.sleep(0.1)
         
         return {
             'action_type': 'ui_navigation',
@@ -342,8 +319,6 @@ class T1Agent:
         """Handle node formation simulation action."""
         table_name = params.get('table_name')
         
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'graph_evolution',
             'instruction': 'simulate_formation',
@@ -353,8 +328,6 @@ class T1Agent:
     
     async def _handle_system_report(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle system report action."""
-        await asyncio.sleep(0.1)
-        
         return {
             'action_type': 'analytics',
             'instruction': 'system_report',
@@ -364,8 +337,6 @@ class T1Agent:
     async def _handle_toggle_sonification(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle data sonification toggle."""
         active = params.get('active', True)
-        await asyncio.sleep(0.05)
-        
         return {
             'action_type': 'ui_audio',
             'instruction': 'toggle_sonification',

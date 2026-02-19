@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Drill-Down Service - Enables detailed exploration of individual records
 """
@@ -65,14 +66,23 @@ class DrillDownService:
             connection = db_connector.get_connection(connection_id)
             
             if connection['type'] in ['postgresql', 'mysql']:
+                # Table Resolver: Case-insensitive check
+                actual_table_name = table_name
+                from app.services.schema_analyzer import schema_analyzer
+                schema = schema_analyzer.get_analysis_result(connection_id)
+                if schema:
+                    table_names_lower = {t.name.lower(): t.name for t in schema.tables}
+                    if table_name.lower() in table_names_lower:
+                        actual_table_name = table_names_lower[table_name.lower()]
+
                 # Assume 'id' column exists
-                quoted_table = db_connector.quote_identifier(connection_id, table_name)
+                quoted_table = db_connector.quote_identifier(connection_id, actual_table_name)
                 # Parameters should be used for the value to prevent injection
                 query = f"SELECT * FROM {quoted_table} WHERE id = %s"
                 results = await db_connector.query(connection_id, query, (record_id,))
                 
                 return {
-                    'table': table_name,
+                    'table': actual_table_name,
                     'record': results[0] if results else None
                 }
             elif connection['type'] == 'mongodb':
@@ -104,14 +114,23 @@ class DrillDownService:
             foreign_key = relationship['column']
             
             if connection['type'] in ['postgresql', 'mysql']:
-                quoted_table = db_connector.quote_identifier(connection_id, related_table)
+                # Table Resolver: Case-insensitive check for related table
+                actual_related_table = related_table
+                from app.services.schema_analyzer import schema_analyzer
+                schema = schema_analyzer.get_analysis_result(connection_id)
+                if schema:
+                    table_names_lower = {t.name.lower(): t.name for t in schema.tables}
+                    if related_table.lower() in table_names_lower:
+                        actual_related_table = table_names_lower[related_table.lower()]
+
+                quoted_table = db_connector.quote_identifier(connection_id, actual_related_table)
                 quoted_col = db_connector.quote_identifier(connection_id, foreign_key)
                 query = f"SELECT * FROM {quoted_table} WHERE {quoted_col} = %s LIMIT 100"
                 results = await db_connector.query(connection_id, query, (record_id,))
                 
                 return {
                     'source_table': table_name,
-                    'related_table': related_table,
+                    'related_table': actual_related_table,
                     'records': results,
                     'count': len(results)
                 }
@@ -131,13 +150,22 @@ class DrillDownService:
             connection = db_connector.get_connection(connection_id)
             
             if connection['type'] in ['postgresql', 'mysql']:
-                quoted_table = db_connector.quote_identifier(connection_id, table_name)
+                # Table Resolver: Case-insensitive check
+                actual_table_name = table_name
+                from app.services.schema_analyzer import schema_analyzer
+                schema = schema_analyzer.get_analysis_result(connection_id)
+                if schema:
+                    table_names_lower = {t.name.lower(): t.name for t in schema.tables}
+                    if table_name.lower() in table_names_lower:
+                        actual_table_name = table_names_lower[table_name.lower()]
+
+                quoted_table = db_connector.quote_identifier(connection_id, actual_table_name)
                 quoted_col = db_connector.quote_identifier(connection_id, search_column)
                 query = f"SELECT * FROM {quoted_table} WHERE {quoted_col} LIKE %s LIMIT {limit}"
                 results = await db_connector.query(connection_id, query, (f"%{search_value}%",))
                 
                 return {
-                    'table': table_name,
+                    'table': actual_table_name,
                     'search_column': search_column,
                     'search_value': search_value,
                     'records': results,

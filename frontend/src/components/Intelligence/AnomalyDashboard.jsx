@@ -1,18 +1,21 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
+import apiClient from '../../utils/apiClient';
 import { AlertTriangle, ShieldAlert, Cpu, Activity, Clock } from 'lucide-react';
 
 export default function AnomalyDashboard({ connectionId }) {
     const [anomalies, setAnomalies] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [serviceUnavailable, setServiceUnavailable] = useState(false);
 
     useEffect(() => {
         const fetchAnomalies = async () => {
             try {
-                const res = await axios.get(`/api/intelligence/anomalies/${connectionId}`);
-                setAnomalies(res.data.anomalies || []);
+                setServiceUnavailable(false);
+                const res = await apiClient.get(`/intelligence/anomalies/${connectionId}`);
+                setAnomalies(res.anomalies || []);
             } catch (err) {
+                if (err.response?.status === 404) setServiceUnavailable(true);
                 console.error("Failed to fetch anomalies:", err);
             } finally {
                 setLoading(false);
@@ -24,6 +27,15 @@ export default function AnomalyDashboard({ connectionId }) {
         return () => clearInterval(interval);
     }, [connectionId]);
 
+    if (serviceUnavailable) {
+        return (
+            <div className="p-8 flex items-center justify-center h-full">
+                <div className="text-center p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-amber-200 text-sm max-w-md">
+                    Intelligence service not available. The backend intelligence module may not be loaded.
+                </div>
+            </div>
+        );
+    }
     if (loading) return (
         <div className="p-8 flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-4">
@@ -69,7 +81,7 @@ export default function AnomalyDashboard({ connectionId }) {
                             <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-2">
                                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest ${anomaly.severity === 'High' ? 'bg-red-500 text-white' :
-                                            anomaly.severity === 'Medium' ? 'bg-orange-500 text-white' : 'bg-yellow-500 text-black'
+                                        anomaly.severity === 'Medium' ? 'bg-orange-500 text-white' : 'bg-yellow-500 text-black'
                                         }`}>
                                         {anomaly.severity} Severity
                                     </span>

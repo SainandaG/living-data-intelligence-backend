@@ -81,32 +81,115 @@ class GraphIntelligence:
             'timestamp': datetime.now().isoformat()
         }
     
+    def record_health_snapshot(self, connection_id: str, score: int, state: str) -> None:
+        """Record a health snapshot for trend history (e.g. from realtime_monitor)."""
+        if connection_id not in self.health_history:
+            self.health_history[connection_id] = []
+        self.health_history[connection_id].append({
+            'timestamp': datetime.now().isoformat(),
+            'score': score,
+            'state': state
+        })
+        if len(self.health_history[connection_id]) > 100:
+            self.health_history[connection_id] = self.health_history[connection_id][-100:]
+    
+    def get_authenticated_metrics(self, table_name: str, row_count: int, in_degree: int, out_degree: int, total_system_connections: int = 200) -> Dict[str, Any]:
+        """
+        Master source of truth for all system metrics.
+        Returns authenticated values and LaTeX-style proof strings.
+        
+        Spec:
+        V = Γ(N, G) -> Tiered Logarithmic Progression weighted by G.
+        G = σ(ΣR * 2 + d_out + log(N)) -> Sigmoid structural mass.
+        H = -Σ p(i) log2 p(i) -> Shannon Entropy relative to global topology.
+        """
+        # 1. AUTHENTICATED GRAVITY (G)
+        # We use natural log (ln) to avoid the "flatness" of log10 for small row counts.
+        # R_sum = ΣR * 2 + d_out
+        r_sum = (in_degree * 2.0) + (out_degree * 1.0)
+        n_factor = math.log(max(1, row_count))
+        
+        raw_mass = r_sum + n_factor
+        
+        # Sigmoid Centering: For a table with 0 connections and 1000 rows (ln 1000 = 6.9), 
+        # we center the sigmoid around 10 to provide good contrast for hub nodes.
+        sigmoid_imp = 1 / (1 + math.exp(-(raw_mass - 10.0) / 2.0))
+        gravity = 1.0 + (sigmoid_imp * 4.0)
+        
+        # 2. AUTHENTICATED VITALITY (V)
+        # Tiered Logarithmic Progression (Γ)
+        if row_count == 0:
+            base_v = 15.0
+        elif row_count < 100:
+            base_v = 30.0 + (row_count / 100.0) * 10.0
+        elif row_count < 1000:
+            base_v = 40.0 + (math.log10(row_count) - 2.0) * 15.0
+        elif row_count < 10000:
+            base_v = 55.0 + (math.log10(row_count) - 3.0) * 15.0
+        else:
+            base_v = 70.0 + min(30.0, (math.log10(row_count) - 4.0) * 10.0)
+            
+        # Gravity weighting: G > 2.5 grants bonus health
+        gravity_bonus = (gravity - 2.5) * 5.0
+        vitality = min(100.0, max(5.0, base_v + gravity_bonus))
+
+        # 3. AUTHENTICATED ENTROPY (H)
+        # H = -Σ p(i) log2 p(i) -> Shannon Entropy of the local connectivity distribution
+        # We define the distribution as the balance between In-bound and Out-bound information flow.
+        
+        node_conn = in_degree + out_degree
+        entropy = 0.0
+        
+        if node_conn > 0:
+            p_in = in_degree / node_conn
+            p_out = out_degree / node_conn
+            
+            # Calculate terms, handling log(0) by treating 0*log(0) as 0
+            term_in = 0.0
+            if p_in > 0:
+                term_in = p_in * math.log2(p_in)
+                
+            term_out = 0.0
+            if p_out > 0:
+                term_out = p_out * math.log2(p_out)
+                
+            entropy = -(term_in + term_out)
+        else:
+            entropy = 0.0
+
+        return {
+            "gravity": round(gravity, 4),
+            "vitality": round(vitality, 1),
+            "entropy": round(entropy, 4),
+            "pull_factor": f"{ ( (sigmoid_imp * 0.8) + (min(2.0, gravity/3.0) * 0.2) ):.2f}x",
+            "proofs": {
+                "gravity": f"G = σ(2R + d_out + ln(N)) = {gravity:.4f}",
+                "vitality": f"V = Γ(N, G) = {vitality:.1f}%",
+                "entropy": f"H(x) = -Σ P(x)log2 P(x) = {entropy:.4f}"
+            }
+        }
+
+    def calculate_unified_vitality(self, row_count: int, importance: float) -> float:
+        """Legacy wrapper - please use get_authenticated_metrics"""
+        auth = self.get_authenticated_metrics("legacy", row_count, 0, 0)
+        return auth['vitality']
+
+    def get_gravity_pull(self, neural_gravity: float, gnn_importance: float) -> str:
+        """
+        Bridge to authenticated pull factor.
+        """
+        base_pull = (gnn_importance * 0.8) + (min(2.0, neural_gravity / 3.0) * 0.2)
+        return f"{base_pull:.2f}x"
+
     def calculate_node_vitality(self, node: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Calculate individual node vitality and adaptive properties
+        Deprecated - use calculate_unified_vitality for the score. 
+        This remains for pulse/glow/size calculations in legacy contexts.
         """
-        # Base vitality from row count
-        # Base vitality - Logarithmic scale (Handle small & large datasets)
-        row_count = node.get('row_count', 0)
-        if row_count > 0:
-            # log10(100) = 2 -> 30 + 28 = 58 (Healthy)
-            # log10(10000) = 4 -> 30 + 56 = 86 (Very Healthy)
-            base_vitality = min(100, 30 + (math.log10(row_count) * 14))
-        else:
-            base_vitality = 25 # Empty tables have low but not critical vitality
+        row_count = node.get('row_count', node.get('record_count', 0))
+        gravity = node.get('importance_score', node.get('centrality', 1.0))
         
-        # Adjust based on entity type
-        entity = node.get('entity', 'other')
-        if entity == 'transaction':
-            # Transaction nodes are more vital
-            vitality_multiplier = 1.5
-        elif entity == 'fraud':
-            # Fraud nodes vitality based on alert count
-            vitality_multiplier = 1.2 + (metrics.get('fraud_alerts', 0) / 10)
-        else:
-            vitality_multiplier = 1.0
-        
-        vitality = min(100, base_vitality * vitality_multiplier)
+        vitality = self.calculate_unified_vitality(row_count, gravity)
         
         # Calculate pulse rate (higher vitality = faster pulse)
         pulse_rate = 0.5 + (vitality / 100) * 1.5  # 0.5 to 2.0 seconds

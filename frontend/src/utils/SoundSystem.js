@@ -1,5 +1,6 @@
 /**
- * Sound System - Centralized audio manager for the application
+ * SoundSystem - Centralized audio manager for the application.
+ * All ambient state is stored as instance properties (no window globals).
  */
 
 class SoundSystem {
@@ -7,6 +8,7 @@ class SoundSystem {
         this.ctx = null;
         this.enabled = true;
         this.volume = 0.3;
+        this._currentAmbient = null; // Ambient drone state (was window._currentAmbient)
     }
 
     init() {
@@ -64,7 +66,7 @@ class SoundSystem {
 
             case 'formationAmbient':
                 // Deep drone for simulation
-                handleAmbient(this.ctx, this.volume);
+                this._startAmbient();
                 break;
 
             case 'voiceConfirm':
@@ -120,19 +122,17 @@ class SoundSystem {
         lfo.start(t);
         osc.stop(t + 0.6);
         setTimeout(() => {
-            try { lfo.stop(); } catch (e) { }
+            try { lfo.stop(); } catch (e) { /* ignore */ }
         }, 600);
     }
 
     stop(soundName) {
         if (soundName === 'formationAmbient') {
-            // Stop logic handles by the ambient function closure if we stored it, 
-            // but for simple MVP we'll just kill the specific global ambient node if we assign it.
-            if (window._currentAmbient) {
+            if (this._currentAmbient) {
                 try {
-                    window._currentAmbient.stop();
-                    window._currentAmbient = null;
-                } catch (e) { }
+                    this._currentAmbient.stop();
+                    this._currentAmbient = null;
+                } catch (e) { /* ignore */ }
             }
         }
     }
@@ -145,50 +145,53 @@ class SoundSystem {
         this.enabled = !this.enabled;
         return this.enabled;
     }
-}
 
-// Helper for ambient drone
-function handleAmbient(ctx, vol) {
-    if (window._currentAmbient) return; // Already playing
+    // Ambient drone - instance method instead of standalone function
+    _startAmbient() {
+        if (this._currentAmbient) return; // Already playing
 
-    // Low frequency drone
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+        const ctx = this.ctx;
+        const vol = this.volume;
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(60, ctx.currentTime); // 60Hz hum
+        // Low frequency drone
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-    // LFO for modulation
-    const lfo = ctx.createOscillator();
-    lfo.type = 'sine';
-    lfo.frequency.value = 0.2; // Slow pulse
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 50;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(60, ctx.currentTime); // 60Hz hum
 
-    lfo.connect(lfoGain);
-    lfoGain.connect(osc.frequency);
+        // LFO for modulation
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.2; // Slow pulse
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.value = 50;
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
 
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.3 * vol, ctx.currentTime + 2); // Fade in
+        osc.connect(gain);
+        gain.connect(ctx.destination);
 
-    osc.start();
-    lfo.start();
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.3 * vol, ctx.currentTime + 2); // Fade in
 
-    // Store to stop later - hacked onto window for simple singleton behavior
-    window._currentAmbient = {
-        stop: () => {
-            const t = ctx.currentTime;
-            gain.gain.setValueAtTime(gain.gain.value, t);
-            gain.gain.linearRampToValueAtTime(0, t + 1); // Fade out
-            setTimeout(() => {
-                osc.stop();
-                lfo.stop();
-            }, 1000);
-        }
-    };
+        osc.start();
+        lfo.start();
+
+        // Store stop closure on instance
+        this._currentAmbient = {
+            stop: () => {
+                const t = ctx.currentTime;
+                gain.gain.setValueAtTime(gain.gain.value, t);
+                gain.gain.linearRampToValueAtTime(0, t + 1); // Fade out
+                setTimeout(() => {
+                    osc.stop();
+                    lfo.stop();
+                }, 1000);
+            }
+        };
+    }
 }
 
 // Global instance

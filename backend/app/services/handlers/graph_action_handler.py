@@ -54,8 +54,31 @@ class GraphActionHandler(ActionHandler):
         }
         
     async def trace_lineage(self, params: Dict[str, Any]):
-        # Mock lineage calculation (real logic should go here or be called)
+        # Real lineage tracing via schema foreign key relationships
         target = params.get("table_name")
+        connection_id = params.get("connection_id")
+        lineage_nodes = [target]
+        
+        if connection_id:
+            try:
+                from app.services.schema_analyzer import schema_analyzer
+                schema = schema_analyzer.get_analysis_result(connection_id)
+                if schema:
+                    tables = schema.tables if hasattr(schema, 'tables') else schema.get('tables', [])
+                    for table in tables:
+                        t_name = getattr(table, 'name', table.get('name', ''))
+                        fks = getattr(table, 'foreign_keys', table.get('foreign_keys', []))
+                        for fk in fks:
+                            ref_table = fk.get('references_table', fk.get('to_table', ''))
+                            # Upstream: tables that reference target
+                            if ref_table and ref_table.lower() == target.lower() and t_name not in lineage_nodes:
+                                lineage_nodes.append(t_name)
+                            # Downstream: tables that target references
+                            if t_name.lower() == target.lower() and ref_table and ref_table not in lineage_nodes:
+                                lineage_nodes.append(ref_table)
+            except Exception as e:
+                pass  # Fall back to just the target node
+        
         return {
             "success": True, 
             "action": "graph.trace_lineage",
@@ -63,7 +86,7 @@ class GraphActionHandler(ActionHandler):
             "result": {
                 "action_type": "graph_trace_lineage",
                 "target": target,
-                "lineage_nodes": [target] # Placeholder
+                "lineage_nodes": lineage_nodes
             }
         }
     

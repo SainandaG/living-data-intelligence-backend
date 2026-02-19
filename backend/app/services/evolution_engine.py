@@ -87,13 +87,25 @@ class EvolutionEngine:
             }
             importance_val = importance_map.get(importance_str, 1.0)
             
-            # --- ML Analysis Simulation for Evolution ---
-            # Ensure estimated_count is at least 1 for math
-            safe_count = max(1, estimated_count)
-            n_term = math.log10(safe_count + 1)
+            # 3. Authenticated Metrics Alignment (Master Specification)
+            from app.services.graph_intelligence import graph_intelligence
+            from app.services.neural_core import neural_core
             
-            node_glow = (0.8 * n_term * age_factor) + (0.6 * importance_val)
-            vitality = min(100, (n_term * 20) + (importance_val * 5))
+            # Neural Core topology context
+            in_deg = neural_core.in_degrees.get(connection_id, {}).get(table['table_name'], 0)
+            out_deg = neural_core.out_degrees.get(connection_id, {}).get(table['table_name'], 0)
+            
+            # Force high-fidelity metrics from the single source of truth
+            auth = graph_intelligence.get_authenticated_metrics(
+                table['table_name'], 
+                safe_count, 
+                in_deg, 
+                out_deg
+            )
+            
+            vitality = auth['vitality']
+            # Glow is intensity-based, derived from gravity and age
+            node_glow = (0.8 * auth['gravity'] / 5.0 * age_factor) + (0.2 * importance_val)
             
             total_vitality += vitality
             
