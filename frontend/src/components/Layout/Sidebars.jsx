@@ -147,9 +147,13 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
                     {activeLens === 'energy' ? 'Grid Load' : 'Total Transactions'}
                 </div>
                 <div className="text-2xl font-bold text-white font-mono flex items-baseline gap-2">
-                    {activeLens === 'energy' ? '42%' : formatNumber(liveStats.totalTransactions)}
+                    {activeLens === 'energy'
+                        ? `${liveStats.networkHealth || 0}%`
+                        : formatNumber(liveStats.totalTransactions)}
                     <span className="text-xs text-[var(--primary)] font-bold">
-                        {activeLens === 'energy' ? '+2%' : `+${liveStats.tps} tps`}
+                        {activeLens === 'energy'
+                            ? `${liveStats.activeBatteries || 0} batteries`
+                            : `+${liveStats.tps || 0} tps`}
                     </span>
                 </div>
             </div>
@@ -196,31 +200,52 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
             {/* 4. SYSTEM METRICS (Consolidated) */}
             <CollapsiblePanel title="SYSTEM METRICS" defaultOpen={true}>
                 <div className="grid grid-cols-2 gap-2">
-                    {/* Always show Core Banking Metrics */}
-                    <MetricCard label="Fraud Alerts" value={liveStats.fraudAlerts} icon="⚠️" color="text-orange-400" />
-                    <MetricCard label="Avg Amount" value={`$${liveStats.avgAmount}K`} icon="💰" color="text-emerald-400" />
-
-                    {/* Show Energy Metrics if data exists, otherwise standard stats */}
-                    {hasEnergyData ? (
-                        <>
-                            <MetricCard label="Active Batteries" value={liveStats.activeBatteries} icon="🔋" color="text-green-400" />
-                            <MetricCard label="Net Health" value={`${liveStats.networkHealth}%`} icon="⚡" color="text-yellow-400" />
-                        </>
-                    ) : (
-                        <>
-                            <MetricCard label="Failed Tx" value={liveStats.failedTx} icon="❌" color="text-red-400" />
-                            <MetricCard label="Active Nodes" value={liveStats.activeNodes} icon="🔗" color="text-blue-400" />
-                        </>
-                    )}
+                    {/* Always show Active Batteries + SoH since this is WEZU */}
+                    <MetricCard label="Active Batteries" value={liveStats.activeBatteries || 0} icon="🔋" color="text-green-400" />
+                    <MetricCard label="Net SoH" value={`${liveStats.networkHealth || 0}%`} icon="⚡" color="text-yellow-400" />
+                    <MetricCard label="Stations" value={liveStats.onlineStations || 0} icon="🏪" color="text-blue-400" />
+                    <MetricCard label="Energy Alerts" value={liveStats.energyAlerts || 0} icon="⚠️" color="text-orange-400" />
                 </div>
+                {/* Live Battery Telemetry Row */}
+                {(liveStats.avgBatteryTemp || liveStats.avgBatteryVolt) && (
+                    <div className="mt-2 grid grid-cols-3 gap-1">
+                        <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-2 text-center">
+                            <div className="text-[9px] text-orange-300 uppercase">Temp</div>
+                            <div className="text-sm font-bold text-orange-400">{liveStats.avgBatteryTemp?.toFixed(1) || '--'}°C</div>
+                        </div>
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-center">
+                            <div className="text-[9px] text-blue-300 uppercase">Volt</div>
+                            <div className="text-sm font-bold text-blue-400">{liveStats.avgBatteryVolt?.toFixed(1) || '--'}V</div>
+                        </div>
+                        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-2 text-center">
+                            <div className="text-[9px] text-yellow-300 uppercase">Curr</div>
+                            <div className="text-sm font-bold text-yellow-400">{liveStats.avgBatteryCurr?.toFixed(1) || '--'}A</div>
+                        </div>
+                    </div>
+                )}
             </CollapsiblePanel>
 
             {/* 4. SYSTEM HEALTH */}
             <CollapsiblePanel title="SYSTEM HEALTH" defaultOpen={true}>
                 <div className="space-y-3">
-                    <HealthBar label="API Response" value="18ms" percent={95} color="bg-cyan-400" />
-                    <HealthBar label="Database Load" value={`${liveStats.health?.score || 100}%`} percent={liveStats.health?.score || 100} color="bg-yellow-400" />
-                    <HealthBar label="Throughput" value="92%" percent={92} color="bg-cyan-400" />
+                    <HealthBar
+                        label="Health Score"
+                        value={`${liveStats.health?.score || 100}/100`}
+                        percent={liveStats.health?.score || 100}
+                        color={liveStats.health?.score >= 85 ? 'bg-green-400' : liveStats.health?.score >= 60 ? 'bg-yellow-400' : 'bg-red-400'}
+                    />
+                    <HealthBar
+                        label="Avg SoH"
+                        value={`${liveStats.networkHealth || 0}%`}
+                        percent={liveStats.networkHealth || 0}
+                        color="bg-cyan-400"
+                    />
+                    <HealthBar
+                        label="Cache Hit Rate"
+                        value={`${liveStats.cacheHitRate?.toFixed(1) || 99}%`}
+                        percent={liveStats.cacheHitRate || 99}
+                        color="bg-purple-400"
+                    />
                 </div>
             </CollapsiblePanel>
 
@@ -230,15 +255,23 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
                     <div className="space-y-2 text-xs">
                         <div className="flex justify-between items-center">
                             <span className="text-slate-400">Rev. Protected</span>
-                            <span className="text-green-400 font-bold">₹{((liveStats.totalTransactions || 0) * 0.05).toFixed(0)}L</span>
+                            {/* ₹ per battery per day * active batteries, scaled to Lakhs */}
+                            <span className="text-green-400 font-bold">₹{(((liveStats.activeBatteries || 0) * (liveStats.networkHealth || 0) * 0.012)).toFixed(1)}L</span>
                         </div>
                         <div className="flex justify-between items-center">
-                            <span className="text-slate-400">Life Extended</span>
-                            <span className="text-cyan-400 font-bold">+12% (180d)</span>
+                            <span className="text-slate-400">Avg SoH</span>
+                            <span className="text-cyan-400 font-bold">{liveStats.networkHealth || 0}%</span>
                         </div>
                         <div className="flex justify-between items-center">
-                            <span className="text-slate-400">Pilot Roadmap</span>
-                            <span className="text-amber-400 font-bold">Phase 2: Kinetic</span>
+                            <span className="text-slate-400">Fleet Status</span>
+                            <span className={`font-bold ${(liveStats.networkHealth || 0) >= 90 ? 'text-green-400' :
+                                    (liveStats.networkHealth || 0) >= 75 ? 'text-yellow-400' :
+                                        'text-red-400'
+                                }`}>
+                                {(liveStats.networkHealth || 0) >= 90 ? '✅ Optimal' :
+                                    (liveStats.networkHealth || 0) >= 75 ? '⚠️ Monitor' :
+                                        '🚨 Critical'}
+                            </span>
                         </div>
                     </div>
                 </CollapsiblePanel>

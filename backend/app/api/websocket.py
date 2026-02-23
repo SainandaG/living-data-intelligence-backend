@@ -71,7 +71,8 @@ async def stream_metrics():
                         activity = {
                             "transaction_volume": tx_rate * 10,
                             "error_rate": 0.0, 
-                            "avg_latency": 0.0
+                            "avg_latency": 0.0,
+                            "connection_id": conn_id
                         }
                         evolved_node = living_graph_engine.evolve_node(node, activity)
                         evolved_nodes.append({
@@ -80,6 +81,19 @@ async def stream_metrics():
                             "status": evolved_node.get('status', 'healthy'),
                             "vitality": evolved_node.get('vitality', 1.0)
                         })
+                        
+                        # Broadcast isolated differential update to Latent Space
+                        from app.api.latent_stream import emit_node_diff
+                        asyncio.create_task(emit_node_diff(
+                            evolved_node['id'],
+                            {
+                                'healthScore': evolved_node.get('health_score', evolved_node.get('vitality', 100)),
+                                'vitality': evolved_node.get('vitality', 100),
+                                'isAnomalous': evolved_node.get('is_anomalous', False),
+                                'row_count': evolved_node.get('row_count', 0),
+                                'dependencyDepth': evolved_node.get('dependency_depth', 0)
+                            }
+                        ))
                     
                     # 3. Send combined update
                     if data:

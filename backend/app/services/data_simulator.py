@@ -6,23 +6,37 @@ from app.services.db_connector import db_connector
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────────
+#  WEZU Data Simulator
+#  Updates every 2 minutes using ONLY the tables that exist in Neon DB.
+#
+#  Confirmed existing tables (from check_all_tables.py):
+#    batteries       (705 rows) — temperature, voltage, current_a, soh_percentage
+#    stations         (50 rows) — rating, total_reviews, updated_at
+#    telemetics_data  (0 rows)  — battery_id, voltage, current, temperature, soc, soh
+#    batteryhealthlog (0 rows)  — battery_id, health_percentage, voltage, current, temperature
+#    gps_tracking_log (0 rows)  — battery_id, latitude, longitude, speed, timestamp
+# ─────────────────────────────────────────────────────────────────
+
+SIMULATION_INTERVAL_SECONDS = 120  # 2 minutes
+
+
 class DataSimulator:
     def __init__(self):
         self.running = False
         self.task = None
+        self._cycle = 0
 
     async def start_simulation(self):
-        """Start the background simulation loop"""
+        """Start the background simulation loop."""
         if self.running:
             return
-        
         self.running = True
-        print("⚡ [DEBUG] DataSimulator.start_simulation() CALLED")
-        logger.info("⚡ DataSimulator started. Updates every 60s.")
+        print("⚡ [DataSimulator] Started — updates every 2 minutes on real Neon tables.")
+        logger.info("⚡ DataSimulator started. Interval: %ds", SIMULATION_INTERVAL_SECONDS)
         self.task = asyncio.create_task(self._simulation_loop())
 
     async def stop_simulation(self):
-        """Stop the background loop"""
         self.running = False
         if self.task:
             self.task.cancel()
@@ -32,127 +46,161 @@ class DataSimulator:
                 pass
         logger.info("🛑 DataSimulator stopped.")
 
+    # ──────────────────────────────────────────────
+    #  Main Loop
+    # ──────────────────────────────────────────────
+
     async def _simulation_loop(self):
-        """Main loop that updates data periodially"""
-        # Initial Schema Fix (Auto-Heal)
-        await self._ensure_schema()
-        
         while self.running:
+            self._cycle += 1
+            logger.info("🔄 [DataSimulator] Cycle #%d", self._cycle)
+            print(f"🔄 [DataSimulator] Cycle #{self._cycle} — updating WEZU tables…")
+            # Tables updated every 2 minutes:
+            #   batteries       → UPDATE temperature, voltage, current_a, soh_percentage
+            #   telemetics_data → INSERT every battery (100%)
+            #   batteryhealthlog→ INSERT 50% of batteries
+            #   gps_tracking_log→ INSERT 30% of batteries
+            #   stations        → UPDATE rating, total_reviews
+
             try:
                 await self._update_batteries()
             except Exception as e:
-                logger.error(f"⚠️ Simulation Error: {e}")
-            
-            # Update every 60 seconds (Faster updates for demo)
-            await asyncio.sleep(60)
+                logger.error("batteries update failed: %s", e)
 
-    async def _ensure_schema(self):
-        """Check and fix missing columns in key tables"""
-        connections = db_connector.list_connections()
-        for conn in connections:
-            conn_id = conn['id']
             try:
-                # 0. Legacy Column Fixes (Rename to standard)
-                has_temp_c = await self._has_column(conn_id, 'batteries', 'temperature_c')
-                has_volt_v = await self._has_column(conn_id, 'batteries', 'voltage_v')
-                
-                if has_temp_c:
-                    logger.info(f"🛠️ Auto-Fixing Schema: Renaming temperature_c to temperature in {conn_id}")
-                    await db_connector.query(conn_id, "ALTER TABLE batteries RENAME COLUMN temperature_c TO temperature")
-                
-                if has_volt_v:
-                    logger.info(f"🛠️ Auto-Fixing Schema: Renaming voltage_v to voltage in {conn_id}")
-                    await db_connector.query(conn_id, "ALTER TABLE batteries RENAME COLUMN voltage_v TO voltage")
+                await self._update_stations()
+            except Exception as e:
+                logger.error("stations update failed: %s", e)
 
-                # 1. Batteries Table Fixes (Add missing if not present)
-                has_soh = await self._has_column(conn_id, 'batteries', 'soh_percentage')
-                has_report = await self._has_column(conn_id, 'batteries', 'last_reported_at')
-                
-                if not has_soh:
-                    logger.info(f"🛠️ Auto-Fixing Schema: Adding soh_percentage to batteries in {conn_id}")
-                    await db_connector.query(conn_id, "ALTER TABLE batteries ADD COLUMN IF NOT EXISTS soh_percentage DOUBLE PRECISION DEFAULT 100.0")
-                
-                if not has_report:
-                    logger.info(f"🛠️ Auto-Fixing Schema: Adding last_reported_at to batteries in {conn_id}")
-                    await db_connector.query(conn_id, "ALTER TABLE batteries ADD COLUMN IF NOT EXISTS last_reported_at TIMESTAMP DEFAULT NOW()")
+            logger.info("✅ Cycle #%d done. Sleeping %ds.", self._cycle, SIMULATION_INTERVAL_SECONDS)
+            await asyncio.sleep(SIMULATION_INTERVAL_SECONDS)
 
-    async def _has_column(self, connection_id, table, column):
-        """Check if column exists"""
-        q = f"SELECT 1 FROM information_schema.columns WHERE table_name='{table}' AND column_name='{column}'"
-        res = await db_connector.query(connection_id, q)
-        return len(res) > 0
+    # ──────────────────────────────────────────────
+    #  1. batteries
+    #     Columns: id, temperature, voltage, current_a,
+    #              soh_percentage, health_percentage, last_reported_at
+    # ──────────────────────────────────────────────
 
     async def _update_batteries(self):
-        """Update battery records with random fluctuations AND generate history"""
-        connections = db_connector.list_connections()
-        
-        for conn in connections:
-            conn_id = conn['id']
+        for conn in db_connector.list_connections():
+            conn_id = conn["id"]
             try:
-                # Get existing batteries
-                q_batt = "SELECT id, temperature, voltage, soh_percentage FROM batteries LIMIT 50"
-                batteries = await db_connector.query(conn_id, q_batt)
-                
-                if not batteries:
-                    # Seed if empty?
+                rows = await db_connector.query(
+                    conn_id,
+                    "SELECT id, temperature, voltage, current_a, soh_percentage, health_percentage, cycle_count "
+                    "FROM batteries"  # all 705 batteries every cycle
+                )
+                if not rows:
                     continue
 
-                for batt in batteries:
-                    bid = batt['id']
-                    # Current values or defaults
-                    curr_temp = float(batt.get('temperature') or 35.0)
-                    curr_volt = float(batt.get('voltage') or 48.0)
-                    curr_soh = float(batt.get('soh_percentage') or 100.0)
-                    
-                    # 1. Random Walk Simulation
-                    new_temp = max(20.0, min(65.0, curr_temp + (random.uniform(-1.0, 1.5)))) # Trend up slightly
-                    new_volt = max(40.0, min(58.0, curr_volt + (random.uniform(-0.5, 0.5))))
-                    
-                    # SoH degradation: very slow, but occasional drops
-                    degrade = 0.001 if random.random() > 0.9 else 0.0
-                    new_soh = max(50.0, curr_soh - degrade)
+                updated = 0
+                for b in rows:
+                    bid   = b["id"]
+                    temp  = float(b.get("temperature") or 35.0)
+                    volt  = float(b.get("voltage") or 48.0)
+                    curr  = float(b.get("current_a") or 50.0)
+                    soh   = float(b.get("soh_percentage") or b.get("health_percentage") or 100.0)
+                    cycles = int(b.get("cycle_count") or 0)
 
-                    # 2. Update Current State (Realtime Monitor Source)
-                    upd_sql = f"""
-                        UPDATE batteries 
-                        SET temperature = {new_temp:.2f}, 
-                            voltage = {new_volt:.2f}, 
-                            soh_percentage = {new_soh:.2f},
-                            last_reported_at = NOW()
+                    # Random walk
+                    new_temp = max(20.0, min(65.0, temp + random.uniform(-1.0, 1.5)))
+                    new_volt = max(40.0, min(58.0, volt + random.uniform(-0.5, 0.5)))
+                    new_curr = max(0.0,  min(100.0, curr + random.uniform(-3.0, 3.0)))
+                    degrade  = 0.001 if random.random() > 0.9 else 0.0
+                    new_soh  = max(50.0, soh - degrade)
+
+                    # Update batteries
+                    await db_connector.query(conn_id, f"""
+                        UPDATE batteries
+                        SET temperature      = {new_temp:.2f},
+                            voltage          = {new_volt:.2f},
+                            current_a        = {new_curr:.2f},
+                            soh_percentage   = {new_soh:.2f},
+                            health_percentage = {new_soh:.2f},
+                            last_reported_at = NOW(),
+                            updated_at       = NOW()
                         WHERE id = {bid}
-                    """
-                    await db_connector.query(conn_id, upd_sql)
-                    
-                    # 3. Insert Telemetry History (Pattern Analyzer Source)
-                    # Use 'telemetics_data' if it exists
-                    # Schema: id, timestamp, battery_id, voltage, current, temperature, soc, soh...
-                    # We'll just insert core fields
-                    hist_sql = f"""
-                        INSERT INTO telemetics_data (timestamp, battery_id, voltage, temperature, soh, received_at)
-                        VALUES (NOW(), {bid}, {new_volt:.2f}, {new_temp:.2f}, {new_soh:.2f}, NOW())
-                    """
+                    """)
+
+                    # telemetics_data — INSERT every battery, every cycle (100%)
                     try:
-                        await db_connector.query(conn_id, hist_sql)
-                    except Exception as e:
-                        # Table might not match perfectly or exist, silently fail for now to keep loop running
-                        # But log it once
+                        soc = round(min(100.0, new_soh + random.uniform(-5, 5)), 2)
+                        await db_connector.query(conn_id, f"""
+                            INSERT INTO telemetics_data
+                                (timestamp, battery_id, voltage, current, temperature, soc, soh, received_at)
+                            VALUES (NOW(), {bid}, {new_volt:.2f}, {new_curr:.2f},
+                                    {new_temp:.2f}, {soc}, {new_soh:.2f}, NOW())
+                        """)
+                    except Exception:
                         pass
-                        
-                    # 4. Insert Health Log (Deep Diagnostics Source)
-                    # Schema: id, battery_id, health_percentage, timestamp...
-                    if random.random() > 0.8: # Log less frequently
-                         log_sql = f"""
-                            INSERT INTO batteryhealthlog (battery_id, health_percentage, timestamp)
-                            VALUES ({bid}, {new_soh:.2f}, NOW())
-                        """
-                         try:
-                            await db_connector.query(conn_id, log_sql)
-                         except: pass
 
-                logger.info(f"🔋 Simulated data for {len(batteries)} batteries in {conn_id}")
-                    
+                    # batteryhealthlog — INSERT every battery (cycle_count + charge_percentage NOT NULL)
+                    try:
+                        await db_connector.query(conn_id, f"""
+                            INSERT INTO batteryhealthlog
+                                (battery_id, charge_percentage, health_percentage,
+                                 voltage, current, temperature, cycle_count, timestamp)
+                            VALUES ({bid}, {new_soh:.2f}, {new_soh:.2f},
+                                    {new_volt:.2f}, {new_curr:.2f}, {new_temp:.2f},
+                                    {cycles}, NOW())
+                        """)
+                    except Exception:
+                        pass
+
+                    # gps_tracking_log — SKIPPED: rental_id is NOT NULL FK to rentals
+                    # (cannot insert without a valid rental_id)
+
+                    updated += 1
+
+                logger.info("🔋 Batteries: %d updated in %s", updated, conn_id)
+
             except Exception as e:
-                logger.warning(f"⚠️ Failed to simulate for {conn_id}: {e}")
+                logger.warning("batteries sim failed for %s: %s", conn_id, e)
+
+    # ──────────────────────────────────────────────
+    #  2. stations
+    #     Columns: id, rating, total_reviews, updated_at
+    #     Simulate: slight rating drift, new reviews
+    # ──────────────────────────────────────────────
+
+    async def _update_stations(self):
+        for conn in db_connector.list_connections():
+            conn_id = conn["id"]
+            try:
+                rows = await db_connector.query(
+                    conn_id,
+                    "SELECT id, rating, total_reviews FROM stations LIMIT 50"
+                )
+                if not rows:
+                    continue
+
+                for s in rows:
+                    sid     = s["id"]
+                    rating  = float(s.get("rating") or 4.0)
+                    reviews = int(s.get("total_reviews") or 0)
+
+                    # Simulate new reviews coming in (0–2 per cycle)
+                    new_reviews = reviews + random.randint(0, 2)
+                    # Weighted average with a new random review score
+                    new_score   = round(random.uniform(3.5, 5.0), 1)
+                    new_rating  = round(
+                        (rating * reviews + new_score * (new_reviews - reviews))
+                        / max(1, new_reviews), 2
+                    )
+                    new_rating  = max(1.0, min(5.0, new_rating))
+
+                    await db_connector.query(conn_id, f"""
+                        UPDATE stations
+                        SET rating        = {new_rating},
+                            total_reviews = {new_reviews},
+                            updated_at    = NOW()
+                        WHERE id = {sid}
+                    """)
+
+                logger.info("🏪 Stations: %d updated in %s", len(rows), conn_id)
+            except Exception as e:
+                logger.warning("stations sim failed for %s: %s", conn_id, e)
 
 
+# Singleton instance
 data_simulator = DataSimulator()

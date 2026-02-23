@@ -391,9 +391,9 @@ class NeuralCore:
         sql = f"INSERT INTO {table_path} (connection_id, neural_data, core_metrics) VALUES (%s, %s, %s)"
         try:
             await db_connector.query(connection_id, sql, (connection_id, json.dumps(snapshot_data), json.dumps(metrics)))
-            logger.info(f"Neural Core: Snapshot saved for {connection_id} to {table_name}")
+            logger.info(f"Neural Core: Snapshot saved for {connection_id} to {table_path}")
         except Exception as e:
-            logger.error(f"Failed to save neural snapshot to {table_name}: {e}")
+            logger.error(f"Failed to save neural snapshot to {table_path}: {e}")
 
     async def _get_context(self, connection_id: str) -> Dict:
         """Helper to get snapshot for connection, with fallback to schema_analyzer"""

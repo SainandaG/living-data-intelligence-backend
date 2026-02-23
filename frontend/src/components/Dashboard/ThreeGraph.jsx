@@ -22,6 +22,15 @@ import {
     getLensCategories
 } from './LatentSpaceLogic.jsx';
 
+import {
+    initLatentRegistry,
+    startLatentWebSocket,
+    stopLatentWebSocket,
+    switchLatentLens,
+    getLatentRegistry,
+    getClusterColor
+} from './LatentSpaceLogic_Core.js';
+
 
 
 /**
@@ -710,8 +719,46 @@ const ThreeGraph = forwardRef(({
             console.log(`[ThreeGraph] Prop Sync: Lens -> ${activeLens}`);
             setCurrentLens(activeLens);
             currentLensRef.current = activeLens;
+
+            // Switch Latent clusters if we are currently in latent mode
+            if (layoutMode === 'latent') {
+                switchLatentLens(activeLens);
+            }
         }
-    }, [activeLens]);
+    }, [activeLens, layoutMode]);
+
+    // ─────────────────────────────────────────────
+    // MOUNT / UNMOUNT LATENT SPACE (ISOLATED)
+    // ─────────────────────────────────────────────
+    useEffect(() => {
+        if (layoutMode === 'latent') {
+            initLatentRegistry(
+                nodesRef.current,
+                currentLensRef.current,
+                (updatedNode) => {
+                    // Single node visual refresh callback from the websocket
+                    const mainNode = nodesRef.current.find(n => n.id === updatedNode.id);
+                    if (mainNode && mainNode.mesh) {
+                        const newColor = new THREE.Color(getClusterColor(updatedNode._currentCluster));
+                        mainNode.mesh.material.color.copy(newColor);
+                        mainNode.mesh.material.emissive.copy(newColor);
+                    }
+                }
+            );
+            startLatentWebSocket();
+        } else {
+            stopLatentWebSocket();
+            // CLEAR PHYSICS LOCKS so nodes can drift again in Galaxy mode
+            nodesRef.current.forEach(n => {
+                n.fx = null;
+                n.fy = null;
+                n.fz = null;
+            });
+        }
+
+        // Cleanup on full unmount
+        return () => stopLatentWebSocket();
+    }, [layoutMode]);
 
     const [clusterMetadata, setClusterMetadata] = useState(null);
     const [clusterMetadataLoading, setClusterMetadataLoading] = useState(false);
@@ -1682,10 +1729,46 @@ const ThreeGraph = forwardRef(({
                 }
             });
 
-            // LATENT MODE: Project nodes onto manifold surface (Batched in separate loop if needed, or kept here if efficient)
-            // For now, we only update positions if layout is latent AND data changed recently, 
-            // but for "floating" effect, we might need a separate meaningful update.
-            // ... (Latent projection is expensive, keeping it static or minimal is better for lag) ...
+            // ─────────────────────────────────────────────
+            // LATENT MODE: LERP TRANSITION ENGINE
+            // Iterates through isolated registry and interpolates mesh positions
+            // ─────────────────────────────────────────────
+            if (layoutModeRef.current === 'latent') {
+                const LERP_SPEED = 0.035;
+                const registry = getLatentRegistry();
+
+                registry.forEach((nodeClone) => {
+                    if (!nodeClone._needsTransition || nodeClone._targetX === null) return;
+
+                    const lerp = (current, target, speed) => current + (target - current) * speed;
+                    nodeClone._latentX = lerp(nodeClone._latentX, nodeClone._targetX, LERP_SPEED);
+                    nodeClone._latentY = lerp(nodeClone._latentY, nodeClone._targetY, LERP_SPEED);
+                    nodeClone._latentZ = lerp(nodeClone._latentZ, nodeClone._targetZ, LERP_SPEED);
+
+                    // Apply to real Three object
+                    const mainNode = nodesRef.current.find(n => n.id === nodeClone.id);
+                    if (mainNode && mainNode.mesh) {
+                        mainNode.mesh.position.set(nodeClone._latentX, nodeClone._latentY, nodeClone._latentZ);
+
+                        // Hard lock physics so D3 doesn't pull it back constantly
+                        mainNode.fx = nodeClone._latentX;
+                        mainNode.fy = nodeClone._latentY;
+                        mainNode.fz = nodeClone._latentZ;
+
+                        const dist = Math.abs(nodeClone._latentX - nodeClone._targetX) +
+                            Math.abs(nodeClone._latentY - nodeClone._targetY) +
+                            Math.abs(nodeClone._latentZ - nodeClone._targetZ);
+
+                        if (dist < 1.5) {
+                            nodeClone._needsTransition = false;
+                            const finalColor = new THREE.Color(getClusterColor(nodeClone._currentCluster));
+                            mainNode.mesh.material.color.copy(finalColor);
+                            mainNode.mesh.material.emissive.copy(finalColor);
+                            mainNode.mesh.material.emissiveIntensity = 0.4;
+                        }
+                    }
+                });
+            }
 
 
             // 2. UPDATE EDGES (Opacity only, curve handled by D3 tick)
@@ -2016,11 +2099,15 @@ const ThreeGraph = forwardRef(({
         // A. CLEANUP PREVIOUS CONTENT (AGGRESSIVE)
         console.log("[ThreeGraph] 🧹 Disposing previous scene resources...");
 
+        const previousPositions = new Map();
+
         // 1. Nodes
         if (nodesRef.current) {
             nodesRef.current.forEach(n => {
                 if (n.mesh) {
+                    previousPositions.set(n.id, n.mesh.position.clone());
                     scene.remove(n.mesh);
+
                     disposeObject(n.mesh);
                 }
             });
@@ -2273,7 +2360,17 @@ const ThreeGraph = forwardRef(({
                         const mesh = createNodeMesh(nodeData, currentLensRef.current, layoutModeRef.current, clusteringMethodRef.current, animatedObjectsRef.current);
                         if (!mesh) return;
 
-                        mesh.position.set(nodeData.x, nodeData.y, nodeData.z);
+                        // Smooth transition: Spawn at previous position if it existed
+                        const prevPos = previousPositions.get(nodeData.id);
+                        if (prevPos && layoutMode === 'latent') {
+                            mesh.position.copy(prevPos);
+                            // Set coordinates to previous so initLatentRegistry lerps from here
+                            nodeData.x = prevPos.x;
+                            nodeData.y = prevPos.y;
+                            nodeData.z = prevPos.z;
+                        } else {
+                            mesh.position.set(nodeData.x, nodeData.y, nodeData.z);
+                        }
 
                         // [FIX] Link Data & Refs for Animation/Raycasting
                         nodeData.mesh = mesh;

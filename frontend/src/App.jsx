@@ -207,7 +207,15 @@ const MainDashboard = () => {
   const [evolutionMode, setEvolutionMode] = useState(false);
 
   const [liveStats, setLiveStats] = useState({
-    totalTransactions: 0, fraudAlerts: 0, avgAmount: 0, failedTx: 0, tps: 0, activeNodes: 0, health: { state: 'healthy', score: 100, color: '#00ff88', issues: [] }, anomalies: []
+    totalTransactions: 0, fraudAlerts: 0, avgAmount: 0, failedTx: 0, tps: 0, activeNodes: 0,
+    health: { state: 'healthy', score: 100, color: '#00ff88', issues: [] },
+    anomalies: [],
+    // WEZU Energy
+    activeBatteries: 0, onlineStations: 0, networkHealth: 0, energyAlerts: 0,
+    // Battery Telemetry
+    avgBatteryTemp: 0, avgBatteryVolt: 0, avgBatteryCurr: 0,
+    // DB Performance
+    cacheHitRate: 99,
   });
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
@@ -264,22 +272,28 @@ const MainDashboard = () => {
 
       setLiveStats(prev => ({
         ...prev,
-        totalTransactions: metrics.total_transactions,
-        fraudAlerts: metrics.fraud_alerts,
-        avgAmount: metrics.average_amount,
-        failedTx: metrics.failed_transactions,
-        tps: metrics.transaction_rate,
+        totalTransactions: metrics.total_transactions || 0,
+        fraudAlerts: metrics.fraud_alerts || 0,
+        avgAmount: metrics.average_amount || 0,
+        failedTx: metrics.failed_transactions || 0,
+        tps: metrics.transaction_rate || 0,
         activeNodes: aiStats.total_nodes || prev.activeNodes,
         health: lastMessage.health || prev.health,
         anomalies: (lastMessage.anomalies || prev.anomalies || []).map(a => ({
           ...a,
           explanation: a.justification || a.explanation || a.description || a.message
         })),
-        // Energy Extension
-        activeBatteries: metrics.active_batteries || 0,
-        onlineStations: metrics.online_stations || 0,
-        networkHealth: metrics.network_health || 0,
-        energyAlerts: metrics.energy_alerts || 0
+        // WEZU Energy — battery fleet metrics
+        activeBatteries: metrics.active_batteries || prev.activeBatteries || 0,
+        onlineStations: metrics.online_stations || prev.onlineStations || 0,
+        networkHealth: metrics.network_health || prev.networkHealth || 0,
+        energyAlerts: metrics.energy_alerts || prev.energyAlerts || 0,
+        // WEZU Battery Telemetry (from DataSimulator → RealtimeMonitor)
+        avgBatteryTemp: metrics.avg_battery_temp || prev.avgBatteryTemp || 0,
+        avgBatteryVolt: metrics.avg_battery_volt || prev.avgBatteryVolt || 0,
+        avgBatteryCurr: metrics.avg_battery_curr || prev.avgBatteryCurr || 0,
+        // DB Performance
+        cacheHitRate: metrics.cache_hit_rate || prev.cacheHitRate || 99,
       }));
 
       if (aiStats.status) {

@@ -24,7 +24,7 @@ class DrillDownService:
                 if table_name.lower() in table_names_lower:
                      actual_table_name = table_names_lower[table_name.lower()]
 
-            if connection['type'] in ['postgresql', 'mysql']:
+            if connection['type'] in ['postgresql', 'postgres', 'neon', 'neon_db', 'mysql', 'mariadb']:
                 quoted_table = db_connector.quote_identifier(connection_id, actual_table_name)
                 query = f"SELECT * FROM {quoted_table} LIMIT {limit}"
                 results = await db_connector.query(connection_id, query)
@@ -65,7 +65,7 @@ class DrillDownService:
         try:
             connection = db_connector.get_connection(connection_id)
             
-            if connection['type'] in ['postgresql', 'mysql']:
+            if connection['type'] in ['postgresql', 'postgres', 'neon', 'neon_db', 'mysql', 'mariadb']:
                 # Table Resolver: Case-insensitive check
                 actual_table_name = table_name
                 from app.services.schema_analyzer import schema_analyzer
@@ -113,7 +113,7 @@ class DrillDownService:
             related_table = relationship['referenced_table']
             foreign_key = relationship['column']
             
-            if connection['type'] in ['postgresql', 'mysql']:
+            if connection['type'] in ['postgresql', 'postgres', 'neon', 'neon_db', 'mysql', 'mariadb']:
                 # Table Resolver: Case-insensitive check for related table
                 actual_related_table = related_table
                 from app.services.schema_analyzer import schema_analyzer
@@ -149,7 +149,7 @@ class DrillDownService:
         try:
             connection = db_connector.get_connection(connection_id)
             
-            if connection['type'] in ['postgresql', 'mysql']:
+            if connection['type'] in ['postgresql', 'postgres', 'neon', 'neon_db', 'mysql', 'mariadb']:
                 # Table Resolver: Case-insensitive check
                 actual_table_name = table_name
                 from app.services.schema_analyzer import schema_analyzer

@@ -8,6 +8,9 @@ import {
     UnrealBloomPass
 } from 'three-stdlib';
 import { SeededRNG } from '../../utils/mathUtils';
+import { getLatentRegistry } from './LatentSpaceLogic_Core.js'; // We will extract core logic into a separate file for cleanliness, or just inline it.
+
+
 
 /**
  * Step 1 — Enrich Node Data (Before applyLatentSpaceLayout)

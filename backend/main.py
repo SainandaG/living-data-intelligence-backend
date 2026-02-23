@@ -47,16 +47,7 @@ async def lifespan(app: FastAPI):
     from app.api.websocket import start_streaming_task
     await start_streaming_task()
     
-    # ENABLED: Data Simulator for local testing and observation (MOVED UP)
-    try:
-        from app.services.data_simulator import data_simulator
-        # Using a safer, shorter implementation if needed, but the original is fine for observation
-        # It runs in background loop
-        asyncio.create_task(data_simulator.start_simulation())
-    except Exception as e:
-        print(f"⚠️ Failed to start Data Simulator: {e}")
 
-    # Start Agentic AI Autonomous Loop
     from app.services.agent_service import agent_service
     await agent_service.start_autonomous_loop()
     
@@ -79,6 +70,14 @@ async def lifespan(app: FastAPI):
             print(f"🔌 Auto-connecting to database: {db_config['database']}...")
             await db_connector.connect(db_config)
             print("✅ Auto-connection successful.")
+
+            # Start Data Simulator AFTER DB is connected so list_connections() returns results
+            try:
+                from app.services.data_simulator import data_simulator
+                asyncio.create_task(data_simulator.start_simulation())
+                print("⚡ Data Simulator started.")
+            except Exception as e:
+                print(f"⚠️ Failed to start Data Simulator: {e}")
         else:
             print("⚠️ DB Credentials missing in .env, skipping auto-connect.")
 
@@ -200,6 +199,7 @@ registry.register_required("app.api.agent")
 registry.register_required("app.api.websocket")
 
 # Optional Routers
+registry.register_optional("app.api.latent_stream", tags=["latent_stream"])
 registry.register_optional("app.api.data_explorer", prefix="/api", tags=["data"])
 registry.register_optional("app.api.data_flow", prefix="/api", tags=["data-flow"])
 registry.register_optional("app.api.chat", prefix="/api", tags=["chat"])
