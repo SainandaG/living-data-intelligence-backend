@@ -3,104 +3,88 @@ import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Acti
 
 export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [], onToggleChat, isChatOpen, activeLens, onToggleLens }) {
     const navItems = [
-        { id: 'overview', label: 'Overview', icon: Home },
-        { id: 'dataflow', label: 'Data Flow', icon: GitBranch },
-        { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-        { id: 'vitals', label: 'Health', icon: Activity },
-
-        { id: 'schema', label: 'Schema', icon: Database },
-        { id: 'intelligence', label: 'AI Insights', icon: Brain },
-        { id: 'globalLatent', label: 'Latent Space', icon: Layers },
+        { id: 'overview', label: 'Overview', icon: null },
+        { id: 'analytics', label: 'Analytics', icon: null },
+        { id: 'schema', label: 'Schema', icon: null },
+        { id: 'intelligence', label: 'Insights', icon: null },
+        { id: 'globalLatent', label: 'Latent Space', icon: null },
     ];
 
     return (
-        <div className="w-full bg-[var(--bg-primary)]/80 backdrop-blur-md border-b border-white/10 flex items-center justify-between pr-6 relative z-50">
-            <div className="flex flex-col flex-1">
-                {/* Navigation Tabs */}
-                <div className="flex items-center gap-1 px-6 pt-4">
-                    {navItems.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = currentView === item.id;
+        <div className="flex items-center gap-6 h-full">
+            {/* Primary Nav Tabs */}
+            <nav className="flex items-center gap-6">
+                {navItems.map((item) => {
+                    const isActive = currentView === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => onNavigate(item.id)}
+                            className={`
+                                text-sm font-medium transition-colors relative py-1
+                                ${isActive
+                                    ? 'text-[var(--primary)] text-shadow-glow'
+                                    : 'text-slate-400 hover:text-white'
+                                }
+                            `}
+                        >
+                            {item.label}
+                            {isActive && (
+                                <span className="absolute -bottom-[19px] left-0 w-full h-[2px] bg-[var(--primary)] shadow-[0_0_8px_var(--primary)]"></span>
+                            )}
+                        </button>
+                    );
+                })}
+            </nav>
 
-                        return (
-                            <button
-                                key={item.id}
-                                onClick={() => onNavigate(item.id)}
-                                className={`
-                    flex items-center gap-2 px-4 py-2 rounded-t-lg font-mono text-xs uppercase tracking-wider transition-all
-                    ${isActive
-                                        ? 'bg-[var(--primary-cyan)]/20 text-[var(--primary-cyan)] border-t border-x border-[var(--primary-cyan)]'
-                                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5'
-                                    }
-                  `}
-                            >
-                                <Icon size={14} />
-                                {item.label}
-                            </button>
-                        );
-                    })}
+            {/* Breadcrumbs - Only show if active and meaningful */}
+            {breadcrumbs.length > 0 && (
+                <div className="hidden 2xl:flex items-center gap-2 pl-4 border-l border-white/10 text-xs text-slate-500">
+                    {breadcrumbs.map((crumb, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                            {index > 0 && <ChevronRight size={10} />}
+                            <span className={index === breadcrumbs.length - 1 ? "text-[var(--text-main)]" : ""}>
+                                {crumb.label}
+                            </span>
+                        </div>
+                    ))}
                 </div>
+            )}
 
-                {/* Breadcrumb Trail */}
-                {breadcrumbs.length > 0 && (
-                    <div className="flex items-center gap-2 px-6 py-3 text-xs text-[var(--text-secondary)] border-t border-white/5 w-full">
-                        {breadcrumbs.map((crumb, index) => (
-                            <React.Fragment key={index}>
-                                {index > 0 && <ChevronRight size={12} className="text-[var(--text-tertiary)]" />}
-                                <button
-                                    onClick={() => crumb.onClick && crumb.onClick()}
-                                    className={`
-                      hover:text-[var(--primary-cyan)] transition-colors
-                      ${index === breadcrumbs.length - 1 ? 'text-[var(--text-primary)] font-semibold' : ''}
-                    `}
-                                >
-                                    {crumb.label}
-                                </button>
-                            </React.Fragment>
-                        ))}
-                    </div>
-                )}
+            {/* Lens Selector - Compact Pill */}
+            {(currentView === 'globalLatent' || currentView === 'overview') && (
+                <div className="hidden xl:flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/10">
+                    {['ops', 'energy', 'security', 'tier3'].map(lens => (
+                        <button
+                            key={lens}
+                            onClick={() => onToggleLens && onToggleLens(lens)}
+                            className={`
+                                px-2 py-0.5 rounded text-[9px] uppercase font-bold transition-all
+                                ${activeLens === lens
+                                    ? 'bg-[var(--primary)] text-black'
+                                    : 'text-slate-400 hover:text-white'
+                                }
+                            `}
+                        >
+                            {lens}
+                        </button>
+                    ))}
+                </div>
+            )}
 
-                {/* CONTEXTUAL LENS SELECTOR (Visible in Latent AND Overview) */}
-                {(currentView === 'globalLatent' || currentView === 'overview') && (
-                    <div className="flex items-center gap-2 px-6 py-2 border-t border-white/5 w-full bg-black/20">
-                        <span className="text-[10px] uppercase font-bold text-[var(--text-tertiary)] tracking-widest mr-2">
-                            Active Lens:
-                        </span>
-                        {['ops', 'security', 'executive', 'tier3', 'energy'].map(lens => (
-                            <button
-                                key={lens}
-                                onClick={() => onToggleLens && onToggleLens(lens)}
-                                className={`
-                                    px-2 py-1 rounded text-[10px] font-mono uppercase transition-all border
-                                    ${activeLens === lens
-                                        ? 'bg-[var(--primary-cyan)]/20 text-[var(--primary-cyan)] border-[var(--primary-cyan)]/50'
-                                        : 'text-[var(--text-secondary)] border-transparent hover:bg-white/5'
-                                    }
-                                `}
-                            >
-                                {lens === 'tier3' ? '3D Tables' : lens === 'energy' ? 'WEZU Energy' : lens}
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-
-
-            {/* Chat Toggle Button (Right Side) */}
+            {/* AI Analyst Toggle Button - Styled for Header */}
             <button
                 onClick={onToggleChat}
                 className={`
-                    flex items-center gap-2 px-3 py-2 rounded-lg transition-all border
+                    ml-2 p-2 rounded-lg transition-all
                     ${isChatOpen
-                        ? 'bg-[var(--primary-cyan)] text-white border-[var(--primary-cyan)] shadow-[0_0_15px_rgba(34,211,238,0.3)]'
-                        : 'bg-white/5 text-[var(--text-secondary)] border-white/10 hover:bg-white/10 hover:text-white'
+                        ? 'text-[var(--primary)] bg-[var(--primary)]/10'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
                     }
                 `}
+                title="AI Analyst Chat"
             >
-                <MessageSquare size={16} />
-                <span className="text-xs font-bold uppercase tracking-wider">AI Analyst</span>
+                <MessageSquare size={18} />
             </button>
         </div>
     );

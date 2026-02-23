@@ -65,15 +65,15 @@ class NeuralCore:
             "bess_units": {"gravity_weight": 9.5, "type": "infrastructure", "justification": "Battery Energy Storage Systems; large-scale grid-connected units for peak shaving operations."},
             "energy_trade_logs": {"gravity_weight": 8.5, "type": "transaction", "justification": "Inter-grid energy transfer records; evidence of wholesale market participation and arbitrage."}
         }
+        
+        # [PHASE 3] Rate Limiting
+        # Prevent excessive re-analysis from frontend polling
+        self.last_analysis_time: Dict[str, float] = {} 
 
     async def initialize(self):
         """Prepare the core for schema analysis"""
         self.model_state = "ready"
         logger.info("Neural Core: Visual Intelligence Engine Ready.")
-
-        # [PHASE 3] Rate Limiting
-        # Prevent excessive re-analysis from frontend polling
-        self.last_analysis_time: Dict[str, float] = {} 
 
     def update_schema_context(self, schema: Dict, connection_id: str, edges: List[Dict] = None):
         """
@@ -316,26 +316,29 @@ class NeuralCore:
                     CREATE TABLE IF NOT EXISTS evolution.neural_snapshots (
                         id SERIAL PRIMARY KEY,
                         connection_id TEXT NOT NULL,
-                        snapshot_at TIMESTAMPTZ DEFAULT NOW(),
+                        snapshot_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         neural_data JSONB,
                         core_metrics JSONB
                     )
                 """)
                 await db_connector.query(connection_id, "CREATE INDEX IF NOT EXISTS idx_neural_conn ON evolution.neural_snapshots(connection_id)")
             elif db_type == 'mysql':
-                # MySQL doesn't have schemas in the same way, usually it's just the database name.
-                # But if we want to mimic the 'evolution' namespace, we can use a prefix or a separate DB.
-                # For simplicity in this platform, we'll just use a 'neural_snapshots' table.
-                await db_connector.query(connection_id, """
-                    CREATE TABLE IF NOT EXISTS neural_snapshots (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        connection_id VARCHAR(255) NOT NULL,
-                        snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        neural_data JSON,
-                        core_metrics JSON,
-                        INDEX idx_neural_conn (connection_id)
-                    )
-                """)
+                # For MySQL, we'll use underscore prefix instead of schema if it fails,
+                # but first try to use the current database.
+                try:
+                    await db_connector.query(connection_id, """
+                        CREATE TABLE IF NOT EXISTS neural_snapshots (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            connection_id VARCHAR(255) NOT NULL,
+                            snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            neural_data JSON,
+                            core_metrics JSON,
+                            INDEX idx_neural_conn (connection_id)
+                        )
+                    """)
+                except Exception as mysql_e:
+                    logger.error(f"MySQL Specific Initialization Error: {mysql_e}")
+                    raise
         except Exception as e:
             logger.error(f"Failed to init neural_snapshots table: {e}")
             return
@@ -381,8 +384,11 @@ class NeuralCore:
 
         # 3. INSERT
         import json
-        table_name = "evolution.neural_snapshots" if db_type != 'mysql' else "neural_snapshots"
-        sql = f"INSERT INTO {table_name} (connection_id, neural_data, core_metrics) VALUES (%s, %s, %s)"
+        is_mysql = db_type == 'mysql'
+        table_path = "evolution.neural_snapshots" if not is_mysql else "neural_snapshots"
+        
+        # MySQL uses %s for params, Postgres uses %s or $1. DBConnector uses %s for both.
+        sql = f"INSERT INTO {table_path} (connection_id, neural_data, core_metrics) VALUES (%s, %s, %s)"
         try:
             await db_connector.query(connection_id, sql, (connection_id, json.dumps(snapshot_data), json.dumps(metrics)))
             logger.info(f"Neural Core: Snapshot saved for {connection_id} to {table_name}")

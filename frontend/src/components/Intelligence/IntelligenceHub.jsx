@@ -61,17 +61,44 @@ export default function IntelligenceHub({ connectionId, selectedNode, onClose })
     // Extract table name from selectedNode or default to 'users'
     const tableName = selectedNode?.id && selectedNode.id !== 'hub' ? selectedNode.id : 'users';
 
+    if (!connectionId) {
+        return (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--bg-dark)] text-white p-8">
+                <div className="max-w-md text-center space-y-6">
+                    <div className="w-20 h-20 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                        <AlertTriangle className="text-amber-500" size={40} />
+                    </div>
+                    <h2 className="text-2xl font-bold tracking-tight">No Active Connection</h2>
+                    <p className="text-gray-400">
+                        The Intelligence Hub requires an active database connection to analyze real-time signals and generate predictions.
+                    </p>
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('open-connection-modal'))}
+                        className="px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-bold rounded-xl transition-all shadow-lg shadow-cyan-500/20"
+                    >
+                        Connect Database
+                    </button>
+                    {onClose && (
+                        <button onClick={onClose} className="block w-full text-xs text-gray-500 hover:text-gray-300 transition-colors uppercase tracking-widest mt-4">
+                            Back to Graph
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 z-[2000] flex items-center justify-center p-6 bg-black/40 backdrop-blur-xl"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="w-full h-full flex flex-col bg-[var(--bg-dark)] pointer-events-auto"
         >
-            <div className="relative w-full max-w-6xl h-full max-h-[850px] bg-white/5 border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] flex flex-col backdrop-blur-2xl">
+            <div className="w-full h-full flex flex-col overflow-hidden">
 
                 {/* Header */}
-                <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between">
+                <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[var(--primary-cyan)] to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
                             <Activity className="text-white" size={24} />
@@ -85,18 +112,11 @@ export default function IntelligenceHub({ connectionId, selectedNode, onClose })
                             </p>
                         </div>
                     </div>
-
-                    <button
-                        onClick={onClose}
-                        className="p-2 hover:bg-white/5 rounded-full transition-colors text-gray-400 hover:text-white"
-                    >
-                        <X size={24} />
-                    </button>
                 </div>
 
                 <div className="flex flex-1 overflow-hidden">
                     {/* Sidebar Nav */}
-                    <div className="w-64 border-r border-white/5 p-4 flex flex-col gap-2 bg-black/20">
+                    <div className="w-64 border-r border-white/5 p-4 flex flex-col gap-2 bg-black/20 shrink-0">
                         {dashboards.map((db) => {
                             const Icon = db.icon;
                             const isActive = activeTab === db.id;

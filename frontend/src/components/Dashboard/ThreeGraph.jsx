@@ -10,203 +10,19 @@ import * as d3 from 'd3';
 
 import { forceSimulation, forceManyBody, forceLink, forceX, forceY, forceZ } from 'd3-force-3d'; // 3D Physics
 import { SeededRNG } from '../../utils/mathUtils';
-// ============ SAI LATENT SPACE FUNCTIONS ============
-
-// Layout for Latent Space Mode (ORGANIC AI-DRIVEN)
-function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
-    nodes.forEach(node => {
-        if (node.id === 'hub' || node.id === 'DATABASE_CORE') {
-            node.targetX = 0; node.targetY = 2000; node.targetZ = 0;
-            return;
-        }
-
-        // SEMANTIC MAPPING (WEZU Specialization)
-        // X = Business Value (Revenue/Gravity proxy)
-        // Y = Health Risk (Inverse of SoH/Vitality)
-        // Z = Stability (Variance proxy)
-
-        const businessValue = node.revenue || (node.gravity || 1.0) * 1000;
-        const healthRisk = 100 - (node.soh_percentage || node.vitality || 100);
-        const stability = (node.swap_frequency_variance || Math.random() * 50);
-
-        // Map to world space (Spread out)
-        const lx = (businessValue - 5000) * 2;
-        const ly = healthRisk * 50;
-        const lz = (stability - 25) * 400;
-
-        node.targetX = lx;
-        node.targetY = ly + 500;
-        node.targetZ = lz;
-
-        // EXECUTIVE LENS: Noise Filtering
-        if (currentLens === 'executive') {
-            const isHighValue = (node.gravity > 7.0) || (node.revenue > 5000) || (node.isCore);
-            node.visible = isHighValue;
-        } else {
-            node.visible = true;
-        }
-
-        // Apply immediately
-        node.x = node.targetX;
-        node.y = node.targetY;
-        node.z = node.targetZ;
-
-        node.fx = node.targetX;
-        node.fy = node.targetY;
-        node.fz = node.targetZ;
-
-        node.zone = null;
-    });
-    return nodes;
-}
-
-// Helper to find height on the manifold for any X, Z (Dynamic Version)
-function getManifoldHeight(x, z, emitters) {
-    if (!emitters || emitters.length === 0) return 0;
-
-    const sigma = 3500.0; // Broader influence for organic terrain
-    let weightedHeight = 0;
-    let totalW = 0;
-
-    emitters.forEach(e => {
-        // Match scaling applied in layout
-        const ex = e.x * 1.5;
-        const ez = e.z * 1.5;
-
-        const d2 = Math.pow(x - ex, 2) + Math.pow(z - ez, 2);
-        const w = Math.exp(-d2 / (2 * sigma * sigma)) * (e.weight || 1.0);
-        weightedHeight += (e.y || 0) * w;
-        totalW += w;
-    });
-
-    return (totalW > 0.001) ? (weightedHeight / (totalW + 0.05)) : 0;
-}
-
-// Create Latent Manifold Terrain (Dynamic Data Driven)
-function createLatentManifold(manifoldData) {
-    if (!manifoldData || !manifoldData.emitters) return null;
-
-    const group = new THREE.Group();
-    const res = 128; // Higher res for organic shapes
-    const width = 45000; // Matched to new scale
-    const depth = 35000;
-    const geometry = new THREE.PlaneGeometry(width, depth, res, res);
-
-    const vertices = geometry.attributes.position.array;
-    const colors = new Float32Array(vertices.length);
-
-    // Dynamic coloring based on emitter proximity
-    for (let i = 0; i < vertices.length; i += 3) {
-        const x = vertices[i];
-        const z = -vertices[i + 1]; // Plane rotation fix
-
-        // 1. Calculate Height dynamically
-        const y = getManifoldHeight(x, z, manifoldData.emitters);
-        vertices[i + 2] = y;
-
-        // 2. Calculate Color
-        let r = 0, g = 0, b = 0, wSum = 0;
-
-        manifoldData.emitters.forEach(e => {
-            const ex = e.x * 1.5;
-            const ez = e.z * 1.5;
-            const dist = Math.sqrt(Math.pow(x - ex, 2) + Math.pow(z - ez, 2));
-            const influence = Math.exp(-dist / 5000); // Color bleed radius
-
-            const c = new THREE.Color(e.color || '#334155');
-            r += c.r * influence;
-            g += c.g * influence;
-            b += c.b * influence;
-            wSum += influence;
-        });
-
-        if (wSum > 0) {
-            colors[i] = Math.min(1, r / wSum + 0.05); // Add base ambient
-            colors[i + 1] = Math.min(1, g / wSum + 0.05);
-            colors[i + 2] = Math.min(1, b / wSum + 0.1); // Slight blue tint
-        } else {
-            // Deep space background color
-            colors[i] = 0.02; colors[i + 1] = 0.02; colors[i + 2] = 0.05;
-        }
-    }
-
-    geometry.attributes.position.needsUpdate = true;
-    geometry.computeVertexNormals();
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const surfaceMaterial = new THREE.MeshPhysicalMaterial({
-        vertexColors: true,
-        transparent: false, // Solid ground
-        opacity: 1.0,
-        metalness: 0.1,
-        roughness: 0.8, // Earthy/Terrain feel
-        clearcoat: 0.0,
-        side: THREE.DoubleSide
-    });
-
-    // Wireframe extraction for "Technical" overlay
-    const wireframe = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        color: 0x475569,
-        transparent: true,
-        opacity: 0.15, // Slightly more visible wireframe
-        wireframe: true
-    }));
-    group.add(wireframe);
-
-    const surface = new THREE.Mesh(geometry, surfaceMaterial);
-    group.add(surface);
-
-    group.rotation.x = -Math.PI / 2;
-    group.position.y = -500;
-    group.userData = { isManifold: true };
-    return group;
-}
-
-// Create 3D Axes for Latent Space (ORGANIC + SHADOWS)
-function create3DAxes(layoutMode, manifoldData) {
-    const group = new THREE.Group();
-    if (layoutMode !== 'latent') return group;
-
-    const size = 60000;
-    const depth = 60000;
-
-    // 1. Background Grid Walls - GROUNDED
-    const wall1 = new THREE.GridHelper(size, 40, 0x1e293b, 0x0f172a);
-    wall1.rotation.x = Math.PI / 2;
-    wall1.position.z = -depth / 2.5;
-    wall1.position.y = -500; // Grounded below manifold
-    wall1.material.opacity = 0.1;
-    wall1.material.transparent = true;
-    group.add(wall1);
-
-    const wall2 = new THREE.GridHelper(depth, 40, 0x1e293b, 0x0f172a);
-    wall2.rotation.z = Math.PI / 2;
-    wall2.position.x = -size / 2.5;
-    wall2.position.y = -500; // Grounded below manifold
-    wall2.material.opacity = 0.1;
-    wall2.material.transparent = true;
-    group.add(wall2);
-
-    // TECHNICAL AXIS LABELS
-    // Note: createTextSprite is assumed to be available in scope or needs to be copied if missing
-    // Since it was working before, it's likely defined later in the file.
-
-    // --- SEMANTIC LEGEND (Explains the 4 Colors) ---
-    const legendGroup = new THREE.Group();
-
-    // Re-creating text sprites here assuming helper exists
-    // If not, this might throw, but let's assume valid revert state.
-
-    // (Simulating exact content restore)
-    return group;
-}
+import {
+    createLatentManifold,
+    getManifoldHeight,
+    applyLatentSpaceLayout,
+    enrichNodesWithDependency,
+    propagateImpact,
+    create3DAxes,
+    createFlowArrows,
+    createLatentBridgeEdge,
+    getLensCategories
+} from './LatentSpaceLogic.jsx';
 
 
-function createFlowArrows(manifoldData) {
-    const group = new THREE.Group();
-    // In organic mode, flow is emergent or based on specific data paths, NOT hardcoded structure.
-    return group;
-}
 
 /**
  * Creates a Voxel Mesh representation for a cluster of nodes.
@@ -353,6 +169,11 @@ function applyGalaxyLayout(nodes, radius = 600) {
             return;
         }
 
+        // 2. Clear Force Locks for non-core nodes (Essential for mode switching)
+        node.fx = null;
+        node.fy = null;
+        node.fz = null;
+
         // 2. Fibonacci Sphere Logic (Fallback)
         if (numNodes <= 1) {
             node.fx = 0;
@@ -479,12 +300,8 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
         if (nodeData.latent_color) {
             color = new THREE.Color(nodeData.latent_color).getHex();
         } else {
-            // Frontend Inference Fallback
-            const name = (nodeData.name || "").toLowerCase();
-            if (name.includes('cust') || name.includes('user') || name.includes('client')) color = 0x10b981; // Green
-            else if (name.includes('sale') || name.includes('pay') || name.includes('trans')) color = 0x3b82f6; // Blue
-            else if (name.includes('prod') || name.includes('item') || name.includes('sku')) color = 0xf59e0b; // Yellow
-            else if (name.includes('log') || name.includes('err') || name.includes('fraud')) color = 0xef4444; // Red
+            const n = (nodeData.name || "").toLowerCase();
+            if (n.includes('log') || n.includes('err') || n.includes('fraud')) color = 0xef4444; // Red
             else color = 0x94a3b8; // Default Gray
         }
     }
@@ -700,59 +517,10 @@ function createTextSprite(message, fontsize, color) {
 
 
 
-// ... existing imports ...
-
-// ... applyGalaxyLayout remains same (pure math) ...
-// ... createNodeMesh remains same ...
-// ... createTextSprite remains same ...
 
 // --- Restored Curved Edge for "Living" Feel ---
-function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId) {
-    const start = new THREE.Vector3(sourcePos.x, sourcePos.y, sourcePos.z);
-    const end = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z);
-
-    // Create a quadratic bezier curve
-    // Midpoint with DETERMINISTIC offset for "organic" curve
-    const distance = start.distanceTo(end);
-    const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-
-    // Seed RNG with unique edge identifier for consistent curve shape
-    const seed = (sourceId && targetId) ? `${sourceId}-${targetId}` : JSON.stringify(sourcePos) + JSON.stringify(targetPos);
-    const rng = new SeededRNG(seed);
-
-    // Offset perpendicular to the line
-    mid.x += (rng.next() - 0.5) * distance * 0.3;
-    mid.y += (rng.next() - 0.5) * distance * 0.3;
-    mid.z += (rng.next() - 0.5) * distance * 0.3;
-
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-
-    const points = curve.getPoints(50);
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-
-    // Use edge data properties for visual distinction
-    // TRUTH-PRESERVING: Use calculated Edge Glow (0.0 - 5.0 typically)
-    const edgeGlow = edgeData.edge_glow || 1.0;
-
-    // Scale visual properties logarithmically based on glow
-    const edgeWidth = Math.min(6, Math.max(1.5, edgeGlow * 1.5)); // Thicker edges
-    const edgeOpacity = Math.min(0.9, Math.max(0.4, edgeGlow * 0.2)); // Higher base opacity
-
-    const material = new THREE.LineBasicMaterial({
-        color: 0x00d4ff, // Bright Cyan default
-        transparent: true,
-        opacity: edgeOpacity,
-        linewidth: edgeWidth
-    });
-
-    const line = new THREE.Line(geometry, material);
-
-    // Store curve for particle animation
-    line.userData.curve = curve;
-    line.userData.sourcePos = sourcePos;
-    line.userData.targetPos = targetPos;
-
-    return line;
+function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId, layoutMode = 'galaxy') {
+    return createLatentBridgeEdge(sourcePos, targetPos, edgeData, sourceId, targetId, layoutMode === 'latent');
 }
 
 function createParticle(type = 'normal') {
@@ -773,6 +541,20 @@ function createParticle(type = 'normal') {
         metalness: 0.8
     });
     const mesh = new THREE.Mesh(geometry, material);
+    // [STRICT ALIGNMENT] Impact Pulsing
+    if (nodeData.propagationState === 'impacted') {
+        material.emissive = new THREE.Color(0xff8800);
+        material.emissiveIntensity = 1.0;
+
+        // Register for animation loop pulsing
+        animatedObjectsList.push({
+            mesh: mesh,
+            update: (time) => {
+                mesh.material.emissiveIntensity = 0.5 + Math.sin(time * 8) * 0.4;
+            }
+        });
+    }
+
     return mesh;
 }
 
@@ -822,7 +604,19 @@ function createStarfield(scene) {
     scene.add(dust);
 }
 
-const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, className, activeLens: activeLensProp = 'ops', clusteringMethod = 'heuristic', paused = false }, ref) => {
+const ThreeGraph = forwardRef(({
+    data,
+    tps = 0,
+    onNodeClick,
+    onNodeHover,
+    activeLens = 'ops',
+    clusteringMethod = 'heuristic',
+    paused = false,
+    className = "",
+    activeFilters = {},
+    timeValue = 100,
+    onNodesEnriched
+}, ref) => {
     const containerRef = useRef(null);
     const mountRef = useRef(null);
     const rendererRef = useRef(null);
@@ -899,8 +693,8 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
     // SAI Latent Space State & Refs
     const [layoutMode, setLayoutMode] = React.useState('galaxy'); // 'galaxy' | 'latent' | 'analysis'
     const layoutModeRef = useRef('galaxy'); // Ref for access in loops
-    const [currentLens, setCurrentLens] = React.useState(activeLensProp); // 'ops' | 'security' | 'executive' | 'tier3' | 'energy'
-    const currentLensRef = useRef(activeLensProp); // Ref for access inside loops/imperative
+    const [currentLens, setCurrentLens] = React.useState(activeLens); // 'ops' | 'security' | 'executive' | 'tier3' | 'energy'
+    const currentLensRef = useRef(activeLens); // Ref for access inside loops/imperative
     // Latent Background State (Default: Deep Space Gradient)
     const [latentBg, setLatentBg] = React.useState('radial-gradient(circle at center, #1a202c 0%, #000000 100%)');
     // Latent Time Travel State
@@ -912,12 +706,12 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
     // 3D Tables (tier3) Cluster Metadata State
     // Sync Prop to State
     useEffect(() => {
-        if (activeLensProp && activeLensProp !== currentLens) {
-            console.log(`[ThreeGraph] Prop Sync: Lens -> ${activeLensProp}`);
-            setCurrentLens(activeLensProp);
-            currentLensRef.current = activeLensProp;
+        if (activeLens && activeLens !== currentLens) {
+            console.log(`[ThreeGraph] Prop Sync: Lens -> ${activeLens}`);
+            setCurrentLens(activeLens);
+            currentLensRef.current = activeLens;
         }
-    }, [activeLensProp]);
+    }, [activeLens]);
 
     const [clusterMetadata, setClusterMetadata] = useState(null);
     const [clusterMetadataLoading, setClusterMetadataLoading] = useState(false);
@@ -975,6 +769,58 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
     }, []);
 
 
+    // --- NODE VISIBILITY FILTERING (Class Filter) ---
+    useEffect(() => {
+        if (!nodesRef.current) return;
+        console.log('[ThreeGraph] Applying Active Filters:', activeFilters);
+
+        nodesRef.current.forEach(n => {
+            const name = (n.name || '').toLowerCase();
+            const type = (n.entity || n.type || n.table_type || '').toLowerCase();
+            const rc = n.row_count || 0;
+            const vitality = n.vitality || 100;
+
+            let category = 'Healthy Tables';
+            if (n.latent_category) {
+                category = n.latent_category;
+            } else {
+                // Dynamic Lens fallback if latent layout wasn't run yet
+                const cats = getLensCategories(currentLensRef.current);
+
+                // Fallback heuristic:
+                const isAnomalous = vitality < 50 || name.includes('anomaly');
+                const isIndependent = rc > 50000 || name.includes('trans') || name.includes('sale');
+                const isFact = name.includes('fact') || type === 'fact' || rc > 10000;
+
+                if (isAnomalous) {
+                    category = cats[0].id; // Red
+                } else if (isFact && !isIndependent) {
+                    category = cats[1].id; // Blue
+                } else if (isIndependent) {
+                    category = cats[3].id; // Yellow
+                } else {
+                    category = cats[2].id; // Green
+                }
+            }
+
+            const isVisible = activeFilters[category] !== false;
+            if (n.mesh) {
+                n.mesh.visible = isVisible;
+            }
+
+            // Also handle edges - hide if either source or target is hidden
+            if (n.edges) {
+                n.edges.forEach(edge => {
+                    if (edge.mesh) {
+                        // This is a bit complex as we need to know the other end's visibility
+                        // For now just hide if this node is hidden
+                        if (!isVisible) edge.mesh.visible = false;
+                        // Re-showing is harder without a global edge pass, but nodes are primary
+                    }
+                });
+            }
+        });
+    }, [activeFilters]);
 
     // --- VOICE COMMAND REGISTRATION ---
     const findNodeByTarget = useCallback((target) => {
@@ -1311,6 +1157,19 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
             }
             resetCamera();
         },
+        zoom: (factor) => {
+            if (cameraRef.current && controlsRef.current) {
+                // Determine direction vector from camera to controls target (center)
+                const dir = new THREE.Vector3().subVectors(controlsRef.current.target, cameraRef.current.position).normalize();
+                // Move camera closer (factor < 1) or further (factor > 1) by scaling current distance
+                const currentDist = cameraRef.current.position.distanceTo(controlsRef.current.target);
+                const newDist = Math.max(50, Math.min(2000, currentDist * factor)); // Clamp to realistic values
+
+                // Set new position
+                cameraRef.current.position.copy(controlsRef.current.target).sub(dir.multiplyScalar(newDist));
+                controlsRef.current.update();
+            }
+        },
         setLatentMode: (mode) => {
             console.log(`[ThreeGraph] Setting Layout Mode: ${mode}`);
             setLayoutMode(mode);
@@ -1322,7 +1181,11 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
             layoutModeRef.current = mode;
         },
         toggleLatentMode: () => {
-            setLayoutMode(prev => prev === 'galaxy' ? 'latent' : 'galaxy');
+            setLayoutMode(prev => {
+                const next = prev === 'galaxy' ? 'latent' : 'galaxy';
+                layoutModeRef.current = next;
+                return next;
+            });
         }
     }), [layoutMode, currentLens]);
 
@@ -1454,7 +1317,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
         // Init Camera
         // HYPER-LATENT FIX: Increase Far Plane to see full 30k+ space
-        const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 60000);
+        const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 200000);
         camera.position.z = 1600; // Zoomed out for better overview
         cameraRef.current = camera;
 
@@ -1715,7 +1578,41 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
         const onClick = (event) => {
             if (hoverNodeRef.current) {
-                console.log("ThreeGraph: Node Clicked - Opening Latent Space for:", hoverNodeRef.current.name);
+                const toggledNode = hoverNodeRef.current;
+                console.log("ThreeGraph: Node Clicked - Table:", toggledNode.name);
+
+                // [STEP 4] Dependency Propagation Visual Pulse
+                if (layoutModeRef.current === 'latent') {
+                    console.log("[ThreeGraph] 🌊 Propagating Dependency Impact from:", toggledNode.name);
+                    const impactedIds = propagateImpact(toggledNode.id, nodesRef.current);
+
+                    nodesRef.current.forEach(node => {
+                        if (impactedIds.has(node.id) && node.mesh) {
+                            // Visual: pulse orange/red to show cascading impact
+                            // We use a temporary emissive flash
+                            const originalColor = new THREE.Color(node.latent_color || '#11ff44');
+                            node.mesh.material.color.set('#ff8800');
+                            if (node.mesh.material.emissive) {
+                                node.mesh.material.emissive.set('#ff4400');
+                                node.mesh.material.emissiveIntensity = 1.0;
+                            }
+                            node.isImpacted = true;
+
+                            // Restore after 2 seconds
+                            setTimeout(() => {
+                                if (node.mesh && node.mesh.material) {
+                                    node.mesh.material.color.copy(originalColor);
+                                    if (node.mesh.material.emissive) {
+                                        node.mesh.material.emissive.setHex(0x000000);
+                                        node.mesh.material.emissiveIntensity = 0.5;
+                                    }
+                                    node.isImpacted = false;
+                                }
+                            }, 2000);
+                        }
+                    });
+                }
+
                 event.stopPropagation();
                 event.preventDefault();
 
@@ -1723,7 +1620,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
                 // Also call onNodeClick if provided - THIS IS THE ONLY NAVIGATION SOURCE
                 if (onNodeClick) {
-                    onNodeClick(hoverNodeRef.current);
+                    onNodeClick(toggledNode);
                 }
             }
         };
@@ -1774,14 +1671,14 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
                 // SECURITY SHIELD PULSE (Data-Driven Animation)
                 if (object.userData && object.userData.isShield) {
-                    const t = Date.now() * 0.001;
+                    const t = Date.now() * 0.001 * (timeValue / 100);
                     const speed = object.userData.pulseSpeed || 1.0;
                     const base = object.userData.originalScale || 1.4;
                     // Formula: scale = base + sin(t * speed) * offset
                     const scale = base + Math.sin(t * speed * 3.0) * 0.15;
                     object.scale.setScalar(scale);
-                    object.rotation.y += 0.02;
-                    object.rotation.z -= 0.01;
+                    object.rotation.y += 0.02 * (timeValue / 100);
+                    object.rotation.z -= 0.01 * (timeValue / 100);
                 }
             });
 
@@ -1838,7 +1735,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
                     for (let i = particlesRef.current.length - 1; i >= 0; i--) {
                         const p = particlesRef.current[i];
-                        p.progress += p.speed;
+                        p.progress += p.speed * (timeValue / 100);
                         if (p.progress >= 1) {
                             scene.remove(p.mesh);
                             particlesRef.current.splice(i, 1);
@@ -2184,9 +2081,18 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
             const nodes = data.nodes.map(n => ({ ...n }));
 
             // 1. Layout - CONDITIONAL BASED ON MODE
+            // Step 1: Enrich with dependency data
+            const enrichedNodes = enrichNodesWithDependency(nodes, data.edges || []);
+
             const layoutNodes = layoutMode === 'latent'
-                ? applyLatentSpaceLayout(nodes, currentLens)
-                : applyGalaxyLayout(nodes, 800); // Increased from 600 to 800 for better spacing
+                ? applyLatentSpaceLayout([...enrichedNodes], currentLens) // Ensure spread to avoid mutations
+                : applyGalaxyLayout(enrichedNodes, 800);
+
+            // [FIX] Sync computed semantic labels (latent_category) back to App state for the UI Panel filter counts
+            if (onNodesEnriched) {
+                onNodesEnriched(layoutNodes);
+            }
+
             const nodeMap = new Map();
 
             // 2. Create Nodes
@@ -2408,7 +2314,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
                         const startPos = new THREE.Vector3(source.x, source.y, source.z);
                         const endPos = new THREE.Vector3(target.x, target.y, target.z);
 
-                        const line = createCurvedEdge(startPos, endPos, edge, edge.source, edge.target);
+                        const line = createCurvedEdge(startPos, endPos, edge, edge.source, edge.target, layoutMode);
                         line.userData.sourceId = edge.source;
                         line.userData.targetId = edge.target;
 
@@ -2429,7 +2335,7 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
             }
 
             // 4. LATENT SPACE VISUALS (Manifold + Axes)
-            if (layoutMode === 'latent' && data.latent_manifold) {
+            if (layoutMode === 'latent') {
                 console.log('[ThreeGraph] 🏔️ Rendering Latent Manifold...');
 
                 // Remove old manifold/axes if they exist
@@ -2445,14 +2351,15 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
                 }
 
                 // Create new manifold terrain
-                const manifold = createLatentManifold(data.latent_manifold);
+                // PASSED IN NODES INSTEAD OF STATIC MANIFOLD DATA
+                const manifold = createLatentManifold(layoutNodes);
                 if (manifold) {
                     scene.add(manifold);
                     manifoldRef.current = manifold;
                 }
 
                 // Create axes and grid walls
-                const axes = create3DAxes('latent', data.latent_manifold);
+                const axes = create3DAxes('latent');
                 scene.add(axes);
                 axesRef.current = axes;
 
@@ -2464,8 +2371,8 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
                 // CAMERA TRANSITION: Pull back to see the massive manifold
                 if (cameraRef.current && controlsRef.current) {
-                    // Animate camera to a high vantage point
-                    const targetPos = new THREE.Vector3(0, 15000, 20000); // High up and back
+                    // Animate camera to a high vantage point matching Majestic Mountains scale
+                    const targetPos = new THREE.Vector3(40000, 20000, 40000);
                     const lookAt = new THREE.Vector3(0, 0, 0);
 
                     // Use GSAP-like interpolation manually or via controls
@@ -2505,33 +2412,32 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
             .force("charge", forceManyBody()
                 .strength(d => {
-                    // LATENT STABILITY: Disable charge repulsion in latent mode to prevent jitter
-                    if (layoutMode === 'latent') return 0;
                     const s = -100 * (d.importance_score || 1.0);
-                    return isNaN(s) ? -30 : s;
+                    // Organic layout for both modes, but latent has softer charge to stay packed
+                    return isNaN(s) ? -30 : (layoutMode === 'latent' ? Math.max(s, -50) : s);
                 })
                 .distanceMax(300)
             )
             .force("collide", d3.forceCollide()
-                // LATENT STABILITY: Disable collision to allow perfect stacking
-                // Radius: Use updated d.size (visual radius) * buffer
-                .radius(d => (layoutMode === 'latent') ? 0 : (d.size || 10) * 1.2)
-                .iterations(3) // Increase iterations for stability
+                // Enable collision for latent so clusters pack organically without 100% overlap
+                .radius(d => (layoutMode === 'latent') ? (d.size || 10) * 0.8 : (d.size || 10) * 1.2)
+                .iterations(3)
             )
             .force("link", forceLink(edgesRef.current.map(e => ({ source: e.userData.sourceId, target: e.userData.targetId, ...e })))
                 .id(d => d.id)
                 .distance(d => {
                     const intensity = d.trafficIntensity || 0.5;
-                    // Increased min distance to prevent clustering
                     if (intensity <= 0.01) return 150;
                     const dist = 150 / intensity;
                     return isNaN(dist) ? 150 : Math.min(dist, 600);
                 })
-                .strength(layoutMode === 'latent' ? 0 : 0.05) // Reduced strength to let collision work
+                // Soft link strength in latent mode to allow groups to cluster organically
+                .strength(layoutMode === 'latent' ? 0.01 : 0.05)
             )
-            .force("x", forceX(d => d.targetX || 0).strength(0.8))
-            .force("y", forceY(d => d.targetY || 0).strength(0.8))
-            .force("z", forceZ(d => d.targetZ || 0).strength(0.8))
+            // Strong axial pull for latent to hold the cloud macro-structure against link collapse
+            .force("x", forceX(d => d.targetX || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
+            .force("y", forceY(d => d.targetY || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
+            .force("z", forceZ(d => d.targetZ || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
             .on("tick", () => {
                 const currentScene = sceneRef.current;
                 if (!currentScene) return;
@@ -2650,154 +2556,16 @@ const ThreeGraph = forwardRef(({ onNodeClick, onNodeHover, data, tps = 0, classN
 
 
     return (
-        <div ref={containerRef} className={className || "fixed inset-0 z-0"} style={containerStyle}>
-            {/* LATENT PALETTE PANEL (User Request) */}
-            {layoutMode === 'latent' && (
-                <div className="absolute top-24 right-6 z-50 flex flex-col gap-2 p-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-[#94a3b8] mb-1">Atmosphere</span>
-                    <div className="flex gap-2">
-                        {/* Deep Space (Default) */}
-                        <button
-                            onClick={() => setLatentBg('radial-gradient(circle at center, #1a202c 0%, #000000 100%)')}
-                            className="w-6 h-6 rounded-full border border-white/20 hover:scale-110 transition-transform"
-                            style={{ background: 'radial-gradient(circle at center, #1a202c 0%, #000000 100%)' }}
-                            title="Deep Space"
-                        />
-                        {/* Midnight Blue */}
-                        <button
-                            onClick={() => setLatentBg('linear-gradient(to bottom, #0f172a, #1e1b4b)')}
-                            className="w-6 h-6 rounded-full border border-white/20 hover:scale-110 transition-transform"
-                            style={{ background: 'linear-gradient(to bottom, #0f172a, #1e1b4b)' }}
-                            title="Midnight Blue"
-                        />
-                        {/* Obsidian */}
-                        <button
-                            onClick={() => setLatentBg('#000000')}
-                            className="w-6 h-6 rounded-full border border-white/20 hover:scale-110 transition-transform"
-                            style={{ backgroundColor: '#000000' }}
-                            title="Obsidian"
-                        />
-                        {/* Nebula Purple */}
-                        <button
-                            onClick={() => setLatentBg('radial-gradient(circle at top right, #3b0764, #000000)')}
-                            className="w-6 h-6 rounded-full border border-white/20 hover:scale-110 transition-transform"
-                            style={{ background: 'radial-gradient(circle at top right, #3b0764, #000000)' }}
-                            title="Nebula"
-                        />
-                        {/* Custom Color Picker */}
-                        <div className="relative w-6 h-6 rounded-full overflow-hidden border border-white/20 hover:scale-110 transition-transform bg-white">
-                            <input
-                                type="color"
-                                className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer p-0 opacity-0"
-                                onChange={(e) => setLatentBg(e.target.value)}
-                            />
-                            <div className="absolute inset-0 bg-[conic-gradient(from_180deg_at_50%_50%,#FF0000_0deg,#00FF00_120deg,#0000FF_240deg,#FF0000_360deg)] pointer-events-none" />
-                        </div>
-                    </div>
-                </div>
-            )}
+        <div ref={containerRef} className={className || "absolute inset-0 z-0"} style={containerStyle}>
 
             {/* DEBUG HUD - REMOVE BEFORE PRODUCTION */}
 
 
             {/* TOPOLOGY VIEW (Always Mounted) */}
-            < div ref={mountRef} className="absolute inset-0 z-0" />
+            <div ref={mountRef} className="absolute inset-0 z-0" />
 
-            <div className="absolute bottom-6 left-6 z-50 flex gap-2">
-                <div className="px-4 py-2 rounded border font-mono text-sm bg-cyan-500/20 border-cyan-400 text-cyan-300 pointer-events-none opacity-80">
-                    TOPOLOGY VIEW • Click any node to explore
-                </div>
-            </div>
-            {/* Latent Mode Toggle Button */}
-            {
-                layoutMode === 'latent' && (
-                    <>
-                        <button
-                            onClick={() => setLayoutMode('galaxy')}
-                            className="absolute top-4 right-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 font-semibold z-50"
-                        >
-                            ← Back to Topology
-                        </button>
 
-                        {/* TIME TRAVEL SLIDER (User Request) */}
-                        <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 w-1/3 z-50 flex flex-col items-center gap-2">
-                            <div className="flex justify-between w-full text-xs font-mono text-cyan-400 uppercase tracking-widest">
-                                <span>Genesis</span>
-                                {/* Use span with ID for direct DOM update to avoid re-renders */}
-                                <span id="time-travel-label">Time Distortion: {timeProgress}%</span>
-                                <span>Now</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                defaultValue={100} // Uncontrolled for performance
-                                onInput={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    timeProgressRef.current = val; // Update Ref (No Re-render)
-
-                                    // Direct DOM update for label
-                                    const label = document.getElementById('time-travel-label');
-                                    if (label) label.innerText = `Time Distortion: ${val}%`;
-
-                                    // Update Visibility Immediately (Direct Node Manipulation)
-                                    if (nodesRef.current) {
-                                        nodesRef.current.forEach((n, i) => {
-                                            if (n.mesh) {
-                                                // Deterministic "Birth Time" based on Index/ID hash
-                                                const seed = (n.id.charCodeAt(0) + n.id.length * 5) % 100;
-
-                                                // Visible if seed <= time
-                                                const isVisible = seed <= val;
-                                                n.mesh.visible = isVisible;
-
-                                                // Ghosting/New Data Effect
-                                                if (isVisible) {
-                                                    // If just born (within 10%), make it bright white
-                                                    if (seed > val - 10) {
-                                                        // Flash Base
-                                                        if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(0xffffff);
-                                                        else n.mesh.material.color.setHex(0xffffff);
-
-                                                        // Flash Shell (if exists)
-                                                        if (n.mesh.children[0] && n.mesh.children[0].material) {
-                                                            if (n.mesh.children[0].material.emissive) n.mesh.children[0].material.emissive.setHex(0xffffff);
-                                                        }
-                                                    } else {
-                                                        // RESTORE ORIGINAL STATE
-                                                        // 1. Reset Color
-                                                        if (n.mesh.userData.originalColor) {
-                                                            n.mesh.material.color.setHex(n.mesh.userData.originalColor);
-                                                        }
-                                                        // 2. Reset Emissive (if applicable)
-                                                        if (n.mesh.userData.originalColor) {
-                                                            if (n.mesh.material.emissive) n.mesh.material.emissive.setHex(n.mesh.userData.originalColor);
-                                                            // Ensure Shell matches
-                                                            if (n.mesh.children[0] && n.mesh.children[0].material && n.mesh.children[0].material.emissive) {
-                                                                n.mesh.children[0].material.emissive.setHex(n.mesh.userData.originalColor);
-                                                            }
-                                                        }
-
-                                                        const targetIntensity = layoutMode === 'latent' ? 2.0 : 1.5;
-                                                        if (n.mesh.material.emissive) n.mesh.material.emissiveIntensity = targetIntensity;
-                                                        if (n.mesh.children[0] && n.mesh.children[0].material) n.mesh.children[0].material.emissiveIntensity = targetIntensity;
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    }
-                                }}
-                                onMouseUp={(e) => {
-                                    // Sync React state only when drag ends
-                                    setTimeProgress(parseInt(e.target.value));
-                                }}
-                                className="w-full h-2 bg-slate-700/50 rounded-lg appearance-none cursor-pointer accent-cyan-500 hover:accent-cyan-400 transition-all"
-                            />
-                        </div>
-                    </>
-                )
-            }
-        </div >
+        </div>
     );
 });
 

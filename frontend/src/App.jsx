@@ -16,7 +16,7 @@ import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
 import HealthDashboard from './components/Dashboard/HealthDashboard';
 import IntelligenceHub from './components/Intelligence/IntelligenceHub';
-import { LatentWorld } from './components/Dashboard/LatentWorld';
+import { LatentWorld, LatentSpaceUIOverlay, getLensCategories } from './components/Dashboard/LatentSpaceLogic.jsx';
 
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
@@ -36,7 +36,7 @@ import apiClient from './utils/apiClient';
 const IntelligencePreview = ({ node }) => {
   if (!node) return null;
   return (
-    <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white z-50 pointer-events-none transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 shadow-2xl min-w-[320px]">
+    <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-xl glass-panel text-white z-50 pointer-events-none transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 min-w-[320px]">
       <div className="flex items-center gap-3 mb-2">
         <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: '#' + (typeof node.color === 'number' ? node.color.toString(16).padStart(6, '0') : (node.color || '22d3ee').toString().replace('0x', '')) }}></div>
         <h3 className="text-lg font-bold tracking-tight">{node.name || node.id || 'Unknown Entity'}</h3>
@@ -205,7 +205,7 @@ const MainDashboard = () => {
   const [drillDownTable, setDrillDownTable] = useState(null);
   const [autoSimulate, setAutoSimulate] = useState(false);
   const [evolutionMode, setEvolutionMode] = useState(false);
-  const [showIntelligenceHub, setShowIntelligenceHub] = useState(false);
+
   const [liveStats, setLiveStats] = useState({
     totalTransactions: 0, fraudAlerts: 0, avgAmount: 0, failedTx: 0, tps: 0, activeNodes: 0, health: { state: 'healthy', score: 100, color: '#00ff88', issues: [] }, anomalies: []
   });
@@ -214,11 +214,28 @@ const MainDashboard = () => {
   const [activeLens, setActiveLens] = useState('ops'); // New Lens State
   const [activeLayoutMode, setActiveLayoutMode] = useState('galaxy'); // SAI Layout Mode
   const [hoveredNode, setHoveredNode] = useState(null); // Intelligence Preview State
+  const [timeValue, setTimeValue] = useState(100); // Time Travel State
+  const [activeFilters, setActiveFilters] = useState({
+    'Independent Facts': true,
+    'Dependent Facts': true,
+    'Healthy Tables': true,
+    'Anomalous Peaks': true
+  });
+  const [enrichedNodes, setEnrichedNodes] = useState(null);
 
   // Lens Switch Handler
   const handleToggleLens = React.useCallback((lens) => {
     console.log(`[App] Switching Lens to: ${lens}`);
     setActiveLens(lens);
+
+    // [FEATURE] Reset filters based on the selected lens categories
+    const newCategories = getLensCategories(lens);
+    const newFilters = {};
+    newCategories.forEach(c => {
+      newFilters[c.id] = true;
+    });
+    setActiveFilters(newFilters);
+
     if (graphRef.current && graphRef.current.setLens) {
       graphRef.current.setLens(lens);
     }
@@ -228,8 +245,8 @@ const MainDashboard = () => {
   const handleToggleLayoutMode = React.useCallback((mode) => {
     console.log(`[App] Switching Layout Mode to: ${mode}`);
     setActiveLayoutMode(mode);
-    if (graphRef.current && graphRef.current.setLayoutMode) {
-      graphRef.current.setLayoutMode(mode);
+    if (graphRef.current && graphRef.current.setLatentMode) {
+      graphRef.current.setLatentMode(mode);
     }
   }, []);
 
@@ -347,14 +364,7 @@ const MainDashboard = () => {
   const handleNavigate = React.useCallback((view) => {
     console.log('[App] Navigation:', view);
 
-
-
     // Standard navigation
-    if (view === 'intelligence') {
-      setShowIntelligenceHub(true);
-      return;
-    }
-
     setViewMode(view);
     if (view === 'overview') {
       setBreadcrumbs([]);
@@ -470,14 +480,34 @@ const MainDashboard = () => {
           row_count: node.row_count || 0,
           metrics: node.metrics || node.foreign_keys || [],
           columns: node.columns || [],
-          vitality: node.vitality || 50,
+          vitality: node.vitality === undefined ? 100 : node.vitality, // Fix: Don't default to 50
           pulse_rate: node.pulse_rate || 1.0,
           glow_intensity: node.node_glow || 0.5,
           node_glow: node.node_glow || 1.0,
           importance_score: node.importance_score || 1.0,
-          cluster: node.cluster, // [FIX] Preserve cluster property for coloring
+          cluster: node.cluster,
           foreign_keys: node.foreign_keys || [],
-          customMetrics: node.customMetrics || {}
+          customMetrics: node.customMetrics || {},
+
+          // [CRITICAL] Preserve Semantic & Dependency Fields
+          has_upstream_deps: node.has_upstream_deps,
+          upstream_node_ids: node.upstream_node_ids,
+          downstream_node_ids: node.downstream_node_ids,
+          is_anomalous: node.is_anomalous,
+          latent_category: node.latent_category,
+          latent_color: node.latent_color,
+
+          // [STRICT ALIGNMENT] Preservation
+          isFactTable: node.is_fact_table,
+          isDimensionTable: node.is_dimension_table,
+          isSource: node.is_source,
+          dependencyDepth: node.dependency_depth,
+          independencyScore: node.independency_score,
+          anomalySeverity: node.anomaly_severity,
+          healthScore: node.health_score,
+          affectedDownstreamCount: node.affected_downstream_count,
+          upstreamNodeIds: node.upstream_node_ids,
+          downstreamNodeIds: node.downstream_node_ids
         };
       });
       const edgesTransformed = (rawData.edges || []).map(e => ({
@@ -510,9 +540,48 @@ const MainDashboard = () => {
 
   const handleNodeClick = React.useCallback((node) => {
     setSelectedNode(node);
+
+    // [STRICT ALIGNMENT] Dependency Propagation Logic
+    // If it's an Independent Fact (Yellow), propagate impact downstream
+    if (activeLayoutMode === 'latent' && node.latent_category === 'Dimension') {
+      const impactedIds = new Set();
+      const queue = [...(node.downstreamNodeIds || [])];
+
+      while (queue.length > 0) {
+        const currentId = queue.shift();
+        if (!impactedIds.has(currentId)) {
+          impactedIds.add(currentId);
+          const currentNode = graphData.nodes.find(n => n.id === currentId);
+          if (currentNode && currentNode.downstreamNodeIds) {
+            queue.push(...currentNode.downstreamNodeIds);
+          }
+        }
+      }
+
+      console.log(`[App] Propagating impact from ${node.id} to ${impactedIds.size} nodes.`);
+
+      // Update graph data with impacted flags
+      setGraphData(prev => ({
+        ...prev,
+        nodes: prev.nodes.map(n => ({
+          ...n,
+          propagationState: impactedIds.has(n.id) ? 'impacted' : null
+        }))
+      }));
+
+      setAiStatus(`Propagation: ${impactedIds.size} tables impacted by ${node.id}`);
+      setTimeout(() => setAiStatus(null), 5000);
+    } else {
+      // Clear propagation if clicking non-independent or switching views
+      setGraphData(prev => ({
+        ...prev,
+        nodes: prev.nodes.map(n => ({ ...n, propagationState: null }))
+      }));
+    }
+
     if (node.id !== 'hub') handleNodeDrillDown(node.id); else setShowDrillDown(false);
     setMlInsights(prev => ({ ...prev, anomalyScore: node.vitality ? (100 - node.vitality) : 0, gravity: (node.importance_score || 0) > 0.8 ? 'High' : 'Normal' }));
-  }, [handleNodeDrillDown]);
+  }, [handleNodeDrillDown, activeLayoutMode, graphData.nodes]);
 
   const handleColumnClick = React.useCallback((col) => { setSelectedColumn(col); setShowRecordGravity(true); }, []);
 
@@ -599,10 +668,11 @@ const MainDashboard = () => {
   const handleRecalculateGravity = () => { if (connectionId) { setAiStatus("Recalculating Intelligence Weights..."); fetchGravitySuggestions(connectionId); setTimeout(() => setAiStatus(null), 3000); } };
 
   const sidebarProps = {
-    actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity },
+    actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity, navigateTo: handleNavigate },
     clusters: mlInsights?.clusters || [],
     onClusterClick: console.log,
     selectedNode,
+    impactedNodes: graphData.nodes.filter(n => n.propagationState === 'impacted'),
     mlInsights,
     liveStats,
     activeLens, // Pass lens state
@@ -639,133 +709,182 @@ const MainDashboard = () => {
   }, [executeCommand]);
 
   return (
-    <DashboardLayout sidebarProps={sidebarProps}>
-      <NavigationBar
-        currentView={viewMode}
-        onNavigate={handleNavigate}
-        breadcrumbs={breadcrumbs}
-        onToggleChat={() => setIsChatOpen(!isChatOpen)}
-        isChatOpen={isChatOpen}
-        activeLens={activeLens}
-        onToggleLens={handleToggleLens}
-        activeLayoutMode={activeLayoutMode}
-        onToggleLayoutMode={handleToggleLayoutMode}
-      />
-
-      {/* SIMULATION TOAST */}
-      {simUpdate && (
-        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-black/80 border border-green-500/50 text-green-400 px-6 py-3 rounded-full shadow-lg backdrop-blur-md animate-bounce">
-          <span className="text-lg font-mono font-bold">{simUpdate}</span>
-        </div>
-      )}
-
-      {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
-      <div
-        className={`fixed inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent'
-          ? 'opacity-100'
-          : 'opacity-0 pointer-events-none'
-          }`}
-        style={{ zIndex: 0 }}
+    <>
+      <DashboardLayout
+        sidebarProps={sidebarProps}
+        navbar={
+          <NavigationBar
+            currentView={viewMode}
+            onNavigate={handleNavigate}
+            breadcrumbs={breadcrumbs}
+            onToggleChat={() => setIsChatOpen(!isChatOpen)}
+            isChatOpen={isChatOpen}
+            activeLens={activeLens}
+            onToggleLens={handleToggleLens}
+            activeLayoutMode={activeLayoutMode}
+            onToggleLayoutMode={handleToggleLayoutMode}
+          />
+        }
       >
-        <ThreeGraph
-          ref={graphRef}
-          data={graphData}
-          tps={liveStats.tps}
-          onNodeClick={handleNodeClick}
-          onNodeHover={setHoveredNode}
-          activeLens={activeLens}
-          clusteringMethod={clusteringMethod} // [FIX] Pass clustering method for visual updates
-          paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent'} // [FIX] Stop rendering when hidden
-        />
-      </div>
-      <IntelligencePreview node={hoveredNode} />
-      <AgentStatusPanel />
-      <VoiceControl
-        onActionTriggered={handleAgentAction}
-        uiContext={{
-          currentView: viewMode,
-          tableName: drillDownTable,
-          connectionId: connectionId,
-          isEvolution: evolutionMode,
-          isChatOpen,
-          availableTables: graphData.nodes.map(n => n.id).filter(id => id !== 'hub'),
-          databaseMetrics: liveStats,
-          neuralCoreStats: mlInsights
-        }}
-      />
 
-      <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
-        <div className="w-full h-full">
-          {/* These overlays are now always rendered, but their visibility is controlled by their own props */}
-          <CirclePackOverlay node={selectedNode} visible={showDrillDown && viewMode === 'overview'} onClose={() => setShowDrillDown(false)} onColumnClick={handleColumnClick} />
-          {showRecordGravity && <Record3DGraph table={selectedNode?.name} column={selectedColumn} onClose={() => setShowRecordGravity(false)} />}
+        {/* SIMULATION TOAST */}
+        {simUpdate && (
+          <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-50 bg-black/80 border border-green-500/50 text-green-400 px-6 py-3 rounded-full shadow-lg backdrop-blur-md animate-bounce">
+            <span className="text-lg font-mono font-bold">{simUpdate}</span>
+          </div>
+        )}
 
-          {viewMode === 'drilldown' && drillDownTable && (
-            <DrillDownView
-              connectionId={connectionId}
-              tableName={drillDownTable}
-              onBack={handleBackToOverview}
-              onToggleLatent={handleToggleLatent}
-              initialShowSimulation={autoSimulate}
+        {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
+        <div
+          className={`absolute inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent' || viewMode === 'latent'
+            ? 'opacity-100'
+            : 'opacity-0 pointer-events-none'
+            }`}
+          style={{ zIndex: 0 }}
+        >
+          <ThreeGraph
+            ref={graphRef}
+            data={graphData}
+            tps={liveStats.tps}
+            onNodeClick={handleNodeClick}
+            onNodeHover={setHoveredNode}
+            activeLens={activeLens}
+            clusteringMethod={clusteringMethod} // [FIX] Pass clustering method for visual updates
+            paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'} // [FIX] Stop rendering when hidden
+            activeFilters={activeFilters} // [NEW] Pass filters to hide categories in 3D
+            onNodesEnriched={setEnrichedNodes}
+          />
+
+          {/* LATENT SPACE HUD OVERLAY */}
+          {(viewMode === 'globalLatent' || viewMode === 'latent') && (
+            <LatentSpaceUIOverlay
+              hudOnly={true}
+              dataClusters={enrichedNodes || graphData?.nodes}
+              schemaData={graphData}
+              selectedNodeId={selectedNode?.id || hoveredNode?.id}
+              liveStats={liveStats}
+              timeValue={timeValue}
+              onTimeChange={setTimeValue}
+              currentLens={activeLens}
+              onClose={() => {
+                if (viewMode === 'latent') setViewMode('drilldown');
+                else setViewMode('overview');
+              }}
+              onZoomIn={() => {
+                if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(0.8);
+              }}
+              onZoomOut={() => {
+                if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(1.2);
+              }}
+              onZoomReset={() => {
+                if (graphRef.current && graphRef.current.resetView) graphRef.current.resetView();
+              }}
+              onToggleLens={handleToggleLens}
+              activeFilters={activeFilters}
+              onFilterChange={(label, value) => {
+                setActiveFilters(prev => ({ ...prev, [label]: value }));
+              }}
             />
           )}
-          {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
-          {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
-          {viewMode === 'vitals' && <HealthDashboard />}
-          {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
         </div>
-      </div>
 
-      {/* Latent World rendered outside the pointer-events-none container for full interactivity */}
-      {viewMode === 'latent' && (
-        <LatentWorld
-          key={`latent-${selectedNode?.id || 'none'}`}
-          targetNode={selectedNode}
-          onClose={handleToggleLatent}
-          schemaData={graphData}
-          connectionId={connectionId}
+        {/* Legend Layer */}
+        {viewMode !== 'drilldown' && (
+          <Legend layoutMode={activeLayoutMode} />
+        )}
+
+        <IntelligencePreview node={hoveredNode} />
+        <AgentStatusPanel />
+        <VoiceControl
+          onActionTriggered={handleAgentAction}
+          uiContext={{
+            currentView: viewMode,
+            tableName: drillDownTable,
+            connectionId: connectionId,
+            isEvolution: evolutionMode,
+            isChatOpen,
+            availableTables: graphData.nodes.map(n => n.id).filter(id => id !== 'hub'),
+            databaseMetrics: liveStats,
+            neuralCoreStats: mlInsights
+          }}
         />
-      )}
 
-      {/* REMOVED: Separate LatentGalaxy component. Now integrated into ThreeGraph for seamless transition */}
+        <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
+          <div className="w-full h-full">
+            {!connectionId ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center p-8 bg-black/40 border border-amber-500/30 rounded-2xl backdrop-blur-xl max-w-md">
+                  <div className="text-amber-500 mb-4">
+                    <span className="material-symbols-outlined text-6xl">database_off</span>
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">No Active Session</h3>
+                  <p className="text-gray-400 text-sm mb-6">
+                    Please connect to a database to access full intelligence and analytics capabilities.
+                  </p>
+                  <button
+                    onClick={() => setShowConnectModal(true)}
+                    className="px-6 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 border border-amber-500/30 rounded-lg text-xs font-bold uppercase transition-all"
+                  >
+                    Connect Database
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {viewMode === 'drilldown' && drillDownTable && (
+                  <DrillDownView
+                    connectionId={connectionId}
+                    tableName={drillDownTable}
+                    onBack={handleBackToOverview}
+                    onToggleLatent={handleToggleLatent}
+                    initialShowSimulation={autoSimulate}
+                  />
+                )}
+                {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
+                {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
+                {viewMode === 'vitals' && <HealthDashboard />}
+                {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
+                {viewMode === 'intelligence' && <IntelligenceHub connectionId={connectionId} selectedNode={selectedNode} />}
+              </>
+            )}
+          </div>
+        </div>
 
-      <div className="relative z-[3000]">
+
+        {/* REMOVED: Separate LatentGalaxy component. Now integrated into ThreeGraph for seamless transition */}
+
+        <div className="relative z-[3000]">
+          <AnimatePresence>
+            {windows.map((w) => <Window key={w.id} {...w} />)}
+          </AnimatePresence>
+          {windows.length > 0 && <Taskbar />}
+        </div>
+
         <AnimatePresence>
-          {windows.map((w) => <Window key={w.id} {...w} />)}
+          {aiStatus && (
+            <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[4001] px-6 py-3 bg-[var(--bg-elevated)] border border-[var(--primary-cyan)]/30 rounded-full shadow-[0_0_30px_rgba(34,211,238,0.2)] flex items-center gap-3 backdrop-blur-md">
+              <div className="w-2 h-2 rounded-full bg-[var(--primary-cyan)] animate-ping" />
+              <span className="text-xs font-bold tracking-wider text-white uppercase font-mono">{aiStatus}</span>
+            </motion.div>
+          )}
         </AnimatePresence>
-        {windows.length > 0 && <Taskbar />}
-      </div>
 
-      <AnimatePresence>
-        {aiStatus && (
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[4001] px-6 py-3 bg-[var(--bg-elevated)] border border-[var(--primary-cyan)]/30 rounded-full shadow-[0_0_30px_rgba(34,211,238,0.2)] flex items-center gap-3 backdrop-blur-md">
-            <div className="w-2 h-2 rounded-full bg-[var(--primary-cyan)] animate-ping" />
-            <span className="text-xs font-bold tracking-wider text-white uppercase font-mono">{aiStatus}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <AnimatePresence>
+          {evolutionMode && (
+            <>
+              <TimelinePlayer connectionId={connectionId} onSnapshotUpdate={(snapshot) => { setCurrentSnapshot(snapshot); graphRef.current?.setEvolutionSnapshot(snapshot); }} onClose={() => setEvolutionMode(false)} />
+              <EvolutionOverlay snapshot={currentSnapshot} />
+              <EvolutionMathOverlay snapshot={currentSnapshot} />
+              <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEvolutionMode(false)} className="fixed top-24 left-6 px-4 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-bold uppercase tracking-widest z-50 backdrop-blur-md">Exit Evolution Mode</motion.button>
+            </>
+          )}
+        </AnimatePresence>
 
-      <AnimatePresence>
-        {evolutionMode && (
-          <>
-            <TimelinePlayer connectionId={connectionId} onSnapshotUpdate={(snapshot) => { setCurrentSnapshot(snapshot); graphRef.current?.setEvolutionSnapshot(snapshot); }} onClose={() => setEvolutionMode(false)} />
-            <EvolutionOverlay snapshot={currentSnapshot} />
-            <EvolutionMathOverlay snapshot={currentSnapshot} />
-            <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEvolutionMode(false)} className="fixed top-24 left-6 px-4 py-2 bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-bold uppercase tracking-widest z-50 backdrop-blur-md">Exit Evolution Mode</motion.button>
-          </>
-        )}
-      </AnimatePresence>
+        <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
+      </DashboardLayout>
 
-      {showIntelligenceHub && (
-        <IntelligenceHub
-          connectionId={connectionId}
-          onClose={() => setShowIntelligenceHub(false)}
-        />
-      )}
-
-      <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-      {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
-    </DashboardLayout >
+    </>
   );
 };
 

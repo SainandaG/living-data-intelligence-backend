@@ -183,7 +183,7 @@ export default function DrillDownView({ connectionId, tableName, onBack, onToggl
             </div>
 
             {/* 2. Sidebar Layer (Top-Right) */}
-            <div className="absolute top-4 right-4 z-40 w-80 space-y-4 pointer-events-auto">
+            <div className="absolute top-4 right-4 z-40 w-80 space-y-4 pointer-events-auto max-h-[calc(100vh-3rem)] overflow-y-auto custom-scrollbar pb-4">
                 {/* Global Data Flow Info */}
                 <div className="bg-[var(--bg-primary)]/90 backdrop-blur-md border border-white/10 rounded-lg p-4">
                     <h3 className="text-[var(--primary-cyan)] font-mono text-xs uppercase mb-2 flex items-center gap-2">

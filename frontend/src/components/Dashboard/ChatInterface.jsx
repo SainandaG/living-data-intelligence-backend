@@ -89,7 +89,7 @@ export default function ChatInterface({ connectionId, isOpen, onClose }) {
                         dragListener={false}
                         dragControls={controls}
                         dragMomentum={false}
-                        className="fixed top-20 right-20 z-[5001] w-[400px] h-[600px] bg-[#0a0e1a]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden ring-1 ring-white/10"
+                        className="fixed top-20 right-20 z-[5001] w-[400px] h-[600px] glass-panel rounded-2xl flex flex-col overflow-hidden"
                     >
                         {/* Header */}
                         <div

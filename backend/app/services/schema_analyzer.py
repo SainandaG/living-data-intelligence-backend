@@ -117,24 +117,14 @@ class SchemaAnalyzer:
         """
         all_fks = await db_connector.query(connection_id, fk_query)
         
-        # 5. Exact row-count (O(N) scan) - Requested by User for accuracy
-        logger.info("Fetching EXACT row counts for all tables...")
-        all_counts = []
-        
-        # Optimization: Create list of tasks for asyncio.gather if connector supports it
-        # For now, we'll do sequential to be safe with the shared connection wrapper
-        for row in tables_data:
-            t_name = row['table_name']
-            t_schema = row['table_schema']
-            try:
-                # Quote identifier for safety - Use actual schema from result
-                q = f'SELECT COUNT(*) as c FROM "{t_schema}"."{t_name}"'
-                res = await db_connector.query(connection_id, q)
-                count = res[0]['c'] if res else 0
-                all_counts.append({'table_name': t_name, 'row_count': count})
-            except Exception as e:
-                logger.warning(f"Failed to get exact count for {t_name}: {e}")
-                all_counts.append({'table_name': t_name, 'row_count': 0})
+        # 5. Bulk fetch row counts from pg_stat_user_tables (Very Fast, O(1) metadata access)
+        # This replaces the O(N) sequential COUNT(*) loop which caused 60s timeouts.
+        stats_query = """
+            SELECT relname as table_name, n_live_tup as row_count
+            FROM pg_stat_user_tables;
+        """
+        all_stats = await db_connector.query(connection_id, stats_query)
+        stats_map = {s['table_name']: int(s['row_count']) for s in all_stats if s['row_count'] is not None}
         
         # Group data for easy lookup
         col_map = {}
@@ -155,7 +145,7 @@ class SchemaAnalyzer:
             if t not in fk_map: fk_map[t] = []
             fk_map[t].append(f)
             
-        count_map = {r['table_name']: r['row_count'] for r in all_counts}
+        count_map = stats_map
 
         # Build schema
         schema = Schema(

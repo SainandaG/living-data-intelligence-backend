@@ -125,22 +125,8 @@ class T0Agent:
             # Add to classifier history
             self.intent_classifier.add_to_history(text, classification)
             
-            # Enhanced V2: Save to context manager for multi-turn
-            if self._enhanced:
-                self.context_manager.add_turn(
-                    role="user",
-                    content=text,
-                    intent=classification.get('intent'),
-                    entities=classification.get('parameters', {}),
-                    result=result
-                )
-            
-            # Update state: PROCESSING → DISPATCHING
-            self.state_manager.update_t0_state(T0State.DISPATCHING)
-            
+            # Prepare result for T1 dispatch and context
             processing_time = int((time.time() - start_time) * 1000)
-            
-            # Return result for T1 dispatch
             result = {
                 'success': True,
                 'command_id': command_id,
@@ -154,6 +140,19 @@ class T0Agent:
                 'processing_time_ms': processing_time,
                 'alternatives': classification.get('alternatives', [])
             }
+
+            # Enhanced V2: Save to context manager for multi-turn
+            if self._enhanced:
+                self.context_manager.add_turn(
+                    role="user",
+                    content=text,
+                    intent=classification.get('intent'),
+                    entities=classification.get('parameters', {}),
+                    result=result
+                )
+            
+            # Update state: PROCESSING → DISPATCHING
+            self.state_manager.update_t0_state(T0State.DISPATCHING)
             
             # Back to IDLE after dispatch
             self.state_manager.update_t0_state(T0State.IDLE)

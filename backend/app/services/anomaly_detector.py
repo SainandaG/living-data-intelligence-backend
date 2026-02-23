@@ -92,14 +92,22 @@ class AnomalyDetector:
             # PostgreSQL requires explicit schema creation, MySQL treats schema as database
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
-                
-            await db_connector.query(connection_id, """
-                CREATE TABLE IF NOT EXISTS evolution.statistical_memory (
-                    connection_id VARCHAR(255) PRIMARY KEY,
-                    metrics_json JSON,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+                await db_connector.query(connection_id, """
+                    CREATE TABLE IF NOT EXISTS evolution.statistical_memory (
+                        connection_id VARCHAR(255) PRIMARY KEY,
+                        metrics_json JSONB,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+            else:
+                # MYSQL DIALECT
+                await db_connector.query(connection_id, """
+                    CREATE TABLE IF NOT EXISTS statistical_memory (
+                        connection_id VARCHAR(255) PRIMARY KEY,
+                        metrics_json JSON,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             
             data = json.dumps(self.baseline_metrics.get(connection_id, {}))
             
@@ -115,7 +123,7 @@ class AnomalyDetector:
             else:
                 # MYSQL DIALECT
                 sql = """
-                    INSERT INTO evolution.statistical_memory (connection_id, metrics_json, updated_at)
+                    INSERT INTO statistical_memory (connection_id, metrics_json, updated_at)
                     VALUES (%s, %s, NOW())
                     ON DUPLICATE KEY UPDATE metrics_json = VALUES(metrics_json), updated_at = NOW()
                 """

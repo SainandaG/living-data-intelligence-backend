@@ -184,17 +184,7 @@ const HealthItem = ({ name, value, percent, color }) => (
     </div>
 );
 
-export const Legend = () => (
-    <div className="legend glass-card">
-        <div className="legend-title">Node Types</div>
-        <div className="legend-items">
-            <LegendItem color="#fbbf24" label="Fact Tables (Transactions)" />
-            <LegendItem color="#34d399" label="Dimension Tables (Entities)" />
-            <LegendItem color="#f87171" label="Risk/Alert Nodes" />
-            <LegendItem color="#22d3ee" label="Network Core" />
-        </div>
-    </div>
-);
+export const Legend = () => null;
 
 const LegendItem = ({ color, label }) => (
     <div className="legend-item">

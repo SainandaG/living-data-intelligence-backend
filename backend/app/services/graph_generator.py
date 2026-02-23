@@ -279,9 +279,11 @@ class GraphGenerator:
         # Now that we have all edges (Topology), we can calculate the EXACT scores 
         # that match the Analysis Engine (which also sees these edges).
         
-        # 1. Build Local Topology Map
+        # 1. Build Local Topology Map (Adjacency Lists)
         local_in_degree = {}
         local_out_degree = {}
+        upstream_map = {}
+        downstream_map = {}
         
         for e in edges:
             s_id = e['source']
@@ -289,6 +291,44 @@ class GraphGenerator:
             local_out_degree[s_id] = local_out_degree.get(s_id, 0) + 1
             local_in_degree[t_id] = local_in_degree.get(t_id, 0) + 1
             
+            # Adjacency for visual landscaping (Step 1 enrichment)
+            # [STRICT ALIGNMENT] Ignore hub/core for data dependency metrics
+            if s_id in ['hub', 'DATABASE_CORE'] or t_id in ['hub', 'DATABASE_CORE']:
+                continue
+
+            if s_id not in downstream_map: downstream_map[s_id] = []
+            downstream_map[s_id].append(t_id)
+            
+            if t_id not in upstream_map: upstream_map[t_id] = []
+            upstream_map[t_id].append(s_id)
+            
+        # 1. Calculate Transitive Dependencies (for Semantic Mountains)
+        dependency_depths = {}
+        affected_counts = {}
+        total_nodes_count = len(nodes)
+        
+        def get_transitive_downstream(node_id, visited=None):
+            if visited is None: visited = set()
+            count = 0
+            for child in downstream_map.get(node_id, []):
+                if child not in visited:
+                    visited.add(child)
+                    count += 1 + get_transitive_downstream(child, visited)
+            return count
+
+        def get_max_upstream_depth(node_id, visited=None):
+            if visited is None: visited = set()
+            if node_id in visited: return 0
+            visited.add(node_id)
+            upstreams = upstream_map.get(node_id, [])
+            if not upstreams: return 0
+            return 1 + max(get_max_upstream_depth(u, visited) for u in upstreams)
+
+        for n in nodes:
+            name = n['name']
+            affected_counts[name] = get_transitive_downstream(name)
+            dependency_depths[name] = get_max_upstream_depth(name)
+
         # 2. Re-score Every Node
         from app.services.graph_intelligence import graph_intelligence
         
@@ -314,15 +354,44 @@ class GraphGenerator:
             
             # Update Node with Validated Logic
             # This ensures the "Graph View" shows the exact same numbers as the "Drilldown"
-            node['vitality'] = auth_metrics['vitality']
+            v_score = auth_metrics['vitality']
+            node['vitality'] = v_score
             node['neural_gravity'] = auth_metrics['gravity'] 
             node['importance_score'] = auth_metrics['gravity'] 
             node['gravity_pull'] = auth_metrics['pull_factor']
             node['entropy'] = auth_metrics['entropy']
             
+            # [NEW] Explicit Anomaly Signal
+            # 1. Vitality < 25 (Legitimate sickness)
+            # 2. Presence of critical errors/fraud in business context
+            node['is_anomalous'] = (v_score < 25) or (node.get('entity') == 'fraud') or ("err" in n_name.lower())
+            
+            # Inject dependency info (for Semantic Mountains)
+            node['has_upstream_deps'] = n_name in upstream_map
+            node['upstream_node_ids'] = upstream_map.get(n_name, [])
+            node['downstream_node_ids'] = downstream_map.get(n_name, [])
+            
             # Inject degrees for debug visibility
             node['in_degree'] = in_d
             node['out_degree'] = out_d
+            
+            # [STRICT ALIGNMENT] Extended Metadata
+            n_lower = n_name.lower()
+            fact_keywords = ["fact", "trans", "sale", "payment", "order", "entry", "reading", "metric", "event", "data", "history", "measure"]
+            node['is_fact_table'] = (node.get('table_type') == 'fact') or \
+                                    any(k in n_lower for k in fact_keywords)
+            
+            # [REFINEMENT] Treat independent source tables as "Facts" for visualization if they are roots
+            node['is_source'] = not node['has_upstream_deps']
+            
+            node['is_dimension_table'] = (node.get('table_type') == 'dimension') or \
+                                         any(k in n_lower for k in ["dim", "user", "cust", "prod", "item", "sku"])
+            node['dependency_depth'] = dependency_depths.get(n_name, 0)
+            node['affected_downstream_count'] = affected_counts.get(n_name, 0)
+            # independency_score: % of nodes that depend on this node
+            node['independency_score'] = (node['affected_downstream_count'] / total_nodes_count) if total_nodes_count > 0 else 0
+            node['anomaly_severity'] = max(0, 100 - v_score)
+            node['health_score'] = v_score
             
             # Update visual size based on NEW vitality/gravity if needed
             # (Optional: we can keep the size logic from Pass 1 or update it here)

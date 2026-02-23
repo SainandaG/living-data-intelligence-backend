@@ -15,6 +15,11 @@ class RealtimeMonitor:
         self.initialized = False
         self.column_cache = {} # (conn_id, table) -> set(columns)
         self.wezu_cache: Dict[str, Dict[str, Any]] = {} # connection_id -> {node_name: data}
+        
+        # Debounce/Caching State
+        self.last_metrics_update: Dict[str, float] = {} # connection_id -> last_tick
+        self.cached_metrics: Dict[str, Dict[str, Any]] = {} # connection_id -> last_valid_total
+        self.active_discovery_cache: Dict[str, Dict[str, Any]] = {} # connection_id -> meta_data
 
     def _get_key(self, row: dict, key: str):
         """Case-insensitive key fetch helper for cross-DB compatibility"""
@@ -26,6 +31,14 @@ class RealtimeMonitor:
     async def get_realtime_data(self, connection_id: str, table_name: str = None) -> dict:
         """Get real-time metrics with intelligence analysis. If table_name is provided, include node-specific analysis."""
         try:
+            current_time = time.time()
+            last_update = self.last_metrics_update.get(connection_id, 0)
+            
+            # [OPTIMIZATION] Debounce full DB metrics (10s cooldown)
+            # This ensures that if the frontend polls every 2s, we only hit the DB for heavy stats every 10s.
+            if current_time - last_update < 10.0 and connection_id in self.cached_metrics:
+                return self.cached_metrics[connection_id]
+
             # 1. Get GLOBAL metrics
             db_metrics = await self._get_db_metrics(connection_id)
             
@@ -45,6 +58,7 @@ class RealtimeMonitor:
             health_status = await self._analyze_graph_health(connection_id, db_metrics)
             
             # 5. Node-Specific Metrics (if table_name provided)
+            # This is still allowed once per tick if requested, but usually debounced by the caller.
             node_metrics = None
             if table_name:
                 node_metrics = await self._get_node_specific_metrics(connection_id, table_name)
@@ -58,6 +72,10 @@ class RealtimeMonitor:
                 'ai_stats': ai_stats,
                 'node_metrics': node_metrics
             }
+            
+            # Cache results and update timestamp
+            self.cached_metrics[connection_id] = data
+            self.last_metrics_update[connection_id] = current_time
             
             return data
             
@@ -121,9 +139,17 @@ class RealtimeMonitor:
             db_func = "current_database()" if is_pg else "DATABASE()"
             schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
 
-            # Auto-discover WEZU Energy tables
-            wezu_tables_res = await db_connector.query(connection_id, f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_name IN ('batteries', 'stations')")
-            wezu_tables = [self._get_key(r, 'table_name') for r in wezu_tables_res]
+            # Auto-discover WEZU Energy tables (Cached for 60s)
+            cache = self.active_discovery_cache.get(connection_id, {})
+            now = time.time()
+            if 'wezu_tables' not in cache or now - cache.get('wezu_t', 0) > 60:
+                wezu_tables_res = await db_connector.query(connection_id, f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_name IN ('batteries', 'stations')")
+                wezu_tables = [self._get_key(r, 'table_name') for r in wezu_tables_res]
+                cache['wezu_tables'] = wezu_tables
+                cache['wezu_t'] = now
+                self.active_discovery_cache[connection_id] = cache
+            else:
+                wezu_tables = cache['wezu_tables']
             
             if 'batteries' in wezu_tables:
                 # Defensive check for soh_percentage
@@ -133,7 +159,6 @@ class RealtimeMonitor:
                     cols = "COUNT(*) as count, AVG(soh_percentage) as avg_soh"
                     
                     # DYNAMIC: Fetch simulation metrics if columns exist
-                    # CHECK FOR BOTH LEGACY AND CURRENT MAPPINGS
                     has_temp = await self._has_column(db_connector, connection_id, 'batteries', 'temperature') or await self._has_column(db_connector, connection_id, 'batteries', 'temperature_c')
                     has_volt = await self._has_column(db_connector, connection_id, 'batteries', 'voltage') or await self._has_column(db_connector, connection_id, 'batteries', 'voltage_v')
                     has_curr = await self._has_column(db_connector, connection_id, 'batteries', 'current') or await self._has_column(db_connector, connection_id, 'batteries', 'current_a')
@@ -190,27 +215,37 @@ class RealtimeMonitor:
                 if station_metrics:
                     online_stations = station_metrics[0]['count']
 
-            # Auto-discover "transactional" or "event" tables (DB agnostic)
-            discovery_query = f"""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE {schema_clause} 
-                AND (table_name {like_op} '%transaction%' 
-                     OR table_name {like_op} '%order%' 
-                     OR table_name {like_op} '%payment%'
-                     OR table_name {like_op} '%log%'
-                     OR table_name {like_op} '%event%')
-                LIMIT 1
-            """
-            table_res = await db_connector.query(connection_id, discovery_query)
-            
-            if table_res:
-                tx_table = self._get_key(table_res[0], 'table_name')
-                # Check for amount and status columns
-                cols_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{tx_table}' AND {schema_clause}"
-                cols = await db_connector.query(connection_id, cols_query)
-                col_names = [self._get_key(c, 'column_name').lower() for c in cols]
+            # Auto-discover "transactional" or "event" tables (Cached for 60s)
+            if 'tx_table' not in cache or now - cache.get('tx_t', 0) > 60:
+                discovery_query = f"""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE {schema_clause} 
+                    AND (table_name {like_op} '%transaction%' 
+                         OR table_name {like_op} '%order%' 
+                         OR table_name {like_op} '%payment%'
+                         OR table_name {like_op} '%log%'
+                         OR table_name {like_op} '%event%')
+                    LIMIT 1
+                """
+                table_res = await db_connector.query(connection_id, discovery_query)
+                tx_table = self._get_key(table_res[0], 'table_name') if table_res else None
                 
+                # Fetch columns for this table immediately to cache them
+                col_names = []
+                if tx_table:
+                    cols_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = '{tx_table}' AND {schema_clause}"
+                    cols = await db_connector.query(connection_id, cols_query)
+                    col_names = [self._get_key(c, 'column_name').lower() for c in cols]
+                
+                cache['tx_table'] = tx_table
+                cache['tx_cols'] = col_names
+                cache['tx_t'] = now
+            
+            tx_table = cache.get('tx_table')
+            col_names = cache.get('tx_cols', [])
+            
+            if tx_table:
                 amount_col = next((c for c in col_names if 'amount' in c or 'total' in c or 'price' in c), None)
                 status_col = next((c for c in col_names if 'status' in c or 'state' in c), None)
                 
