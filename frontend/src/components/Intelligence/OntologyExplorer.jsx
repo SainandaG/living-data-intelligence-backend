@@ -135,7 +135,7 @@ export default function OntologyExplorer({ connectionId }) {
                                 <div className="text-right">
                                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Vitality Score</p>
                                     <p className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-t from-cyan-400 to-white">
-                                        {Math.floor(80 + Math.random() * 20)}%
+                                        {selectedObject.vitality != null ? `${selectedObject.vitality}%` : 'N/A'}
                                     </p>
                                 </div>
                             </div>

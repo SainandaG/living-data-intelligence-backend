@@ -10,6 +10,7 @@ import {
 import { SeededRNG } from '../../utils/mathUtils';
 import { getLatentRegistry } from './LatentSpaceLogic_Core.js';
 import EdgeStatsPanel from './EdgeStatsPanel';
+import NodeXRayPanel from './NodeXRayPanel';
 
 
 
@@ -643,7 +644,9 @@ export const LatentSpaceUIOverlay = ({
     hudOnly = false, // NEW: If true, hides header/footer to fit perfectly in DashboardLayout
     liveStats = null, // NEW: Receive real stats from App.jsx
     currentLens = 'ops', // NEW: Dynamic Lens categorization
-    hoveredEdge // [NEW] Added for relationship hover detection
+    hoveredEdge, // [NEW] Added for relationship hover detection
+    connectionId, // [NEW] For Node X-Ray deep analytics
+    onDrillDown // [NEW] Callback to navigate to DrillDown view
 }) => {
     const starCanvasRef = useRef(null);
     const chartRefs = [useRef(null), useRef(null), useRef(null)];
@@ -658,6 +661,7 @@ export const LatentSpaceUIOverlay = ({
     const [panels, setPanels] = useState({ intel: true, filter: true, hud: true, relHud: true });
     const [stickyEdge, setStickyEdge] = useState(null); // [NEW] Stores last hovered edge
     const relHudUserClosed = useRef(false); // Track if user manually closed the Relationship HUD
+    const [xrayNode, setXrayNode] = useState(null); // [NEW] Node X-Ray deep analytics overlay
 
     // Data stats
     // Compute total records from all loaded nodes, or default to a realistic baseline
@@ -1225,6 +1229,26 @@ export const LatentSpaceUIOverlay = ({
                                             <div style={{ color: 'rgba(200,215,240,0.85)', marginTop: '4px' }}>{selectedNode ? (selectedNode.columns?.slice(0, 3).map(c => c.name).join(', ') || 'N/A') : 'UserID, Session, Region'}</div>
                                         </div>
                                     </div>
+                                    {/* X-RAY DEEP ANALYTICS BUTTON */}
+                                    {selectedNode && connectionId && (
+                                        <button
+                                            onClick={() => setXrayNode(selectedNode)}
+                                            style={{
+                                                width: '100%', marginTop: '12px', padding: '8px',
+                                                background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
+                                                border: '1px solid rgba(99,102,241,0.3)', borderRadius: '6px',
+                                                color: '#c7d2fe', fontSize: '9px', fontWeight: 800,
+                                                letterSpacing: '0.2em', cursor: 'pointer',
+                                                fontFamily: '"Rajdhani", sans-serif',
+                                                transition: 'all 0.2s',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px'
+                                            }}
+                                            onMouseEnter={e => { e.target.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.35), rgba(139,92,246,0.35))'; }}
+                                            onMouseLeave={e => { e.target.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))'; }}
+                                        >
+                                            ⬡ DEEP X-RAY ANALYSIS
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1302,6 +1326,16 @@ export const LatentSpaceUIOverlay = ({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* NODE X-RAY DEEP ANALYTICS OVERLAY */}
+            {xrayNode && connectionId && (
+                <NodeXRayPanel
+                    node={xrayNode}
+                    connectionId={connectionId}
+                    onClose={() => setXrayNode(null)}
+                    onDrillDown={onDrillDown}
+                />
             )}
         </div>
     );
@@ -1628,6 +1662,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
                 cameraRef.current?.lookAt(0, 0, 0);
             }}
             onClose={onClose}
+            connectionId={connectionId}
         >
             <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
             {webglError && (

@@ -323,6 +323,8 @@ const MainDashboard = () => {
   const handleBackToOverview = React.useCallback(() => {
     setViewMode('overview');
     setDrillDownTable(null);
+    setSelectedNode(null); // [FIX] Clear selection to restore hover hud
+    setHoveredNode(null);
     setBreadcrumbs([]);
   }, []);
 
@@ -342,9 +344,20 @@ const MainDashboard = () => {
     // Legacy support for DrillDown -> LatentWorld
     if (viewMode === 'drilldown' || viewMode === 'latent') {
       const nextView = viewMode === 'latent' ? 'drilldown' : 'latent';
+
+      // [FIX] Clear stale selection when returning to latent view
+      if (nextView === 'latent') {
+        setSelectedNode(null);
+        setHoveredNode(null);
+      }
+
       setViewMode(nextView);
     } else {
       // Default global toggle
+      if (viewMode === 'overview') {
+        setSelectedNode(null);
+        setHoveredNode(null);
+      }
       setViewMode(prev => prev === 'globalLatent' ? 'overview' : 'globalLatent');
     }
   }, [viewMode]);
@@ -709,6 +722,8 @@ const MainDashboard = () => {
               onTimeChange={setTimeValue}
               currentLens={activeLens}
               hoveredEdge={hoveredEdge}
+              connectionId={connectionId}
+              onDrillDown={handleNodeDrillDown}
               onClose={() => {
                 if (viewMode === 'latent') setViewMode('drilldown');
                 else setViewMode('overview');

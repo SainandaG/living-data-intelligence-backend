@@ -4,7 +4,6 @@ from app.services.neural_core import neural_core
 from datetime import datetime
 from typing import Dict, Any, List
 import time
-import random
 
 class RealtimeMonitor:
     """Monitor database for real-time updates with intelligence"""

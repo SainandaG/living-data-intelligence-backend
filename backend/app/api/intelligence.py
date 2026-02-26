@@ -657,20 +657,10 @@ async def get_health_history(connection_id: str):
         from app.services.graph_intelligence import graph_intelligence
         history = graph_intelligence.health_history.get(connection_id, [])
         
-        # If no history, generate some baseline points to avoid empty chart
-        if not history:
-            now = datetime.now()
-            history = []
-            for i in range(24):
-                ts = (now - timedelta(hours=23-i)).isoformat()
-                history.append({
-                    'timestamp': ts,
-                    'score': 100,
-                    'state': 'healthy'
-                })
-        
+        # Return real history only — no fabricated data points
         out = {
             'connection_id': connection_id,
+            'collecting': len(history) == 0,
             'history': [
                 {'time': h['timestamp'], 'score': h['score']} for h in history
             ]

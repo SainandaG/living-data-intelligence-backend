@@ -264,9 +264,13 @@ export function startLatentWebSocket(retryDelay = 3000) {
         setTimeout(() => startLatentWebSocket(nextDelay), nextDelay);
     };
 
-    _latentSocket.onerror = () => {
+    _latentSocket.onerror = (e) => {
         // Error will be followed by onclose — don't double-reconnect
-        _latentSocket.close();
+        if (e && e.target && typeof e.target.close === 'function') {
+            e.target.close();
+        } else if (_latentSocket) {
+            _latentSocket.close();
+        }
     };
 }
 

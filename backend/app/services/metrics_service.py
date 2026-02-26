@@ -119,7 +119,7 @@ class MetricsService:
                 # Data-derived fallback: rows per table as a simple ratio (no fake values)
                 metrics['transaction_rate'] = round(total_tx / max(len(fact_tables), 1), 2)
 
-            # Mock Alerts based on "Risk" tables if any
+            # Derive alert count from risk-related tables (fraud/alert/risk)
             alerts = 0
             for t in tables:
                 t_name = getattr(t, 'name', t.get('name')).lower()
