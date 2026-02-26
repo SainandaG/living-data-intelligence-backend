@@ -17,6 +17,7 @@ import ChatInterface from './components/Dashboard/ChatInterface';
 import HealthDashboard from './components/Dashboard/HealthDashboard';
 import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import { LatentWorld, LatentSpaceUIOverlay, getLensCategories } from './components/Dashboard/LatentSpaceLogic.jsx';
+import EdgeStatsPanel from './components/Dashboard/EdgeStatsPanel';
 
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
@@ -32,111 +33,7 @@ import soundSystem from './utils/SoundSystem';
 import { useWebSocket } from './hooks/useWebSocket';
 import apiClient from './utils/apiClient';
 
-// ============ HOVER INTERFACE: Intelligence Preview ============
-const IntelligencePreview = ({ node }) => {
-  if (!node) return null;
-  return (
-    <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-xl glass-panel text-white z-50 pointer-events-none transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 min-w-[320px]">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: '#' + (typeof node.color === 'number' ? node.color.toString(16).padStart(6, '0') : (node.color || '22d3ee').toString().replace('0x', '')) }}></div>
-        <h3 className="text-lg font-bold tracking-tight">{node.name || node.id || 'Unknown Entity'}</h3>
-        <span className="text-[10px] uppercase tracking-widest opacity-50 px-2 py-0.5 rounded border border-white/10 bg-white/5 font-mono">Heuristic Preview</span>
-      </div>
 
-      <div className="grid grid-cols-2 gap-4 text-sm font-light">
-        <div>
-          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Vitality Score</p>
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full transition-all duration-1000" style={{ width: `${node.vitality || 100}%`, backgroundColor: (node.vitality < 40 ? '#ef4444' : (node.vitality < 70 ? '#fbbf24' : '#10b981')) }}></div>
-            </div>
-            <span className="font-mono text-xs">{Math.round(node.vitality || 100)}%</span>
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Neural Gravity</p>
-          <p className="font-mono text-cyan-400 font-bold">{(node.neural_gravity || node.gravity_score || 1.0).toFixed(2)}G</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 text-sm font-light mt-2">
-        <div>
-          <p className="text-[10px] uppercase opacity-40 mb-1 tracking-wider">Ontology Class</p>
-          <p className="font-bold text-white uppercase tracking-tighter">
-            {node.entity || node.table_type || 'Unclassified'}
-          </p>
-        </div>
-      </div>
-
-      {node.avg_temperature && (
-        <div className="mt-2 p-2 bg-slate-900/50 border border-slate-700/50 rounded space-y-2">
-
-          {/* Temperature */}
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <span className="text-[9px] uppercase opacity-60 tracking-wider text-orange-200">Temp</span>
-              <span className={`text-xs font-bold font-mono ${node.avg_temperature > 45 ? 'text-red-400 animate-pulse' : 'text-orange-400'}`}>
-                {Number(node.avg_temperature).toFixed(1)}°C
-              </span>
-            </div>
-            <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${node.avg_temperature > 45 ? 'bg-red-500' : 'bg-orange-500'}`}
-                style={{ width: `${Math.min(100, (node.avg_temperature / 60) * 100)}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Voltage (if available) */}
-          {node.avg_voltage && (
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[9px] uppercase opacity-60 tracking-wider text-blue-200">Voltage</span>
-                <span className="text-xs font-bold font-mono text-blue-400">{Number(node.avg_voltage).toFixed(1)}V</span>
-              </div>
-              <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${Math.min(100, (node.avg_voltage / 60) * 100)}%` }} />
-              </div>
-            </div>
-          )}
-
-          {/* Current (if available) */}
-          {node.avg_current && (
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[9px] uppercase opacity-60 tracking-wider text-yellow-200">Current</span>
-                <span className="text-xs font-bold font-mono text-yellow-400">{Number(node.avg_current).toFixed(1)}A</span>
-              </div>
-              <div className="w-full h-1 bg-gray-800 rounded-full overflow-hidden">
-                <div className="h-full bg-yellow-500 transition-all duration-500" style={{ width: `${Math.min(100, (node.avg_current / 20) * 100)}%` }} />
-              </div>
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {node.decision_provenance && (
-        <div className="mt-3 p-2 bg-white/5 rounded-lg border border-white/5">
-          <p className="text-[9px] uppercase font-bold text-cyan-400/80 tracking-widest mb-1 flex items-center gap-1">
-            <span className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse"></span>
-            Decision Provenance
-          </p>
-          <p className="text-[11px] text-gray-300 italic leading-snug">
-            "{node.decision_provenance}"
-          </p>
-        </div>
-      )}
-
-      {(node.last_activity) && (
-        <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center text-[11px] opacity-60 italic font-mono">
-          <span>Signal Quality: High</span>
-          <span>{node.last_activity || 'Heartbeat Active'}</span>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // Simple Error Boundary for Debugging
 class ErrorBoundary extends React.Component {
@@ -217,11 +114,15 @@ const MainDashboard = () => {
     // DB Performance
     cacheHitRate: 99,
   });
+  // Live per-table row counts — updated every 2s from WebSocket for node glow
+  const [liveTableCounts, setLiveTableCounts] = useState({});
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
   const [activeLens, setActiveLens] = useState('ops'); // New Lens State
   const [activeLayoutMode, setActiveLayoutMode] = useState('galaxy'); // SAI Layout Mode
   const [hoveredNode, setHoveredNode] = useState(null); // Intelligence Preview State
+  const [hoveredEdge, setHoveredEdge] = useState(null); // [NEW] Edge hover state
+  const [hoveredEdgePos, setHoveredEdgePos] = useState(null);
   const [timeValue, setTimeValue] = useState(100); // Time Travel State
   const [activeFilters, setActiveFilters] = useState({
     'Independent Facts': true,
@@ -265,34 +166,32 @@ const MainDashboard = () => {
 
   useEffect(() => {
     if (lastMessage && lastMessage.type === 'metrics_update') {
-      const metrics = lastMessage.data;
+      const metrics = lastMessage.data || {};
       const aiStats = lastMessage.ai_stats || {};
 
-      console.log("📡 [WS] Real-time Metrics Update:", metrics);
+      // Update per-table counts for node glow (every 2s)
+      if (lastMessage.table_counts && Object.keys(lastMessage.table_counts).length > 0) {
+        setLiveTableCounts(lastMessage.table_counts);
+      }
 
       setLiveStats(prev => ({
         ...prev,
-        totalTransactions: metrics.total_transactions || 0,
-        fraudAlerts: metrics.fraud_alerts || 0,
-        avgAmount: metrics.average_amount || 0,
-        failedTx: metrics.failed_transactions || 0,
-        tps: metrics.transaction_rate || 0,
+        totalTransactions: metrics.total_transactions || prev.totalTransactions || 0,
+        tps: metrics.transaction_rate || prev.tps || 0,
         activeNodes: aiStats.total_nodes || prev.activeNodes,
         health: lastMessage.health || prev.health,
         anomalies: (lastMessage.anomalies || prev.anomalies || []).map(a => ({
           ...a,
           explanation: a.justification || a.explanation || a.description || a.message
         })),
-        // WEZU Energy — battery fleet metrics
-        activeBatteries: metrics.active_batteries || prev.activeBatteries || 0,
-        onlineStations: metrics.online_stations || prev.onlineStations || 0,
-        networkHealth: metrics.network_health || prev.networkHealth || 0,
-        energyAlerts: metrics.energy_alerts || prev.energyAlerts || 0,
-        // WEZU Battery Telemetry (from DataSimulator → RealtimeMonitor)
+        // WEZU Energy — direct from backend battery queries (now fixed with current_a)
+        activeBatteries: metrics.active_batteries != null ? metrics.active_batteries : prev.activeBatteries,
+        onlineStations: metrics.online_stations != null ? metrics.online_stations : prev.onlineStations,
+        networkHealth: metrics.network_health != null ? metrics.network_health : prev.networkHealth,
+        energyAlerts: metrics.energy_alerts != null ? metrics.energy_alerts : prev.energyAlerts,
         avgBatteryTemp: metrics.avg_battery_temp || prev.avgBatteryTemp || 0,
         avgBatteryVolt: metrics.avg_battery_volt || prev.avgBatteryVolt || 0,
         avgBatteryCurr: metrics.avg_battery_curr || prev.avgBatteryCurr || 0,
-        // DB Performance
         cacheHitRate: metrics.cache_hit_rate || prev.cacheHitRate || 99,
       }));
 
@@ -430,7 +329,7 @@ const MainDashboard = () => {
   // Sync Graph Mode with View Mode
   useEffect(() => {
     if (graphRef.current) {
-      if (viewMode === 'globalLatent') {
+      if (viewMode === 'globalLatent' || viewMode === 'latent') {
         console.log("[App] Switching Graph to Latent Mode");
         graphRef.current.setLatentMode('latent');
       } else if (viewMode === 'overview') {
@@ -525,10 +424,10 @@ const MainDashboard = () => {
         };
       });
       const edgesTransformed = (rawData.edges || []).map(e => ({
+        ...e,
         source: e.source,
         target: e.target,
-        type: e.type,
-        confidence: e.confidence,
+        type: e.type || e.relationship_category,
         trafficIntensity: e.traffic_intensity || 0.3,
         edge_glow: e.edge_glow || 1.0
       }));
@@ -726,6 +625,8 @@ const MainDashboard = () => {
     <>
       <DashboardLayout
         sidebarProps={sidebarProps}
+        timeValue={timeValue}
+        onTimeChange={(viewMode === 'latent' || viewMode === 'globalLatent') ? setTimeValue : null}
         navbar={
           <NavigationBar
             currentView={viewMode}
@@ -760,13 +661,40 @@ const MainDashboard = () => {
             ref={graphRef}
             data={graphData}
             tps={liveStats.tps}
+            liveTableCounts={liveTableCounts}
             onNodeClick={handleNodeClick}
             onNodeHover={setHoveredNode}
+            onEdgeHover={(edgeData) => {
+              setHoveredEdge(edgeData);
+              if (edgeData?.mousePos) setHoveredEdgePos(edgeData.mousePos);
+            }}
             activeLens={activeLens}
-            clusteringMethod={clusteringMethod} // [FIX] Pass clustering method for visual updates
-            paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'} // [FIX] Stop rendering when hidden
-            activeFilters={activeFilters} // [NEW] Pass filters to hide categories in 3D
+            clusteringMethod={clusteringMethod}
+            paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'}
+            activeFilters={activeFilters}
             onNodesEnriched={setEnrichedNodes}
+          />
+
+          {/* AI STATUS TOAST - REPOSITIONED TO GRAPH CORNER */}
+          <AnimatePresence>
+            {aiStatus && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, x: -10 }}
+                animate={{ opacity: 1, y: 0, x: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="absolute bottom-4 left-4 z-[4001] px-3 py-1 bg-[var(--bg-elevated)]/60 border border-[var(--primary-cyan)]/20 rounded-full flex items-center gap-2 backdrop-blur-md"
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-[var(--primary-cyan)] animate-ping" />
+                <span className="text-[9px] font-bold tracking-wider text-white uppercase font-mono">{aiStatus}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* EDGE/RELATIONSHIP HUD - Only floating in non-sidebar modes */}
+          <EdgeStatsPanel
+            edge={hoveredEdge}
+            position={hoveredEdgePos}
+            visible={!!hoveredEdge && viewMode !== 'latent' && viewMode !== 'globalLatent'}
           />
 
           {/* LATENT SPACE HUD OVERLAY */}
@@ -780,6 +708,7 @@ const MainDashboard = () => {
               timeValue={timeValue}
               onTimeChange={setTimeValue}
               currentLens={activeLens}
+              hoveredEdge={hoveredEdge}
               onClose={() => {
                 if (viewMode === 'latent') setViewMode('drilldown');
                 else setViewMode('overview');
@@ -807,7 +736,6 @@ const MainDashboard = () => {
           <Legend layoutMode={activeLayoutMode} />
         )}
 
-        <IntelligencePreview node={hoveredNode} />
         <AgentStatusPanel />
         <VoiceControl
           onActionTriggered={handleAgentAction}
@@ -874,14 +802,6 @@ const MainDashboard = () => {
           {windows.length > 0 && <Taskbar />}
         </div>
 
-        <AnimatePresence>
-          {aiStatus && (
-            <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[4001] px-6 py-3 bg-[var(--bg-elevated)] border border-[var(--primary-cyan)]/30 rounded-full shadow-[0_0_30px_rgba(34,211,238,0.2)] flex items-center gap-3 backdrop-blur-md">
-              <div className="w-2 h-2 rounded-full bg-[var(--primary-cyan)] animate-ping" />
-              <span className="text-xs font-bold tracking-wider text-white uppercase font-mono">{aiStatus}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         <AnimatePresence>
           {evolutionMode && (

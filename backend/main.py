@@ -72,12 +72,13 @@ async def lifespan(app: FastAPI):
             print("✅ Auto-connection successful.")
 
             # Start Data Simulator AFTER DB is connected so list_connections() returns results
-            try:
-                from app.services.data_simulator import data_simulator
-                asyncio.create_task(data_simulator.start_simulation())
-                print("⚡ Data Simulator started.")
-            except Exception as e:
-                print(f"⚠️ Failed to start Data Simulator: {e}")
+            # DISABLED: User requested to run this manually rather than automatically
+            # try:
+            #     from app.services.data_simulator import data_simulator
+            #     asyncio.create_task(data_simulator.start_simulation())
+            #     print("⚡ Data Simulator started.")
+            # except Exception as e:
+            #     print(f"⚠️ Failed to start Data Simulator: {e}")
         else:
             print("⚠️ DB Credentials missing in .env, skipping auto-connect.")
 

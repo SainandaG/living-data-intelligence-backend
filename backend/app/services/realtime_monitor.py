@@ -139,81 +139,50 @@ class RealtimeMonitor:
             db_func = "current_database()" if is_pg else "DATABASE()"
             schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
 
-            # Auto-discover WEZU Energy tables (Cached for 60s)
+            # ---- WEZU METRICS: Direct Query (no caching, no column checks) ----
             cache = self.active_discovery_cache.get(connection_id, {})
             now = time.time()
-            if 'wezu_tables' not in cache or now - cache.get('wezu_t', 0) > 60:
-                wezu_tables_res = await db_connector.query(connection_id, f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_name IN ('batteries', 'stations')")
-                wezu_tables = [self._get_key(r, 'table_name') for r in wezu_tables_res]
-                cache['wezu_tables'] = wezu_tables
-                cache['wezu_t'] = now
-                self.active_discovery_cache[connection_id] = cache
-            else:
-                wezu_tables = cache['wezu_tables']
             
-            if 'batteries' in wezu_tables:
-                # Defensive check for soh_percentage
-                has_soh = await self._has_column(db_connector, connection_id, 'batteries', 'soh_percentage')
-                q_batt = self._q(db_type, 'batteries')
-                if has_soh:
-                    cols = "COUNT(*) as count, AVG(soh_percentage) as avg_soh"
-                    
-                    # DYNAMIC: Fetch simulation metrics if columns exist
-                    has_temp = await self._has_column(db_connector, connection_id, 'batteries', 'temperature') or await self._has_column(db_connector, connection_id, 'batteries', 'temperature_c')
-                    has_volt = await self._has_column(db_connector, connection_id, 'batteries', 'voltage') or await self._has_column(db_connector, connection_id, 'batteries', 'voltage_v')
-                    has_curr = await self._has_column(db_connector, connection_id, 'batteries', 'current') or await self._has_column(db_connector, connection_id, 'batteries', 'current_a')
+            try:
+                batt_res = await db_connector.query(connection_id, """
+                    SELECT 
+                        COUNT(*) as count,
+                        AVG(COALESCE(soh_percentage, health_percentage, 100)) as avg_soh,
+                        AVG(temperature) as avg_temp,
+                        AVG(voltage) as avg_volt,
+                        AVG(current_a) as avg_curr
+                    FROM batteries
+                """)
+                if batt_res:
+                    row = batt_res[0]
+                    active_batteries = int(row.get('count') or 0)
+                    avg_soh = round(float(row.get('avg_soh') or 0), 1)
+                    if row.get('avg_temp'): self.last_battery_temp = round(float(row['avg_temp']), 1)
+                    if row.get('avg_volt'): self.last_battery_volt = round(float(row['avg_volt']), 1)
+                    if row.get('avg_curr'): self.last_battery_curr = round(float(row['avg_curr']), 1)
+                    print(f"✅ [WEZU] Batteries={active_batteries}, SoH={avg_soh}%, Temp={self.last_battery_temp}C")
+            except Exception as e:
+                print(f"⚠️ [RealtimeMonitor] Battery query failed: {e}")
 
-                    # Construct query with COALESCE to handle either naming convention
-                    if await self._has_column(db_connector, connection_id, 'batteries', 'temperature'):
-                        cols += ", AVG(temperature) as avg_temp"
-                    elif await self._has_column(db_connector, connection_id, 'batteries', 'temperature_c'):
-                        cols += ", AVG(temperature_c) as avg_temp"
-                        
-                    if await self._has_column(db_connector, connection_id, 'batteries', 'voltage'):
-                        cols += ", AVG(voltage) as avg_volt"
-                    elif await self._has_column(db_connector, connection_id, 'batteries', 'voltage_v'):
-                        cols += ", AVG(voltage_v) as avg_volt"
-                        
-                    if await self._has_column(db_connector, connection_id, 'batteries', 'current'):
-                        cols += ", AVG(current) as avg_curr"
-                    elif await self._has_column(db_connector, connection_id, 'batteries', 'current_a'):
-                        cols += ", AVG(current_a) as avg_curr"
-                    
-                    batt_metrics = await db_connector.query(connection_id, f"SELECT {cols} FROM {q_batt}")
-                    
-                    if batt_metrics:
-                        row = batt_metrics[0]
-                        active_batteries = row['count']
-                        avg_soh = round(float(row.get('avg_soh') or 0), 1)
-                        
-                        # Store metrics for WebSocket stream
-                        if row.get('avg_temp'): self.last_battery_temp = round(float(row.get('avg_temp')), 1)
-                        if row.get('avg_volt'): self.last_battery_volt = round(float(row.get('avg_volt')), 1)
-                        if row.get('avg_curr'): self.last_battery_curr = round(float(row.get('avg_curr')), 1)
-                else:
-                    batt_metrics = await db_connector.query(connection_id, f"SELECT COUNT(*) as count FROM {q_batt}")
-                    if batt_metrics:
-                        active_batteries = batt_metrics[0]['count']
-                
-                # Check for critical degradation signals in Neural Core for this connection
-                try:
-                    ai_core_stats = await neural_core.get_core_metrics(connection_id)
-                    critical_energy_alerts = ai_core_stats.get('patterns', 0)
-                except: pass
+            try:
+                stat_res = await db_connector.query(connection_id, "SELECT COUNT(*) as count FROM stations")
+                if stat_res:
+                    online_stations = int(stat_res[0].get('count') or 0)
+            except Exception as e:
+                print(f"⚠️ [RealtimeMonitor] Station query failed: {e}")
 
-            if 'stations' in wezu_tables:
-                # Defensive check for status column
-                has_status = await self._has_column(db_connector, connection_id, 'stations', 'status')
-                q_stat = self._q(db_type, 'stations')
-                if has_status:
-                    # Use quoted 'status' for PG safety
-                    q_col = self._q(db_type, 'status')
-                    station_metrics = await db_connector.query(connection_id, f"SELECT COUNT(*) as count FROM {q_stat} WHERE {q_col} = 'active'")
-                else:
-                    station_metrics = await db_connector.query(connection_id, f"SELECT COUNT(*) as count FROM {q_stat}")
-                
-                if station_metrics:
-                    online_stations = station_metrics[0]['count']
+            try:
+                # Count batteries with critically low SoH as alerts
+                alerts_res = await db_connector.query(connection_id, """
+                    SELECT COUNT(*) as count FROM batteries WHERE soh_percentage < 30
+                """)
+                if alerts_res:
+                    critical_energy_alerts = int(alerts_res[0].get('count') or 0)
+            except Exception as e:
+                print(f"⚠️ [RealtimeMonitor] Alert query failed: {e}")
+            # ---- END WEZU METRICS ----
+
+
 
             # Auto-discover "transactional" or "event" tables (Cached for 60s)
             if 'tx_table' not in cache or now - cache.get('tx_t', 0) > 60:

@@ -3,7 +3,8 @@ import { Menu, X, ChevronRight, ChevronLeft, Search, Database, Bell, Settings, H
 import { AnimatePresence, motion } from 'framer-motion';
 import { LeftSidebar, RightSidebar } from './Sidebars';
 
-const DashboardLayout = ({ children, sidebarProps, navbar }) => {
+const DashboardLayout = ({ children, sidebarProps, navbar, timeValue, onTimeChange }) => {
+    // ...
     // In strict reference mode, sidebars are fixed, but we allow collapsing for smaller screens
     const [isLeftCollapsed, setIsLeftCollapsed] = useState(false); // Default visible (64px)
     const [isRightOpen, setIsRightOpen] = useState(true);
@@ -173,6 +174,24 @@ const DashboardLayout = ({ children, sidebarProps, navbar }) => {
                             <span className="text-[var(--primary)]/70 uppercase tracking-wider">API Latency</span>
                             <span className="text-slate-200 font-mono">{sysVitals?.avg_api_latency_ms || 0}ms</span>
                         </div>
+
+                        {onTimeChange && (
+                            <>
+                                <div className="h-3 w-[1px] bg-white/10 mx-2"></div>
+                                <div className="flex items-center gap-4 px-2" style={{ minWidth: '240px' }}>
+                                    <span className="text-[var(--primary)]/70 uppercase tracking-widest text-[9px] whitespace-nowrap">Distortion</span>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        value={timeValue}
+                                        onChange={e => onTimeChange?.(parseFloat(e.target.value))}
+                                        className="flex-1 accent-[var(--primary)] h-1 cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
+                                    />
+                                    <span className="text-slate-300 font-mono text-[10px] w-8 text-right">{timeValue}%</span>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 

@@ -95,14 +95,27 @@ async def stream_metrics():
                             }
                         ))
                     
-                    # 3. Send combined update
+                    # 3. Get per-table row counts for node pulse detection
+                    table_counts = {}
+                    try:
+                        live_tables = ['batteries', 'telemetics_data', 'batteryhealthlog', 'gps_tracking_log', 'stations']
+                        for tbl in live_tables:
+                            res = await db_connector.query(conn_id, f"SELECT COUNT(*) as c FROM {tbl}")
+                            if res:
+                                table_counts[tbl] = int(res[0].get('c') or 0)
+                    except Exception as e:
+                        pass  # Non-critical
+
+                    # 4. Send combined update
                     if data:
                         payload = {
                             "type": "metrics_update",
                             "data": data.get('data'),
                             "health": data.get('health'),
+                            "anomalies": data.get('anomalies', []),
                             "ai_stats": data.get('ai_stats'),
                             "evolved_nodes": evolved_nodes,
+                            "table_counts": table_counts,
                             "timestamp": time.time()
                         }
                         await connection_manager.send_personal(conn_id, payload)

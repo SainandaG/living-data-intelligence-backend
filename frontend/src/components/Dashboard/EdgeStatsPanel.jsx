@@ -2,13 +2,49 @@ import React from 'react';
 import { TrendingUp, Database, Brain, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EdgeStatsPanel({ edge, position, visible }) {
+export default function EdgeStatsPanel({ edge, position, visible, variant = 'floating' }) {
     if (!visible || !edge) return null;
 
     const edgeData = edge.data || {};
     const factors = edgeData.strength_factors || {};
     const factorEntries = Object.entries(factors);
+    const isFloating = variant === 'floating';
 
+    // ── SIDEBAR VARIANT: compact data-rows matching Intelligence Report style ──
+    if (!isFloating) {
+        const rowStyle = {
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+            fontSize: '9px', gap: '6px'
+        };
+        const keyStyle = { color: 'rgba(167,186,220,0.45)', letterSpacing: '0.08em', flexShrink: 0 };
+        const valStyle = { color: 'rgba(200,215,240,0.9)', fontWeight: 600, fontFamily: 'Share Tech Mono, monospace', textAlign: 'right', wordBreak: 'break-all' };
+
+        return (
+            <div style={{ width: '100%' }}>
+                <div style={rowStyle}>
+                    <span style={keyStyle}>FROM:</span>
+                    <span style={valStyle}>{edge.sourceNode?.name || 'Unknown'}</span>
+                </div>
+                <div style={rowStyle}>
+                    <span style={keyStyle}>TO:</span>
+                    <span style={valStyle}>{edge.targetNode?.name || 'Unknown'}</span>
+                </div>
+                <div style={rowStyle}>
+                    <span style={keyStyle}>CONFIDENCE:</span>
+                    <span style={{ ...valStyle, color: '#22d3ee' }}>{edgeData.confidence_score || 0}%</span>
+                </div>
+                <div style={{ ...rowStyle, borderBottom: 'none' }}>
+                    <span style={keyStyle}>CATEGORY:</span>
+                    <span style={{ ...valStyle, color: '#818cf8', textTransform: 'capitalize' }}>
+                        {edgeData.relationship_category || 'Unknown'}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    // ── FLOATING VARIANT: full card (unchanged) ──
     return (
         <AnimatePresence>
             <motion.div
@@ -17,11 +53,7 @@ export default function EdgeStatsPanel({ edge, position, visible }) {
                 exit={{ opacity: 0, scale: 0.9, y: 10 }}
                 transition={{ duration: 0.2 }}
                 className="fixed z-50 pointer-events-none"
-                style={{
-                    left: position?.x || '50%',
-                    top: position?.y || '50%',
-                    transform: 'translate(-50%, -120%)'
-                }}
+                style={{ left: position?.x || '50%', top: position?.y || '50%', transform: 'translate(-50%, -120%)' }}
             >
                 <div className="bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-white/30 rounded-xl p-4 shadow-2xl min-w-[320px] max-w-[400px]">
                     {/* Header */}
@@ -30,33 +62,25 @@ export default function EdgeStatsPanel({ edge, position, visible }) {
                             <div className="p-1.5 bg-gradient-to-br from-[var(--primary-cyan)] to-[var(--primary-purple)] rounded-lg">
                                 <TrendingUp size={14} />
                             </div>
-                            <h4 className="font-bold text-[var(--text-primary)] text-sm">
-                                Relationship Analysis
-                            </h4>
+                            <h4 className="font-bold text-[var(--text-primary)] text-sm">Relationship Analysis</h4>
                         </div>
-                        <div className="flex items-center gap-1">
-                            <span className="text-2xl font-bold text-[var(--primary-cyan)]">
-                                {edgeData.confidence_score || 0}%
-                            </span>
-                        </div>
+                        <span className="text-2xl font-bold text-[var(--primary-cyan)]">
+                            {edgeData.confidence_score || 0}%
+                        </span>
                     </div>
 
                     {/* Connection Info */}
                     <div className="mb-3 p-2 bg-white/5 rounded-lg">
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-[var(--text-secondary)]">From:</span>
-                            <span className="font-mono font-semibold text-[var(--text-primary)]">
-                                {edge.sourceNode?.name || 'Unknown'}
-                            </span>
+                            <span className="font-mono font-semibold text-[var(--text-primary)]">{edge.sourceNode?.name || 'Unknown'}</span>
                         </div>
                         <div className="my-1 flex justify-center">
                             <div className="w-6 h-0.5 bg-gradient-to-r from-[var(--primary-cyan)] to-[var(--primary-purple)]" />
                         </div>
                         <div className="flex items-center justify-between text-xs">
                             <span className="text-[var(--text-secondary)]">To:</span>
-                            <span className="font-mono font-semibold text-[var(--text-primary)]">
-                                {edge.targetNode?.name || 'Unknown'}
-                            </span>
+                            <span className="font-mono font-semibold text-[var(--text-primary)]">{edge.targetNode?.name || 'Unknown'}</span>
                         </div>
                     </div>
 
@@ -64,9 +88,7 @@ export default function EdgeStatsPanel({ edge, position, visible }) {
                     <div className="mb-3">
                         <div className="flex items-center gap-1.5 mb-2">
                             <Database size={12} className="text-[var(--primary-cyan)]" />
-                            <span className="text-xs font-semibold text-[var(--text-primary)]">
-                                Statistical Proof
-                            </span>
+                            <span className="text-xs font-semibold text-[var(--text-primary)]">Statistical Proof</span>
                         </div>
                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed bg-white/5 p-2 rounded border border-white/10">
                             {edgeData.statistical_proof || edgeData.reasoning || 'No detailed reasoning available'}
@@ -78,20 +100,14 @@ export default function EdgeStatsPanel({ edge, position, visible }) {
                         <div className="mb-3">
                             <div className="flex items-center gap-1.5 mb-2">
                                 <Brain size={12} className="text-[var(--primary-purple)]" />
-                                <span className="text-xs font-semibold text-[var(--text-primary)]">
-                                    Contributing Factors
-                                </span>
+                                <span className="text-xs font-semibold text-[var(--text-primary)]">Contributing Factors</span>
                             </div>
                             <div className="space-y-2">
                                 {factorEntries.map(([key, value]) => (
                                     <div key={key} className="space-y-1">
                                         <div className="flex items-center justify-between text-xs">
-                                            <span className="text-[var(--text-secondary)] capitalize">
-                                                {key.replace(/_/g, ' ')}
-                                            </span>
-                                            <span className="font-semibold text-[var(--text-primary)]">
-                                                {value}%
-                                            </span>
+                                            <span className="text-[var(--text-secondary)] capitalize">{key.replace(/_/g, ' ')}</span>
+                                            <span className="font-semibold text-[var(--text-primary)]">{value}%</span>
                                         </div>
                                         <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                                             <motion.div
@@ -122,3 +138,4 @@ export default function EdgeStatsPanel({ edge, position, visible }) {
         </AnimatePresence>
     );
 }
+

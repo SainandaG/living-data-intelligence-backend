@@ -347,10 +347,15 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
     // New: 8 + (12*imp) + (4*nTerm) -> Max ~30
     let size = isCore ? 40 : (8 + (importance * 12) + (nTerm * 4));
 
-    // VISIBILITY FIX: Make 'batteries' node huge so user can find it
-    if (nodeData.id === 'batteries') {
-        size = 80; // 2x Core size
-        color = 0x00ff00; // Bright Green base
+    // VISIBILITY FIX: Make the 5 live-updating WEZU tables massive so user can find them easily!
+    const liveTables = ['batteries', 'telemetics_data', 'batteryhealthlog', 'gps_tracking_log', 'stations'];
+    if (liveTables.includes(nodeData.id)) {
+        size = 80; // Massive size to stand out
+        if (nodeData.id === 'batteries') color = 0x00ff00; // Bright Lime Green
+        if (nodeData.id === 'telemetics_data') color = 0x00ffff; // Cyan
+        if (nodeData.id === 'batteryhealthlog') color = 0xff00ff; // Neon Pink
+        if (nodeData.id === 'gps_tracking_log') color = 0xff9900; // Orange
+        if (nodeData.id === 'stations') color = 0xffff00; // Yellow
     }
 
     // LATENT MODE VISIBILITY BOOST
@@ -366,17 +371,16 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
     // 1. Inner Core Sphere (The Light Source)
     // OPTIMIZATION: Reduced segments from 32,32 to 16,16
     const geometry = new THREE.SphereGeometry(size * 0.5, 16, 16);
-    // Latent Mode: Colors must scream to be seen
+    // Latent Mode: Colors must scream to be seen, but not clip to white
     const nodeColor = new THREE.Color(color);
-    if (layoutMode === 'latent') nodeColor.multiplyScalar(1.5); // Boost brightness
 
     // FIX: Use Standard Material to support Emissive (for glow/pulse/time-travel)
     const material = new THREE.MeshStandardMaterial({
         color: nodeColor,
         roughness: 0.4,
         metalness: 0.1,
-        emissive: 0x000000,
-        emissiveIntensity: 0.0
+        emissive: layoutMode === 'latent' ? nodeColor : 0x000000,
+        emissiveIntensity: layoutMode === 'latent' ? 0.3 : 0.0
     });
     const sphere = new THREE.Mesh(geometry, material);
 
@@ -528,8 +532,8 @@ function createTextSprite(message, fontsize, color) {
 
 
 // --- Restored Curved Edge for "Living" Feel ---
-function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId, layoutMode = 'galaxy') {
-    return createLatentBridgeEdge(sourcePos, targetPos, edgeData, sourceId, targetId, layoutMode === 'latent');
+function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId, layoutMode = 'galaxy', edgeColor = 0x00d4ff) {
+    return createLatentBridgeEdge(sourcePos, targetPos, edgeData, sourceId, targetId, layoutMode === 'latent', edgeColor);
 }
 
 function createParticle(type = 'normal') {
@@ -572,6 +576,8 @@ function createStarfield(scene) {
     // DETERMINISTIC STARFIELD
     const rng = new SeededRNG("universe-v1");
 
+    const group = new THREE.Group();
+    /* 
     // Layer 1: Distant Stars (White/Blue, crisp)
     const starGeo = new THREE.BufferGeometry();
     const starVertices = [];
@@ -581,7 +587,19 @@ function createStarfield(scene) {
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
     const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
     const stars = new THREE.Points(starGeo, starMat);
-    scene.add(stars);
+    group.add(stars);
+    */
+
+    // RESTORED: Distant Stars with conditional visibility check
+    const starGeo = new THREE.BufferGeometry();
+    const starVertices = [];
+    for (let i = 0; i < 4000; i++) {
+        starVertices.push((rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000);
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
+    const stars = new THREE.Points(starGeo, starMat);
+    group.add(stars);
 
     // Layer 2: Nebula Dust (Blue/Purple, soft, large)
     const dustGeo = new THREE.BufferGeometry();
@@ -610,14 +628,19 @@ function createStarfield(scene) {
         blending: THREE.AdditiveBlending
     });
     const dust = new THREE.Points(dustGeo, dustMat);
-    scene.add(dust);
+    group.add(dust);
+
+    scene.add(group);
+    return group;
 }
 
 const ThreeGraph = forwardRef(({
     data,
     tps = 0,
+    liveTableCounts = {},
     onNodeClick,
     onNodeHover,
+    onEdgeHover, // [NEW] Callback for edge hover tooltips
     activeLens = 'ops',
     clusteringMethod = 'heuristic',
     paused = false,
@@ -710,6 +733,7 @@ const ThreeGraph = forwardRef(({
     const [timeProgress, setTimeProgress] = React.useState(100); // 0 to 100%
     const timeProgressRef = useRef(100); // Ref for performance-critical loop access
     const manifoldRef = useRef(null);
+    const backgroundGroupRef = useRef(null);
     const axesRef = useRef(null);
 
     // 3D Tables (tier3) Cluster Metadata State
@@ -822,6 +846,9 @@ const ThreeGraph = forwardRef(({
         console.log('[ThreeGraph] Applying Active Filters:', activeFilters);
 
         nodesRef.current.forEach(n => {
+            // Skip hub/core nodes - they should always be visible
+            if (n.id === 'hub' || n.id === 'DATABASE_CORE') return;
+
             const name = (n.name || '').toLowerCase();
             const type = (n.entity || n.type || n.table_type || '').toLowerCase();
             const rc = n.row_count || 0;
@@ -867,6 +894,29 @@ const ThreeGraph = forwardRef(({
                 });
             }
         });
+
+        // --- EDGE VISIBILITY PASS ---
+        // Build a set of hidden node IDs, then hide any edge where either endpoint is hidden.
+        const hiddenIds = new Set(
+            nodesRef.current
+                .filter(n => n.mesh && n.mesh.visible === false)
+                .map(n => n.id)
+        );
+
+        if (edgesRef.current) {
+            edgesRef.current.forEach(line => {
+                const srcId = typeof line.userData.sourceId === 'object'
+                    ? line.userData.sourceId?.id
+                    : line.userData.sourceId;
+                const tgtId = typeof line.userData.targetId === 'object'
+                    ? line.userData.targetId?.id
+                    : line.userData.targetId;
+                // Hide if either endpoint belongs to a hidden cluster
+                const srcHidden = srcId && hiddenIds.has(srcId);
+                const tgtHidden = tgtId && hiddenIds.has(tgtId);
+                line.visible = !srcHidden && !tgtHidden;
+            });
+        }
     }, [activeFilters]);
 
     // --- VOICE COMMAND REGISTRATION ---
@@ -1221,16 +1271,25 @@ const ThreeGraph = forwardRef(({
             console.log(`[ThreeGraph] Setting Layout Mode: ${mode}`);
             setLayoutMode(mode);
             layoutModeRef.current = mode;
+            if (backgroundGroupRef.current) {
+                backgroundGroupRef.current.visible = (mode !== 'latent');
+            }
         },
         setLayoutMode: (mode) => {
             console.log(`[ThreeGraph] Setting Layout Mode (SAI): ${mode}`);
             setLayoutMode(mode);
             layoutModeRef.current = mode;
+            if (backgroundGroupRef.current) {
+                backgroundGroupRef.current.visible = (mode !== 'latent');
+            }
         },
         toggleLatentMode: () => {
             setLayoutMode(prev => {
                 const next = prev === 'galaxy' ? 'latent' : 'galaxy';
                 layoutModeRef.current = next;
+                if (backgroundGroupRef.current) {
+                    backgroundGroupRef.current.visible = (next !== 'latent');
+                }
                 return next;
             });
         }
@@ -1359,8 +1418,11 @@ const ThreeGraph = forwardRef(({
         // scene.background = new THREE.Color(0x0e1012); 
         // We will use CSS background for better gradient control
 
-        // RESTORE NEBULA BACKGROUND
-        createStarfield(scene);
+        // Conditional Background Starfield
+        backgroundGroupRef.current = createStarfield(scene);
+        if (backgroundGroupRef.current) {
+            backgroundGroupRef.current.visible = (layoutModeRef.current !== 'latent');
+        }
 
         // Init Camera
         // HYPER-LATENT FIX: Increase Far Plane to see full 30k+ space
@@ -1546,6 +1608,7 @@ const ThreeGraph = forwardRef(({
 
         const mouse = new THREE.Vector2();
         const raycaster = new THREE.Raycaster();
+        raycaster.params.Line.threshold = 4.0; // [FIX] Increase threshold to make lines easier to hover
 
         const onMouseMove = (e) => {
             const rect = renderer.domElement.getBoundingClientRect();
@@ -1606,24 +1669,75 @@ const ThreeGraph = forwardRef(({
                     if (onNodeHover) {
                         onNodeHover(foundNode);
                     }
+                    if (onEdgeHover) {
+                        onEdgeHover(null); // Clear edge hover if we're hovering a node
+                    }
 
                     // SONIFICATION: Play metric sound on hover
                     const gravity = foundNode.importance_score || 1.0;
                     const glowIntense = foundNode.node_glow || 0.5;
                     soundSystem.playMetricOscillation(gravity, glowIntense);
-                }
-            } else if (hoverNodeRef.current) {
-                hoverNodeRef.current = null; // Clear Ref
-                document.body.style.cursor = 'default';
+                } else if (!foundNode) {
+                    // RAYCAST FIX: Check for Line/Edge intersections if no node was hit, but we did hit *something*
+                    let foundEdge = null;
+                    for (let i = 0; i < intersects.length; i++) {
+                        const intersection = intersects[i];
+                        if (intersection.object.type === 'Line' && intersection.object.userData) {
+                            const ud = intersection.object.userData;
+                            // Need source and target to confirm it's an actual graph edge
+                            if (ud.sourceId && ud.targetId) {
+                                foundEdge = {
+                                    isEdge: true,
+                                    data: ud.edgeData || {},
+                                    sourceNode: nodesRef.current.find(n => n.id === (typeof ud.sourceId === 'object' ? ud.sourceId.id : ud.sourceId)),
+                                    targetNode: nodesRef.current.find(n => n.id === (typeof ud.targetId === 'object' ? ud.targetId.id : ud.targetId)),
+                                    mousePos: { x: e.clientX, y: e.clientY }
+                                };
+                                break;
+                            }
+                        }
+                    }
 
-                // [NEW] Clear hover preview
-                if (onNodeHover) {
-                    onNodeHover(null);
+                    if (foundEdge) {
+                        document.body.style.cursor = 'pointer';
+                        if (onEdgeHover) onEdgeHover(foundEdge);
+                    } else {
+                        if (onEdgeHover) onEdgeHover(null);
+                        document.body.style.cursor = 'default';
+                    }
                 }
+            } else {
+                // No intersections at all
+                if (hoverNodeRef.current) {
+                    hoverNodeRef.current = null; // Clear Ref
+
+                    // [NEW] Clear hover preview
+                    if (onNodeHover) {
+                        onNodeHover(null);
+                    }
+                }
+
+                if (onEdgeHover) onEdgeHover(null);
+                document.body.style.cursor = 'default';
             }
         };
 
+        let mouseDownPos = { x: 0, y: 0 };
+        const onMouseDown = (e) => {
+            mouseDownPos = { x: e.clientX, y: e.clientY };
+        };
+
         const onClick = (event) => {
+            // DRAG PREVENTION logic: Don't trigger click if we just dragged the camera
+            const dx = event.clientX - mouseDownPos.x;
+            const dy = event.clientY - mouseDownPos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 5) {
+                // Was likely a drag, ignore click
+                return;
+            }
+
             if (hoverNodeRef.current) {
                 const toggledNode = hoverNodeRef.current;
                 console.log("ThreeGraph: Node Clicked - Table:", toggledNode.name);
@@ -1674,6 +1788,7 @@ const ThreeGraph = forwardRef(({
 
         const canvas = renderer.domElement;
         canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mousedown', onMouseDown);
         canvas.addEventListener('click', onClick);
 
         // Helper to get neighbors
@@ -1868,6 +1983,7 @@ const ThreeGraph = forwardRef(({
             resizeObserver.disconnect();
             if (canvas) {
                 canvas.removeEventListener('mousemove', onMouseMove);
+                canvas.removeEventListener('mousedown', onMouseDown);
                 canvas.removeEventListener('click', onClick);
             }
             if (controls) controls.removeEventListener('start', stopListener);
@@ -2406,14 +2522,36 @@ const ThreeGraph = forwardRef(({
                     const source = nodeMap.get(edge.source);
                     const target = nodeMap.get(edge.target);
                     if (source && target) {
+                        // [FILTER] In Latent Mode, only show curvelin from NEURAL CORE to node
+                        // Hide node-to-node relationships to avoid clumsiness
+                        if (layoutMode === 'latent') {
+                            const isSourceCore = source.id === 'hub' || source.id === 'DATABASE_CORE' || source.type === 'core' || source.name === 'Neural Core';
+                            const isTargetCore = target.id === 'hub' || target.id === 'DATABASE_CORE' || target.type === 'core' || target.name === 'Neural Core';
+
+                            // If neither side is a core node, skip rendering this edge
+                            if (!isSourceCore && !isTargetCore) return;
+                        }
+
                         // CHANGED: Use Curved Edge with DETERMINISTIC SEEDing
                         // [FIX] Use raw coordinates, not mesh position (which is 0,0,0 for InstancedMesh)
                         const startPos = new THREE.Vector3(source.x, source.y, source.z);
                         const endPos = new THREE.Vector3(target.x, target.y, target.z);
 
-                        const line = createCurvedEdge(startPos, endPos, edge, edge.source, edge.target, layoutMode);
-                        line.userData.sourceId = edge.source;
-                        line.userData.targetId = edge.target;
+                        // Determine edge color based on target node (or source if target is hub)
+                        let edgeColor = 0x00d4ff; // Default Cyan
+                        if (layoutMode === 'latent') {
+                            if (target.id !== 'hub' && target.id !== 'DATABASE_CORE') {
+                                edgeColor = target.latent_color || target.color || edgeColor;
+                            } else if (source.id !== 'hub' && source.id !== 'DATABASE_CORE') {
+                                edgeColor = source.latent_color || source.color || edgeColor;
+                            }
+                        }
+
+                        const line = createCurvedEdge(startPos, endPos, edge, edge.source, edge.target, layoutMode, edgeColor);
+                        line.userData.sourceId = typeof edge.source === 'object' ? edge.source.id : edge.source;
+                        line.userData.targetId = typeof edge.target === 'object' ? edge.target.id : edge.target;
+                        line.userData.type = edge.type || 'Dependency';
+                        line.userData.edgeData = edge; // [NEW] Store full data for detailed tooltips
 
                         // [FIX] Store InstancedMesh ref or individual mesh ref if legacy
                         // For InstancedMesh, we don't have individual meshes to track, 
@@ -2652,12 +2790,108 @@ const ThreeGraph = forwardRef(({
     };
 
 
+    // --- TRANSACTION PULSE EFFECT ---
+    // Uses liveTableCounts (WebSocket, 2s) NOT data.nodes (graph API, slow)
+    const prevRowCountsRef = useRef({});
+
+    useEffect(() => {
+        if (!sceneRef.current || !liveTableCounts || Object.keys(liveTableCounts).length === 0) return;
+
+        const popColors = {
+            'batteries': new THREE.Color(0x00ff00), // Lime
+            'telemetics_data': new THREE.Color(0x00ffff), // Cyan
+            'batteryhealthlog': new THREE.Color(0xff00ff), // Pink
+            'gps_tracking_log': new THREE.Color(0xff9900), // Orange
+            'stations': new THREE.Color(0xffff00)  // Yellow
+        };
+
+        let popCount = 0;
+
+        Object.entries(liveTableCounts).forEach(([tableId, currentCount]) => {
+            if (!popColors[tableId]) return; // Only pulse the WEZU tables
+
+            const prevCount = prevRowCountsRef.current[tableId] || 0;
+
+            if (currentCount > prevCount && prevCount > 0) { // prevCount > 0 avoids first-load false positives
+                const sceneNode = nodesRef.current.find(n => n.id === tableId);
+                if (sceneNode && sceneNode.mesh) {
+                    const mesh = sceneNode.mesh;
+                    if (!mesh.material) { prevRowCountsRef.current[tableId] = currentCount; return; }
+
+                    const originalScale = mesh.scale.clone();
+                    const originalColor = mesh.material.color?.clone();
+                    const hasEmissive = !!mesh.material.emissive;
+                    const originalEmissive = hasEmissive ? mesh.material.emissive.clone() : null;
+                    const originalEmissiveIntensity = mesh.material.emissiveIntensity || 0;
+                    const glowColor = popColors[tableId];
+
+                    // --- INSTANT POP ---
+                    mesh.scale.multiplyScalar(2.8);
+                    if (originalColor) mesh.material.color.copy(glowColor);
+                    if (hasEmissive) {
+                        mesh.material.emissive.copy(glowColor);
+                        mesh.material.emissiveIntensity = 5.0;
+                    }
+
+                    // Shell glow
+                    const shell = mesh.children[0];
+                    const shellHasEmissive = shell?.material?.emissive != null;
+                    if (shell && shell.material) {
+                        if (shell.material.color) shell.material.color.copy(glowColor);
+                        if (shellHasEmissive) {
+                            shell.material.emissive.copy(glowColor);
+                            shell.material.emissiveIntensity = 8.0;
+                        }
+                    }
+
+                    console.log(`[ThreeGraph] 💥 TRANSACTION POP: ${tableId} | ${prevCount} -> ${currentCount}`);
+
+                    // --- SMOOTH DECAY ---
+                    let step = 0;
+                    const decay = setInterval(() => {
+                        step++;
+                        // Guard: mesh may have been disposed
+                        if (!mesh.material) { clearInterval(decay); return; }
+                        if (step > 20) {
+                            clearInterval(decay);
+                            mesh.scale.copy(originalScale);
+                            if (originalColor) mesh.material.color.copy(originalColor);
+                            if (hasEmissive && originalEmissive) {
+                                mesh.material.emissive.copy(originalEmissive);
+                                mesh.material.emissiveIntensity = originalEmissiveIntensity;
+                            }
+                            if (shell && shell.material && shellHasEmissive && originalEmissive) {
+                                shell.material.emissive.copy(originalEmissive);
+                                shell.material.emissiveIntensity = originalEmissiveIntensity;
+                            }
+                        } else {
+                            const t = 1 - (step / 20);
+                            mesh.scale.set(
+                                originalScale.x * (1 + 1.8 * t),
+                                originalScale.y * (1 + 1.8 * t),
+                                originalScale.z * (1 + 1.8 * t)
+                            );
+                            if (hasEmissive) mesh.material.emissiveIntensity = originalEmissiveIntensity + 5.0 * t;
+                            if (shell && shell.material && shellHasEmissive) {
+                                shell.material.emissiveIntensity = originalEmissiveIntensity + 8.0 * t;
+                            }
+                        }
+                    }, 50);
+
+                    popCount++;
+                }
+            }
+
+            prevRowCountsRef.current[tableId] = currentCount;
+        });
+
+        if (popCount > 0) console.log(`[ThreeGraph] 💥 ${popCount} nodes glowed!`);
+
+    }, [liveTableCounts]);
+
     return (
         <div ref={containerRef} className={className || "absolute inset-0 z-0"} style={containerStyle}>
-
             {/* DEBUG HUD - REMOVE BEFORE PRODUCTION */}
-
-
             {/* TOPOLOGY VIEW (Always Mounted) */}
             <div ref={mountRef} className="absolute inset-0 z-0" />
 

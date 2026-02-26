@@ -11,6 +11,7 @@ const VoiceControl = ({ onActionTriggered, uiContext = {} }) => {
     const [lastIntent, setLastIntent] = useState(null);
     const [showChat, setShowChat] = useState(false);
     const [chatInput, setChatInput] = useState('');
+    const [isMinimized, setIsMinimized] = useState(false);
 
     const handleVoiceResult = useCallback(async (text) => {
         if (!text) return;
@@ -142,7 +143,28 @@ const VoiceControl = ({ onActionTriggered, uiContext = {} }) => {
     }, []);
 
     return (
-        <div className="fixed inset-x-0 bottom-0 z-[10000] flex flex-col items-center pointer-events-none pb-12 gap-4">
+        <div className={`fixed inset-x-0 bottom-0 z-[10000] flex flex-col items-center pointer-events-none ${isMinimized ? 'pb-2' : 'pb-4'} gap-3 transition-all duration-500`}>
+            {/* MINIMIZE TOGGLE MARK */}
+            <button
+                onClick={() => setIsMinimized(!isMinimized)}
+                className="pointer-events-auto flex flex-col items-center gap-1 group mb-1 opacity-40 hover:opacity-100 transition-opacity"
+                title={isMinimized ? "Show Voice Controls" : "Hide Voice Controls"}
+            >
+                <div className="flex gap-1">
+                    {[0, 1, 2].map(i => (
+                        <div key={i} className={`w-1 h-1 rounded-full transition-colors ${isMinimized ? 'bg-indigo-500 animate-pulse' : 'bg-white/20'}`} />
+                    ))}
+                </div>
+                {isMinimized && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.5 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="p-1 px-3 bg-indigo-500/20 rounded-full border border-indigo-500/30"
+                    >
+                        <Mic className="w-2.5 h-2.5 text-indigo-400" />
+                    </motion.div>
+                )}
+            </button>
             <AnimatePresence>
                 {(isListening || status !== 'idle') && (
                     <motion.div
@@ -286,89 +308,96 @@ const VoiceControl = ({ onActionTriggered, uiContext = {} }) => {
             </AnimatePresence>
 
             {/* Mic Button & Chat Toggle */}
-            <div className="flex flex-col items-center gap-3">
-                {/* Google-Assistant Style Mic Button */}
-                <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={toggleListening}
-                    disabled={status === 'processing'}
-                    className={`pointer-events-auto relative w-16 h-16 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(79,70,229,0.3)] transition-all duration-500 ${isListening
-                        ? 'bg-white'
-                        : status === 'processing'
-                            ? 'bg-blue-600/50 cursor-wait'
-                            : 'bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600'
-                        }`}
+            {!isMinimized && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="flex flex-col items-center gap-3"
                 >
-                    {isListening ? (
-                        <div className="flex gap-1.5">
-                            {['#4285F4', '#EA4335', '#FBBC05', '#34A853'].map((color, i) => (
-                                <motion.div
-                                    key={i}
-                                    animate={{
-                                        scaleY: [1, 2.5, 1],
-                                    }}
-                                    transition={{
-                                        duration: 0.5,
-                                        repeat: Infinity,
-                                        delay: i * 0.1
-                                    }}
-                                    style={{ backgroundColor: color }}
-                                    className="w-1.5 h-6 rounded-full"
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <Mic className="w-8 h-8 text-white shadow-sm" />
-                    )}
-
-                    {/* Animated Ring for Idle state */}
-                    {!isListening && status === 'idle' && (
-                        <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-pulse scale-110" />
-                    )}
-
-                    {/* Glowing Aura if listening */}
-                    {isListening && (
-                        <div className="absolute inset-0 rounded-full bg-blue-400/20 blur-2xl animate-pulse" />
-                    )}
-                </motion.button>
-
-                {/* Text Input Toggle */}
-                <div className="pointer-events-auto flex flex-col items-center">
-                    <AnimatePresence>
-                        {showChat && (
-                            <motion.form
-                                initial={{ opacity: 0, y: 20, height: 0 }}
-                                animate={{ opacity: 1, y: 0, height: 'auto' }}
-                                exit={{ opacity: 0, y: 20, height: 0 }}
-                                onSubmit={handleChatSubmit}
-                                className="mb-2 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 pl-4 flex items-center shadow-lg w-64"
-                            >
-                                <input
-                                    type="text"
-                                    value={chatInput}
-                                    onChange={(e) => setChatInput(e.target.value)}
-                                    placeholder="Type a command..."
-                                    className="bg-transparent border-none outline-none text-white text-sm w-full placeholder-slate-500"
-                                    autoFocus
-                                />
-                                <button
-                                    type="submit"
-                                    className="p-2 bg-indigo-500 hover:bg-indigo-600 rounded-full transition-colors ml-2"
-                                >
-                                    <Send className="w-3 h-3 text-white" />
-                                </button>
-                            </motion.form>
-                        )}
-                    </AnimatePresence>
-                    <button
-                        onClick={() => setShowChat(!showChat)}
-                        className={`p-2 rounded-full transition-all duration-300 ${showChat ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                    {/* Google-Assistant Style Mic Button */}
+                    <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={toggleListening}
+                        disabled={status === 'processing'}
+                        className={`pointer-events-auto relative w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(79,70,229,0.25)] transition-all duration-500 ${isListening
+                            ? 'bg-white'
+                            : status === 'processing'
+                                ? 'bg-blue-600/50 cursor-wait'
+                                : 'bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600'
+                            }`}
                     >
-                        <Keyboard className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
+                        {isListening ? (
+                            <div className="flex gap-1.5">
+                                {['#4285F4', '#EA4335', '#FBBC05', '#34A853'].map((color, i) => (
+                                    <motion.div
+                                        key={i}
+                                        animate={{
+                                            scaleY: [1, 2.5, 1],
+                                        }}
+                                        transition={{
+                                            duration: 0.5,
+                                            repeat: Infinity,
+                                            delay: i * 0.1
+                                        }}
+                                        style={{ backgroundColor: color }}
+                                        className="w-1.5 h-6 rounded-full"
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <Mic className="w-7 h-7 text-white shadow-sm" />
+                        )}
+
+                        {/* Animated Ring for Idle state */}
+                        {!isListening && status === 'idle' && (
+                            <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-pulse scale-110" />
+                        )}
+
+                        {/* Glowing Aura if listening */}
+                        {isListening && (
+                            <div className="absolute inset-0 rounded-full bg-blue-400/20 blur-2xl animate-pulse" />
+                        )}
+                    </motion.button>
+
+                    {/* Text Input Toggle */}
+                    <div className="pointer-events-auto flex flex-col items-center">
+                        <AnimatePresence>
+                            {showChat && (
+                                <motion.form
+                                    initial={{ opacity: 0, y: 20, height: 0 }}
+                                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                                    exit={{ opacity: 0, y: 20, height: 0 }}
+                                    onSubmit={handleChatSubmit}
+                                    className="mb-2 bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 pl-4 flex items-center shadow-lg w-64"
+                                >
+                                    <input
+                                        type="text"
+                                        value={chatInput}
+                                        onChange={(e) => setChatInput(e.target.value)}
+                                        placeholder="Type a command..."
+                                        className="bg-transparent border-none outline-none text-white text-sm w-full placeholder-slate-500"
+                                        autoFocus
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="p-2 bg-indigo-500 hover:bg-indigo-600 rounded-full transition-colors ml-2"
+                                    >
+                                        <Send className="w-3 h-3 text-white" />
+                                    </button>
+                                </motion.form>
+                            )}
+                        </AnimatePresence>
+                        <button
+                            onClick={() => setShowChat(!showChat)}
+                            className={`p-2 rounded-full transition-all duration-300 ${showChat ? 'bg-white/20 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                        >
+                            <Keyboard className="w-4 h-4" />
+                        </button>
+                    </div>
+                </motion.div>
+            )}
         </div>
     );
 };

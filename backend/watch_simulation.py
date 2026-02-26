@@ -75,7 +75,12 @@ def watch():
                 recent = row2[0] if row2 else 0
                 print(f"  🩺 {'batteryhealthlog':<22} total={row[0]:<10} last_5min={recent}")
 
-
+            # 5. gps_tracking_log
+            row = q(cur, "SELECT COUNT(*) FROM gps_tracking_log")
+            if row and row[0] is not None:
+                row2 = q(cur, "SELECT COUNT(*) FROM gps_tracking_log WHERE timestamp >= NOW() - INTERVAL '5 minutes'")
+                recent = row2[0] if row2 else 0
+                print(f"  📍 {'gps_tracking_log':<22} total={row[0]:<10} last_5min={recent}")
 
             cur.close()
             conn.close()

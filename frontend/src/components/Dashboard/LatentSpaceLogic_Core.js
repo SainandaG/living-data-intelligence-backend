@@ -238,7 +238,7 @@ export function getClusterTargetPosition(cluster, node) {
 // REAL-TIME WEBSOCKET — Fully Isolated
 // Never touches graphData.nodes
 // ─────────────────────────────────────────────
-export function startLatentWebSocket() {
+export function startLatentWebSocket(retryDelay = 3000) {
     if (_latentSocket &&
         _latentSocket.readyState === WebSocket.OPEN) return;
 
@@ -252,9 +252,6 @@ export function startLatentWebSocket() {
     _latentSocket.onmessage = (event) => {
         try {
             const diff = JSON.parse(event.data);
-            // Expected shape:
-            // { node_id, healthScore?, vitality?, isAnomalous?,
-            //   row_count?, dependencyDepth? }
             patchLatentNode(diff);
         } catch (e) {
             console.warn('[LATENT] Bad diff payload', e);
@@ -262,12 +259,14 @@ export function startLatentWebSocket() {
     };
 
     _latentSocket.onclose = () => {
-        console.warn('[LATENT] WebSocket closed — reconnecting in 3s');
-        setTimeout(() => startLatentWebSocket(), 3000);
+        const nextDelay = Math.min(retryDelay * 2, 30000); // exponential backoff, max 30s
+        console.warn(`[LATENT] WebSocket closed — reconnecting in ${nextDelay / 1000}s`);
+        setTimeout(() => startLatentWebSocket(nextDelay), nextDelay);
     };
 
-    _latentSocket.onerror = (err) => {
-        console.error('[LATENT] WebSocket error', err);
+    _latentSocket.onerror = () => {
+        // Error will be followed by onclose — don't double-reconnect
+        _latentSocket.close();
     };
 }
 

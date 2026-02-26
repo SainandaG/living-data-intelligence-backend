@@ -8,7 +8,8 @@ import {
     UnrealBloomPass
 } from 'three-stdlib';
 import { SeededRNG } from '../../utils/mathUtils';
-import { getLatentRegistry } from './LatentSpaceLogic_Core.js'; // We will extract core logic into a separate file for cleanliness, or just inline it.
+import { getLatentRegistry } from './LatentSpaceLogic_Core.js';
+import EdgeStatsPanel from './EdgeStatsPanel';
 
 
 
@@ -323,34 +324,46 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
                 nodeHeight = baseHealth * rowNorm * 0.2 * multiplier;
             }
         } else if (currentLens === 'security') {
-            if (baseHealth < 60) {
-                assignedCat = cats[0]; // Red
+            // Use table name keywords to identify security domains, not raw health thresholds
+            // that push 70%+ of nodes into one cluster.
+            const nodeId = (node.id || '').toLowerCase();
+            const isAuthTable = /auth|token|session|otp|biometric|secret|key|password|credential|permission|role|access|login|mfa|jwt/.test(nodeId);
+            const isSensitiveTable = /user|account|payment|card|bank|kyc|pii|identity|profile|wallet|transaction|audit/.test(nodeId);
+            const isMonitoringTable = /log|event|alert|incident|threat|scan|report|monitor|security|anomal|risk|fraud/.test(nodeId);
+
+            if (isAnomalous || isAuthTable) {
+                assignedCat = cats[0]; // Red — Critical Threats (auth tables + anomalous)
                 nodeHeight = (100 - baseHealth) * multiplier * 0.5;
-            } else if (baseHealth < 90) {
-                assignedCat = cats[1]; // Orange
-                nodeHeight = (100 - baseHealth) * multiplier * 0.3;
-            } else if (hasUpstream) {
-                assignedCat = cats[2]; // Blue
+            } else if (isSensitiveTable) {
+                assignedCat = cats[1]; // Orange — Vulnerable Assets (sensitive data)
+                nodeHeight = (node.dependencyDepth || 1) * 10 * multiplier;
+            } else if (isMonitoringTable || hasUpstream) {
+                assignedCat = cats[2]; // Blue — Guarded Nodes (monitoring/dependent tables)
                 const rowNorm = Math.min(10, Math.log10((node.row_count || 1) + 1));
                 nodeHeight = (node.dependencyDepth || 1) * rowNorm * 5 * multiplier;
             } else {
-                assignedCat = cats[3]; // Green
-                nodeHeight = (node.independencyScore || 0) * 20 * multiplier;
+                assignedCat = cats[3]; // Green — Secure Data (reference/config tables)
+                nodeHeight = baseHealth * 0.3 * multiplier;
             }
         } else if (currentLens === 'energy') {
-            const isInfrastructure = nodeType === 'bess' || nodeType === 'grid' || nodeType === 'meter';
+            // Use WEZU-specific table names — DB tables never have type 'bess'/'grid'/'meter'
+            const nodeId = (node.id || '').toLowerCase();
+            const isBatteryCore = /^batteries$|^battery_batches$|^battery_specs$|^battery_transfers$/.test(nodeId);
+            const isSensorTable = /telemeti|telematics|gps|tracking|sensor|telemetry/.test(nodeId);
+            const isHealthTable = /healthlog|batteryhealth|maintenance|lifecycle|inspection/.test(nodeId);
+            const isStation = /^stations$|^station/.test(nodeId);
 
-            if (baseHealth === 0 || isAnomalous) {
-                assignedCat = cats[0]; // Red
-                nodeHeight = (node.anomalySeverity || 100) * 10 * multiplier;
-            } else if (baseHealth < 80) {
-                assignedCat = cats[1]; // Orange
-                nodeHeight = (100 - baseHealth) * 5 * multiplier;
-            } else if (isInfrastructure) {
-                assignedCat = cats[2]; // Blue
-                nodeHeight = (node.independencyScore || 0) * 30 * multiplier;
+            if (isAnomalous || (baseHealth < 40)) {
+                assignedCat = cats[0]; // Red — Critical Failures
+                nodeHeight = (node.anomalySeverity || (100 - baseHealth)) * 10 * multiplier;
+            } else if (isSensorTable) {
+                assignedCat = cats[1]; // Orange — Warning Sensors (live telemetry)
+                nodeHeight = (node.row_count || 1) * 0.5 * multiplier;
+            } else if (isBatteryCore || isStation || isHealthTable) {
+                assignedCat = cats[2]; // Blue — Grid Infrastructure (core WEZU tables)
+                nodeHeight = (node.dependencyDepth || 1) * 30 * multiplier;
             } else {
-                assignedCat = cats[3]; // Green
+                assignedCat = cats[3]; // Green — Energy Consumers (all other tables)
                 const rowNorm = Math.min(10, Math.log10((node.row_count || 1) + 1));
                 nodeHeight = baseHealth * rowNorm * 0.2 * multiplier;
             }
@@ -362,7 +375,31 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
         node.y = node.targetY;
 
         node.latent_category = assignedCat.id;
-        node.latent_color = assignedCat.color;
+
+        // [DISTINCT COLORS] High-Contrast Deterministic Jitter
+        const baseColor = new THREE.Color(assignedCat.color);
+        const seed = node.id;
+        const rng = new SeededRNG(seed);
+
+        const hsl = {};
+        baseColor.getHSL(hsl);
+
+        // WIDER HUE RANGE: +/- 0.2 (72 degrees) for intense color variety
+        const hShift = (rng.next() - 0.5) * 0.4;
+
+        // HIGH SATURATION: Keep them very vibrant (0.8 to 1.0)
+        const finalS = 0.8 + (rng.next() * 0.2);
+
+        // BALANCED LIGHTNESS: Lowered from 0.85 to 0.65 to prevent white-out (0.4 to 0.65)
+        const finalL = 0.4 + (rng.next() * 0.25);
+
+        const finalColor = new THREE.Color().setHSL(
+            (hsl.h + hShift + 1) % 1,
+            finalS,
+            finalL
+        );
+
+        node.latent_color = `#${finalColor.getHexString()}`;
 
         clusters[assignedCat.id].push(node);
     });
@@ -388,11 +425,11 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
 
         clusterNodes.forEach((node, i) => {
             // ORGANIC SPREAD: Tighter concentration near peaks for a "bloom" effect
-            const maxSpread = 700 + (numInCluster * 35);
+            const maxSpread = 1500 + (numInCluster * 60);
 
             // ORGANIC SPREAD: High concentration at center, tapering out gracefully
-            // Using a higher power factor (3.5) for a tighter core
-            const spreadFactor = Math.pow(Math.random(), 3.5);
+            // Lowered power factor from 3.5 to 1.2 to allow wide range spread
+            const spreadFactor = Math.pow(Math.random(), 1.2);
             const distance = spreadFactor * maxSpread;
             const theta = Math.random() * Math.PI * 2;
 
@@ -402,7 +439,7 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
 
             // [REFINEMENT] Hover offset scaled by density
             // Inner nodes float higher, outer nodes sit closer to the slope
-            const cloudHeightVariance = (Math.random() * 150) * (1 - spreadFactor);
+            const cloudHeightVariance = (Math.random() * 100) * (1 - spreadFactor);
 
             node.targetX = nx;
             node.targetZ = nz;
@@ -431,8 +468,8 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
 
             // Nodes float at a comfortable offset above the surface
             // base offset + semantic contribution (capped)
-            const baseOffset = 180;
-            const semanticContribution = (node.semanticElevation || 0) * 0.12;
+            const baseOffset = 40;
+            const semanticContribution = (node.semanticElevation || 0) * 0.04;
 
             // Anchor relative to terrain (-800 world shift)
             node.targetY = (surfaceHeight - 800) + baseOffset + semanticContribution + (node._hoverOffset || 0);
@@ -534,7 +571,7 @@ export function createFlowArrows(manifoldData) {
  * Specialized Curved Edge for Latent Mode (Bridge Arcs)
  * This avoids disturbing the Galaxy Mode "Neural Web" look.
  */
-export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId, isLatentMode = true) {
+export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetId, isLatentMode = true, edgeColor = 0x00d4ff) {
     const start = new THREE.Vector3(sourcePos.x, sourcePos.y, sourcePos.z);
     const end = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z);
 
@@ -561,8 +598,14 @@ export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sour
     const edgeWidth = Math.min(6, Math.max(1.5, edgeGlow * 1.5));
     const edgeOpacity = Math.min(0.9, Math.max(0.4, edgeGlow * 0.2));
 
+    // Parse hexadecimal color string or use default number
+    let finalColor = edgeColor;
+    if (typeof edgeColor === 'string') {
+        finalColor = new THREE.Color(edgeColor);
+    }
+
     const material = new THREE.LineBasicMaterial({
-        color: 0x00d4ff,
+        color: finalColor,
         transparent: true,
         opacity: edgeOpacity,
         linewidth: edgeWidth
@@ -572,6 +615,9 @@ export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sour
     line.userData.curve = curve;
     line.userData.sourcePos = sourcePos;
     line.userData.targetPos = targetPos;
+    line.userData.sourceId = sourceId;
+    line.userData.targetId = targetId;
+    line.userData.edgeData = edgeData;
 
     return line;
 }
@@ -596,7 +642,8 @@ export const LatentSpaceUIOverlay = ({
     standalone = false, // If true, it acts as a transparent overlay for App.jsx
     hudOnly = false, // NEW: If true, hides header/footer to fit perfectly in DashboardLayout
     liveStats = null, // NEW: Receive real stats from App.jsx
-    currentLens = 'ops' // NEW: Dynamic Lens categorization
+    currentLens = 'ops', // NEW: Dynamic Lens categorization
+    hoveredEdge // [NEW] Added for relationship hover detection
 }) => {
     const starCanvasRef = useRef(null);
     const chartRefs = [useRef(null), useRef(null), useRef(null)];
@@ -608,7 +655,9 @@ export const LatentSpaceUIOverlay = ({
     // Core Layout States
     const [aiOn, setAiOn] = useState(true);
     const [tier3On, setTier3On] = useState(true);
-    const [panels, setPanels] = useState({ intel: true, filter: true, hud: true });
+    const [panels, setPanels] = useState({ intel: true, filter: true, hud: true, relHud: true });
+    const [stickyEdge, setStickyEdge] = useState(null); // [NEW] Stores last hovered edge
+    const relHudUserClosed = useRef(false); // Track if user manually closed the Relationship HUD
 
     // Data stats
     // Compute total records from all loaded nodes, or default to a realistic baseline
@@ -618,8 +667,12 @@ export const LatentSpaceUIOverlay = ({
     const metrics = {
         snap: (liveStats?.totalTransactions > 0 ? liveStats.totalTransactions : calculatedTotalRecords).toLocaleString(),
         threads: (liveStats?.activeNodes > 0 ? liveStats.activeNodes : computedActiveThreads).toLocaleString(),
-        lat: liveStats?.tps > 0 ? (1000 / liveStats.tps).toFixed(1) : (3.8 + Math.random() * 1.2).toFixed(1),
-        ghostLines: Math.max(190, 206 + (liveStats?.tps || Math.random() * 20) * 0.1)
+        lat: liveStats?.tps > 0 ? (1000 / liveStats.tps).toFixed(1) : '--',
+        ghostLines: Math.max(190, 206 + (liveStats?.tps || 0) * 0.1),
+        healthScore: liveStats?.health?.score ?? 90,
+        avgVitality: dataClusters?.length > 0
+            ? Math.round(dataClusters.reduce((s, n) => s + (n.vitality || n.healthScore || 100), 0) / dataClusters.length)
+            : 90
     };
 
     const [chartModal, setChartModal] = useState({ open: false, type: 'throughput', tab: '1m' });
@@ -638,6 +691,26 @@ export const LatentSpaceUIOverlay = ({
         });
     }
 
+    // Capture hovered edge into sticky state - persists after hover ends
+    useEffect(() => {
+        if (hoveredEdge) {
+            setStickyEdge(hoveredEdge);
+            // Re-open if user hasn't manually closed it
+            if (!relHudUserClosed.current) {
+                setPanels(p => ({ ...p, relHud: true }));
+            }
+        }
+    }, [hoveredEdge]);
+
+    // Wrap togglePanel to also track user-closed state for relHud
+    const handleToggleRelHud = () => {
+        setPanels(p => {
+            const newVal = !p.relHud;
+            relHudUserClosed.current = !newVal; // if closing (newVal=false), mark as user-closed
+            return { ...p, relHud: newVal };
+        });
+    };
+
     // --- ANIMATIONS ---
     useEffect(() => {
         let frameId;
@@ -655,13 +728,16 @@ export const LatentSpaceUIOverlay = ({
             const H = starCanvasRef.current.height = starCanvasRef.current.offsetHeight;
             sctx.clearRect(0, 0, W, H);
 
+            /*
             // Nebulas
             [[0.25, 0.35, W * 0.28, 'rgba(30,0,80,0.16)'], [0.72, 0.55, W * 0.22, 'rgba(0,40,100,0.12)']].forEach(([cx, cy, r, c]) => {
                 const g = sctx.createRadialGradient(cx * W, cy * H, 0, cx * W, cy * H, r);
                 g.addColorStop(0, c); g.addColorStop(1, 'transparent');
                 sctx.fillStyle = g; sctx.fillRect(0, 0, W, H);
             });
+            */
 
+            /*
             // Stars
             stars.forEach(s => {
                 const tw = 0.5 + 0.5 * Math.sin(t * 0.7 + s.ph);
@@ -669,6 +745,7 @@ export const LatentSpaceUIOverlay = ({
                 sctx.fillStyle = '#fff';
                 sctx.beginPath(); sctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2); sctx.fill();
             });
+            */
             sctx.globalAlpha = 1;
         };
 
@@ -819,12 +896,13 @@ export const LatentSpaceUIOverlay = ({
 
             } else if (chartModal.type === 'clusters') {
                 // 2. CLUSTERS: Distribution Bar Histogram
-                const items = [
-                    { cat: 'Independent', color: '#eab308', pct: 0.18 },
-                    { cat: 'Dependent', color: '#3b82f6', pct: 0.52 },
-                    { cat: 'Dimensions', color: '#22c55e', pct: 0.25 },
-                    { cat: 'Anomalous', color: '#ef4444', pct: 0.05 }
-                ];
+                const totalNodes = (dataClusters || []).length || 1;
+                const lensCategories = getLensCategories(currentLens);
+                const items = lensCategories.map(cat => ({
+                    cat: cat.id,
+                    color: cat.color,
+                    pct: (dataClusters || []).filter(n => n.latent_category === cat.id).length / totalNodes
+                }));
 
                 const gap = 30;
                 const barW = (W - (gap * (items.length + 1))) / items.length;
@@ -865,23 +943,28 @@ export const LatentSpaceUIOverlay = ({
                 const cy = H / 2;
                 const r = H * 0.35;
 
+                // Health ring gauge — real score from liveStats
+                const healthVal = metrics.healthScore;
+                const healthRing = Math.max(0, Math.min(1, healthVal / 100));
+
                 // Background Track
                 ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 6; ctx.stroke();
 
-                // 98% Health circle
+                // Health arc
                 ctx.beginPath();
-                const endAngle = -Math.PI / 2 + (Math.PI * 2 * 0.98);
+                const endAngle = -Math.PI / 2 + (Math.PI * 2 * healthRing);
                 ctx.arc(cx, cy, r, -Math.PI / 2, endAngle);
-                ctx.strokeStyle = color; ctx.lineWidth = 6;
-                ctx.shadowColor = color; ctx.shadowBlur = 12;
+                const ringColor = healthVal >= 80 ? '#4ade80' : healthVal >= 50 ? '#f59e0b' : '#ef4444';
+                ctx.strokeStyle = ringColor; ctx.lineWidth = 6;
+                ctx.shadowColor = ringColor; ctx.shadowBlur = 12;
                 ctx.stroke(); ctx.shadowBlur = 0;
 
                 // Center Text
                 ctx.fillStyle = '#fff';
                 ctx.font = 'bold 22px "Rajdhani"';
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                ctx.fillText('98', cx, cy - 2);
+                ctx.fillText(Math.round(healthVal).toString(), cx, cy - 2);
                 ctx.font = '9px "Rajdhani"'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
                 ctx.fillText('HEALTH', cx, cy + 14);
 
@@ -966,9 +1049,9 @@ export const LatentSpaceUIOverlay = ({
                         </div>
 
                         <div style={{ display: 'flex', gap: '28px' }}>
-                            <div style={s.metric}><span style={s.metricLbl}>Neural Snapshots</span><span style={{ ...s.metricVal, color: s.c.indigo }}>{metrics.snap} / ms</span></div>
-                            <div style={s.metric}><span style={s.metricLbl}>Repulsion Strength</span><span style={{ ...s.metricVal, color: s.c.cyan }}>8.54x MAX</span></div>
-                            <div style={s.metric}><span style={s.metricLbl}>Edge Opacity</span><span style={{ ...s.metricVal, color: 'rgba(200,210,240,0.8)' }}>20.8%</span></div>
+                            <div style={s.metric}><span style={s.metricLbl}>Nodes Mapped</span><span style={{ ...s.metricVal, color: s.c.indigo }}>{dataClusters?.length || 0} / 125</span></div>
+                            <div style={s.metric}><span style={s.metricLbl}>Avg Health</span><span style={{ ...s.metricVal, color: metrics.avgVitality >= 80 ? s.c.green : '#f59e0b' }}>{metrics.avgVitality}%</span></div>
+                            <div style={s.metric}><span style={s.metricLbl}>System Score</span><span style={{ ...s.metricVal, color: 'rgba(200,210,240,0.8)' }}>{Math.round(metrics.healthScore)}/100</span></div>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1014,7 +1097,7 @@ export const LatentSpaceUIOverlay = ({
                     )}
 
                     {/* LEFT SIDEBAR */}
-                    <aside style={{ ...s.sidebar, pointerEvents: 'auto' }}>
+                    <aside style={{ ...s.sidebar, pointerEvents: 'auto', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                         <div style={s.panel}>
                             <div style={s.panelHead}><span style={s.panelTitle}>Intelligence Report</span><span style={s.closeBtn} onClick={() => togglePanel('intel')}>×</span></div>
                             {panels.intel && (
@@ -1038,7 +1121,30 @@ export const LatentSpaceUIOverlay = ({
                                 </div>
                             )}
                         </div>
-                        <div style={{ flex: 1 }} />
+
+                        {/* RELATIONSHIP HUD PANEL - ALWAYS VISIBLE */}
+                        <div style={{ ...s.panel, marginTop: '10px' }}>
+                            <div style={s.panelHead}>
+                                <span style={s.panelTitle}>Relationship HUD</span>
+                                <span style={s.closeBtn} onClick={handleToggleRelHud}>×</span>
+                            </div>
+                            {panels.relHud && (
+                                <div style={s.panelBody}>
+                                    {stickyEdge ? (
+                                        <EdgeStatsPanel
+                                            edge={stickyEdge}
+                                            visible={true}
+                                            variant="sidebar"
+                                        />
+                                    ) : (
+                                        <div style={{ fontSize: '9px', color: 'rgba(167,186,220,0.35)', letterSpacing: '0.08em', textAlign: 'center', padding: '6px 0', lineHeight: 1.6 }}>
+                                            HOVER A RELATIONSHIP<br />LINE TO SEE DETAILS
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
                         <div style={{ flex: 1 }} />
                     </aside>
 
@@ -1052,21 +1158,7 @@ export const LatentSpaceUIOverlay = ({
                             <div style={{ fontSize: '10px', color: 'rgba(0,245,255,0.65)' }} className="ls-mono">LATENT VECTOR RATE<br /><span style={{ color: s.c.cyan, fontWeight: 700 }}>[{selectedNode ? (selectedNode.x / 1000).toFixed(3) : '0.222'}, <b>{selectedNode ? (selectedNode.y / 1000).toFixed(3) : '0.004'}</b>, {selectedNode ? (selectedNode.z / 1000).toFixed(3) : '0.331'}]</span></div>
                         </div>
 
-                        <div style={{ position: 'absolute', bottom: '18px', left: '50%', transform: 'translateX(-50%)', width: '420px', zIndex: 30, pointerEvents: 'auto' }}>
-                            <div style={{ ...s.panel, padding: '14px 22px 12px' }}>
-                                <div style={{ textAlign: 'center', fontSize: '10px', letterSpacing: '0.2em', color: 'rgba(167,186,220,0.6)', marginBottom: '10px', textTransform: 'uppercase' }}>
-                                    Time Distortion — {timeValue}%
-                                </div>
-                                <input type="range" min="0" max="100" value={timeValue} onChange={e => {
-                                    console.log('Time Change:', e.target.value);
-                                    onTimeChange?.(parseFloat(e.target.value));
-                                }}
-                                    style={{ WebkitAppearance: 'none', width: '100%', height: '4px', borderRadius: '2px', outline: 'none', cursor: 'pointer', background: `linear-gradient(to right,rgba(34,211,238,0.8) 0%,rgba(99,102,241,0.6) ${timeValue}%,rgba(30,41,59,0.5) ${timeValue}%)` }} />
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'rgba(129,140,248,0.45)', marginTop: '6px', letterSpacing: '0.1em' }}>
-                                    <span>PAST</span><span style={{ color: '#fff', fontWeight: 700 }}>PRESENT</span><span>FUTURE</span>
-                                </div>
-                            </div>
-                        </div>
+
                     </div>
 
                     {/* RIGHT SIDEBAR */}
@@ -1103,24 +1195,30 @@ export const LatentSpaceUIOverlay = ({
                             )}
                         </div>
 
-                        <div style={{ ...s.panel, flex: 1 }}>
+                        <div style={{ ...s.panel, ...(panels.hud ? { flex: 1 } : {}) }}>
                             <div style={s.panelHead}><span style={s.panelTitle}>Micro-Panel HUD</span><span style={s.closeBtn} onClick={() => togglePanel('hud')}>×</span></div>
                             {panels.hud && (
                                 <div style={s.panelBody}>
                                     <div style={{ fontSize: '9px', letterSpacing: '0.15em', color: s.c.indigo, fontWeight: 700, marginBottom: '8px' }}>
                                         {selectedNode ? `NODE: ${selectedNode.name || selectedNode.id}` : 'SELECTED VOXEL'}
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '88px 1fr', rowGap: '5px', columnGap: '8px', fontSize: '9px' }} className="ls-mono">
-                                        <span style={{ color: 'rgba(167,186,220,0.4)' }}>ENTITY TYPE:</span><span style={{ color: 'rgba(200,215,240,0.9)' }}>{selectedNode ? (selectedNode.entity || 'TABLE') : 'REFERENCES'}</span>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '95px 1fr', rowGap: '5px', columnGap: '8px', fontSize: '9px' }} className="ls-mono">
+                                        <span style={{ color: 'rgba(167,186,220,0.4)' }}>ONTOLOGY CLASS:</span><span style={{ color: 'rgba(200,215,240,0.9)', fontWeight: 700 }}>{selectedNode ? (selectedNode.entity || selectedNode.table_type || 'Unclassified') : 'REFERENCES'}</span>
+                                        <span style={{ color: 'rgba(167,186,220,0.4)' }}>NEURAL GRAVITY:</span><span style={{ color: s.c.cyan }}>{selectedNode ? (selectedNode.neural_gravity || selectedNode.importance_score || 1.0).toFixed(2) + 'G' : '0.88G'}</span>
                                         <span style={{ color: 'rgba(167,186,220,0.4)' }}>ID:</span><span style={{ color: 'rgba(200,215,240,0.9)' }}>{selectedNode ? selectedNode.id : 'REF-68294-A'}</span>
                                         <span style={{ color: 'rgba(167,186,220,0.4)' }}>{selectedNode ? 'RECORDS' : 'TX ID'}:</span><span style={{ color: 'rgba(200,215,240,0.9)' }}>{selectedNode ? (selectedNode.row_count || 0).toLocaleString() : 'TAN-8045'}</span>
                                     </div>
                                     <div style={{ marginTop: '14px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', marginBottom: '4px' }} className="ls-mono">
-                                            <span style={{ color: 'rgba(167,186,220,0.4)' }}>SEMANTIC CERTAINTY:</span><span style={{ color: '#4ade80' }}>{selectedNode ? Math.round(selectedNode.vitality || 100) : 88}%</span>
+                                            <span style={{ color: 'rgba(167,186,220,0.4)' }}>VITALITY SCORE:</span><span style={{ color: selectedNode ? (selectedNode.vitality < 40 ? '#ef4444' : (selectedNode.vitality < 70 ? '#fbbf24' : '#4ade80')) : '#4ade80' }}>{selectedNode ? Math.round(selectedNode.vitality || 100) : 88}%</span>
                                         </div>
                                         <div style={{ height: '3px', background: 'rgba(30,41,59,0.8)', borderRadius: '2px', overflow: 'hidden', marginTop: '5px' }}>
-                                            <div style={{ height: '100%', borderRadius: '2px', width: `${selectedNode ? Math.max(0, Math.min(100, selectedNode.vitality || 100)) : 88}%`, background: '#22c55e' }} />
+                                            <div style={{
+                                                height: '100%',
+                                                borderRadius: '2px',
+                                                width: `${selectedNode ? Math.max(0, Math.min(100, selectedNode.vitality || 100)) : 88}%`,
+                                                background: selectedNode ? (selectedNode.vitality < 40 ? '#ef4444' : (selectedNode.vitality < 70 ? '#fbbf24' : '#22c55e')) : '#22c55e'
+                                            }} />
                                         </div>
                                         <div style={{ fontSize: '9px', color: 'rgba(167,186,220,0.4)', marginTop: '10px' }} className="ls-mono">
                                             CONTRIBUTING COLUMNS:

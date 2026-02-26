@@ -103,11 +103,18 @@ class DataSimulator:
                     cycles = int(b.get("cycle_count") or 0)
 
                     # Random walk
-                    new_temp = max(20.0, min(65.0, temp + random.uniform(-1.0, 1.5)))
+                    new_temp = max(20.0, min(80.0, temp + random.uniform(-1.0, 1.5)))
                     new_volt = max(40.0, min(58.0, volt + random.uniform(-0.5, 0.5)))
                     new_curr = max(0.0,  min(100.0, curr + random.uniform(-3.0, 3.0)))
                     degrade  = 0.001 if random.random() > 0.9 else 0.0
-                    new_soh  = max(50.0, soh - degrade)
+                    new_soh  = max(20.0, soh - degrade)
+
+                    # 💥 PURPOSEFUL ANOMALY TRIGGER: 2% chance a battery rapidly overheats and degrades
+                    # This will trigger the AI anomaly detector and drop the overall health score
+                    if random.random() < 0.02:
+                        new_temp = random.uniform(55.0, 75.0)  # Overheating!
+                        new_soh = max(20.0, new_soh - random.uniform(5.0, 15.0)) # Rapid degradation!
+                        logger.warning(f"🚨 Anomalous Battery Triggered: ID {bid}, Temp {new_temp:.1f}C, SoH {new_soh:.1f}%")
 
                     # Update batteries
                     await db_connector.query(conn_id, f"""
@@ -147,8 +154,28 @@ class DataSimulator:
                     except Exception:
                         pass
 
-                    # gps_tracking_log — SKIPPED: rental_id is NOT NULL FK to rentals
-                    # (cannot insert without a valid rental_id)
+                    # gps_tracking_log — INSERT 30% of batteries
+                    # Fetch active rental for this battery (if any)
+                    if random.random() > 0.7:
+                        try:
+                            # Must have a valid rental_id
+                            rent_res = await db_connector.query(conn_id, f"SELECT id FROM rentals WHERE battery_id={bid} AND status='ACTIVE' LIMIT 1")
+                            if rent_res:
+                                r_id = rent_res[0]['id']
+                                lat   = round(random.uniform(8.0, 28.0), 6)
+                                lon   = round(random.uniform(68.0, 88.0), 6)
+                                speed = round(random.uniform(0.0, 80.0), 1)
+                                await db_connector.query(conn_id, f"""
+                                    INSERT INTO gps_tracking_log
+                                        (rental_id, battery_id, latitude, longitude, speed,
+                                         heading, accuracy, altitude,
+                                         is_mock_location, provider, timestamp)
+                                    VALUES ({r_id}, {bid}, {lat}, {lon}, {speed},
+                                            0, 10.0, 0.0,
+                                            false, 'GPS', NOW())
+                                """)
+                        except Exception as e:
+                            pass
 
                     updated += 1
 
@@ -179,8 +206,8 @@ class DataSimulator:
                     rating  = float(s.get("rating") or 4.0)
                     reviews = int(s.get("total_reviews") or 0)
 
-                    # Simulate new reviews coming in (0–2 per cycle)
-                    new_reviews = reviews + random.randint(0, 2)
+                    # Simulate new reviews coming in (ensure it increases so the node grows!)
+                    new_reviews = reviews + random.randint(1, 10)
                     # Weighted average with a new random review score
                     new_score   = round(random.uniform(3.5, 5.0), 1)
                     new_rating  = round(
