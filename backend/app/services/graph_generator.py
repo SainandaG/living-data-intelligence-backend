@@ -207,7 +207,7 @@ class GraphGenerator:
         # 4. Generate Semantic Edges
         edge_set = set() # Avoid duplicates
         
-        def add_edge(src, tgt, type_, strength, reason=""):
+        def add_edge(src, tgt, type_, strength, reason="", column=None):
             if src == tgt: return
             key = tuple(sorted([src, tgt]))
             if key in edge_set: return
@@ -224,6 +224,7 @@ class GraphGenerator:
                 'opacity': opacity,
                 'confidence': strength, # Critical: Frontend expects this for non-AI links too
                 'reasoning': reason,
+                'column': column, # [NEW] Inject technical metadata for Column Particles
                 'traffic_intensity': strength * 0.8 
             })
             edge_set.add(key)
@@ -233,8 +234,9 @@ class GraphGenerator:
             t_name = table['name']
             for fk in table.get('foreign_keys', []):
                 ref = fk.get('referenced_table')
+                col = fk.get('column')
                 if ref and ref in table_map:
-                    add_edge(t_name, ref, 'foreign_key', 0.95, f"FK: {fk.get('column')}")
+                    add_edge(t_name, ref, 'foreign_key', 0.95, f"FK: {col}", column=col)
 
         # B. Matching Columns (Medium)
         for i in range(len(tables)):

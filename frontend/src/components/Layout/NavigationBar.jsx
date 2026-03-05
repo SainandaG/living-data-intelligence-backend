@@ -1,9 +1,20 @@
 import React from 'react';
 import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Activity, Layers, Brain } from 'lucide-react';
 
-export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [], onToggleChat, isChatOpen, activeLens, onToggleLens }) {
+export default function NavigationBar({
+    currentView,
+    onNavigate,
+    breadcrumbs = [],
+    onToggleChat,
+    isChatOpen,
+    activeLens,
+    onToggleLens,
+    perspective = 'analyst',
+    onTogglePerspective
+}) {
     const navItems = [
         { id: 'overview', label: 'Overview', icon: null },
+        { id: 'lineage', label: 'Lineage', icon: null },
         { id: 'analytics', label: 'Analytics', icon: null },
         { id: 'schema', label: 'Schema', icon: null },
         { id: 'intelligence', label: 'Insights', icon: null },
@@ -17,22 +28,40 @@ export default function NavigationBar({ currentView, onNavigate, breadcrumbs = [
                 {navItems.map((item) => {
                     const isActive = currentView === item.id;
                     return (
-                        <button
-                            key={item.id}
-                            onClick={() => onNavigate(item.id)}
-                            className={`
-                                text-sm font-medium transition-colors relative py-1
-                                ${isActive
-                                    ? 'text-[var(--primary)] text-shadow-glow'
-                                    : 'text-slate-400 hover:text-white'
-                                }
-                            `}
-                        >
-                            {item.label}
-                            {isActive && (
-                                <span className="absolute -bottom-[19px] left-0 w-full h-[2px] bg-[var(--primary)] shadow-[0_0_8px_var(--primary)]"></span>
+                        <div key={item.id} className="flex items-center">
+                            <button
+                                onClick={() => onNavigate(item.id)}
+                                className={`
+                                    text-sm font-medium transition-colors relative py-1
+                                    ${isActive
+                                        ? 'text-[var(--primary)] text-shadow-glow'
+                                        : 'text-slate-400 hover:text-white'
+                                    }
+                                `}
+                            >
+                                {item.label}
+                                {isActive && (
+                                    <span className="absolute -bottom-[19px] left-0 w-full h-[2px] bg-[var(--primary)] shadow-[0_0_8px_var(--primary)]"></span>
+                                )}
+                            </button>
+
+                            {/* Perspective Toggle - Only beside Latent Space or Lineage tab */}
+                            {(item.id === 'globalLatent' || item.id === 'lineage') && (
+                                <button
+                                    onClick={() => onTogglePerspective && onTogglePerspective()}
+                                    className={`
+                                        ml-4 px-3 py-1 rounded border text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-2
+                                        ${perspective === 'business'
+                                            ? 'bg-amber-500/10 border-amber-500/40 text-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
+                                            : 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.1)]'
+                                        }
+                                    `}
+                                    title={`Switch to ${perspective === 'analyst' ? 'Business' : 'Analyst'} Perspective`}
+                                >
+                                    <span>{perspective === 'analyst' ? '🛠️ Analyst' : '💼 Business'}</span>
+                                </button>
                             )}
-                        </button>
+                        </div>
                     );
                 })}
             </nav>

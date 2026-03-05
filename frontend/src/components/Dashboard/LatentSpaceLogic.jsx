@@ -11,6 +11,8 @@ import { SeededRNG } from '../../utils/mathUtils';
 import { getLatentRegistry } from './LatentSpaceLogic_Core.js';
 import EdgeStatsPanel from './EdgeStatsPanel';
 import NodeXRayPanel from './NodeXRayPanel';
+import DataLensPanel from './Controls/DataLensPanel';
+import NodeSelectorPanel from './Controls/NodeSelectorPanel';
 
 
 
@@ -605,6 +607,11 @@ export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sour
         finalColor = new THREE.Color(edgeColor);
     }
 
+    // [FIX] Safety check to prevent black edges (invisible on black bg)
+    if (new THREE.Color(finalColor).getHex() === 0x000000) {
+        finalColor = 0x00d4ff; // Default to cyan
+    }
+
     const material = new THREE.LineBasicMaterial({
         color: finalColor,
         transparent: true,
@@ -622,6 +629,12 @@ export function createLatentBridgeEdge(sourcePos, targetPos, edgeData = {}, sour
 
     return line;
 }
+
+// =========================================================================
+// DATA LENS PANEL (CATEGORICAL FILTERING)
+// =========================================================================
+
+// DataLensPanel removed and extracted to standalone component.
 
 // =========================================================================
 // REACT UI OVERLAY FOR LATENT SPACE
@@ -646,7 +659,11 @@ export const LatentSpaceUIOverlay = ({
     currentLens = 'ops', // NEW: Dynamic Lens categorization
     hoveredEdge, // [NEW] Added for relationship hover detection
     connectionId, // [NEW] For Node X-Ray deep analytics
-    onDrillDown // [NEW] Callback to navigate to DrillDown view
+    onDrillDown, // [NEW] Callback to navigate to DrillDown view
+    multiSelectedNodes = [],
+    setMultiSelectedNodes,
+    showMultiConnections = false,
+    setShowMultiConnections
 }) => {
     const starCanvasRef = useRef(null);
     const chartRefs = [useRef(null), useRef(null), useRef(null)];
@@ -658,7 +675,7 @@ export const LatentSpaceUIOverlay = ({
     // Core Layout States
     const [aiOn, setAiOn] = useState(true);
     const [tier3On, setTier3On] = useState(true);
-    const [panels, setPanels] = useState({ intel: true, filter: true, hud: true, relHud: true });
+    const [panels, setPanels] = useState({ intel: true, filter: true, hud: true, relHud: true, nodeSelector: true });
     const [stickyEdge, setStickyEdge] = useState(null); // [NEW] Stores last hovered edge
     const relHudUserClosed = useRef(false); // Track if user manually closed the Relationship HUD
     const [xrayNode, setXrayNode] = useState(null); // [NEW] Node X-Ray deep analytics overlay
@@ -1199,7 +1216,24 @@ export const LatentSpaceUIOverlay = ({
                             )}
                         </div>
 
-                        <div style={{ ...s.panel, ...(panels.hud ? { flex: 1 } : {}) }}>
+                        {/* DATA LENS (CATEGORICAL FILTERING) */}
+                        <DataLensPanel
+                            dataClusters={dataClusters}
+                            connectionId={connectionId}
+                            onFilterChange={onFilterChange}
+                            activeFilters={activeFilters}
+                        />
+
+                        {/* NODE SELECTOR PANEL */}
+                        <NodeSelectorPanel
+                            dataClusters={dataClusters}
+                            multiSelectedNodes={multiSelectedNodes}
+                            setMultiSelectedNodes={setMultiSelectedNodes}
+                            showMultiConnections={showMultiConnections}
+                            setShowMultiConnections={setShowMultiConnections}
+                        />
+
+                        <div style={{ ...s.panel, ...(panels.hud ? { flex: 1, marginTop: '10px' } : { marginTop: '10px' }) }}>
                             <div style={s.panelHead}><span style={s.panelTitle}>Micro-Panel HUD</span><span style={s.closeBtn} onClick={() => togglePanel('hud')}>×</span></div>
                             {panels.hud && (
                                 <div style={s.panelBody}>
@@ -1259,6 +1293,7 @@ export const LatentSpaceUIOverlay = ({
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '9px', letterSpacing: '0.08em' }}><div style={{ width: '14px', height: '2px', borderRadius: '1px', flexShrink: 0, background: s.c.purple, boxShadow: `0 0 4px ${s.c.purple}` }} /><span style={{ color: 'rgba(167,186,220,0.7)' }}>Z: STABILITY</span></div>
                         </div>
                     </aside>
+
                 </main>
 
                 {/* FOOTER */}
@@ -1345,7 +1380,7 @@ export const LatentSpaceUIOverlay = ({
 // MAIN LATENT WORLD COMPONENT (CONSOLIDATED)
 // =========================================================================
 
-export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) => {
+export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, multiSelectedNodes, showMultiConnections }) => {
     const mountRef = useRef(null);
     const sceneRef = useRef(new THREE.Scene());
     const cameraRef = useRef(null);
@@ -1536,9 +1571,30 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
             sceneRef.current.add(manifold);
         }
 
+        // Pre-calculate which nodes should be visible
+        const isIsolating = showMultiConnections && multiSelectedNodes && multiSelectedNodes.length > 0;
+        const visibleNodes = new Set();
+
+        if (isIsolating && schemaData?.edges) {
+            multiSelectedNodes.forEach(id => visibleNodes.add(id));
+            schemaData.edges.forEach(edge => {
+                const isSourceSelected = multiSelectedNodes.includes(edge.source);
+                const isTargetSelected = multiSelectedNodes.includes(edge.target);
+                if (isSourceSelected || isTargetSelected) {
+                    visibleNodes.add(edge.source);
+                    visibleNodes.add(edge.target);
+                }
+            });
+        }
+
         // 3. Add Nodes as Glowing Spheres/Symbols mapped to terrain
         arrangedNodes.forEach(node => {
             if (!node.visible) return;
+
+            // Apply isolation logic
+            if (isIsolating && !visibleNodes.has(node.id)) {
+                return; // Skip rendering this node
+            }
 
             const color = node.latent_color || '#22d3ee';
             const size = Math.min(60, 20 + (Math.log10(Math.max(node.row_count || 1, 1)) * 5));
@@ -1560,11 +1616,26 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
             group.add(mesh);
         });
 
-        // Add Bridge Edges (Sparse)
+        // Add Bridge Edges (Sparse, or targeted if isolating)
         if (targetNode === null && schemaData?.edges) {
-            schemaData.edges.slice(0, 50).forEach(edge => {
+            let edgesToRender = schemaData.edges;
+
+            // Apply isolation logic to filter edges FIRST before slicing
+            if (isIsolating) {
+                edgesToRender = schemaData.edges.filter(edge => {
+                    const isSourceSelected = multiSelectedNodes.includes(edge.source);
+                    const isTargetSelected = multiSelectedNodes.includes(edge.target);
+                    return isSourceSelected || isTargetSelected;
+                });
+            }
+
+            // Only slice if not isolating, or if there's an absurd amount of selected edges to prevent lag
+            const edgeLimit = isIsolating ? 500 : 50;
+
+            edgesToRender.slice(0, edgeLimit).forEach(edge => {
                 const sNode = arrangedNodes.find(n => n.id === edge.source);
                 const tNode = arrangedNodes.find(n => n.id === edge.target);
+
                 if (sNode && tNode) {
                     const bridge = createLatentBridgeEdge(sNode, tNode, edge, edge.source, edge.target, true);
                     group.add(bridge);
@@ -1572,7 +1643,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId }) =
             });
         }
 
-    }, [latentNodes, geoms, schemaData]);
+    }, [latentNodes, geoms, schemaData, multiSelectedNodes, showMultiConnections]);
 
     useEffect(() => {
         let frame;

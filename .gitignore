@@ -53,5 +53,13 @@ ENV/
 .coverage
 htmlcov/
 
-# Logs
+# Backend Logs (audit found 5.5MB query_error.log)
 backend_error.log
+query_error.log
+connection_debug.log
+cluster_debug.log
+backend.log
+startup.log
+
+# Large debug artifacts
+my_repo_dump.txt

@@ -31,6 +31,7 @@ import {
     getClusterColor
 } from './LatentSpaceLogic_Core.js';
 
+import RelationshipImpactLabel from '../../3d/RelationshipImpactLabel';
 
 
 /**
@@ -486,11 +487,15 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
         }
     }
 
-    // Store "Truth-Preserving" Glow Metric
-    // Default to 1.0 if missing
-    sphere.userData.nodeGlow = nodeData.node_glow || 1.0;
+    // [FIX] Store nodeData in userData for Raycasting consistency
+    sphere.userData = {
+        ...nodeData,
+        isNode: true,
+        nodeGlow: nodeData.node_glow || 1.0,
+        isGlow: true
+    };
+
     // OPTIMIZATION: Register for Glow Animation
-    sphere.userData.isGlow = true; // Mark specifically for glow loop
     if (animatedObjectsList) animatedObjectsList.push(sphere);
 
     // Label (Clean)
@@ -536,39 +541,44 @@ function createCurvedEdge(sourcePos, targetPos, edgeData = {}, sourceId, targetI
     return createLatentBridgeEdge(sourcePos, targetPos, edgeData, sourceId, targetId, layoutMode === 'latent', edgeColor);
 }
 
-function createParticle(type = 'normal') {
-    // Increased size for visibility (was 3)
-    const geometry = new THREE.SphereGeometry(6, 16, 16);
+function createParticle(type = 'normal', labelText = null) {
+    // Return a group if we have a label, otherwise just the mesh
+    const group = new THREE.Group();
+
+    // [FIX] Use BoxGeometry for technical bridge connections (FK columns)
+    const geometry = type === 'bridge'
+        ? new THREE.BoxGeometry(10, 10, 10)
+        : new THREE.SphereGeometry(6, 16, 16);
 
     let color;
     if (type === 'fraud') color = 0xFF4757;      // Red
     else if (type === 'high_traffic') color = 0xFFD700; // Gold
+    else if (type === 'bridge') color = 0x00D4FF;       // Neon Cyan
     else color = 0x00FF88;                       // Green
 
     const material = new THREE.MeshStandardMaterial({
         color: color,
-        // Maximize glow for Green to ensure it's visible
         emissive: color,
-        emissiveIntensity: 2.0,
+        emissiveIntensity: type === 'bridge' ? 4.0 : 2.0,
         roughness: 0.2,
         metalness: 0.8
     });
     const mesh = new THREE.Mesh(geometry, material);
-    // [STRICT ALIGNMENT] Impact Pulsing
-    if (nodeData.propagationState === 'impacted') {
-        material.emissive = new THREE.Color(0xff8800);
-        material.emissiveIntensity = 1.0;
+    mesh.userData.isBridge = type === 'bridge';
+    group.add(mesh);
 
-        // Register for animation loop pulsing
-        animatedObjectsList.push({
-            mesh: mesh,
-            update: (time) => {
-                mesh.material.emissiveIntensity = 0.5 + Math.sin(time * 8) * 0.4;
-            }
-        });
+    // Also store on group for easier access in animate loop
+    group.userData.isBridge = type === 'bridge';
+    group.userData.mesh = mesh; // Keep reference to the mesh for rotation
+
+    if (labelText) {
+        // Smaller label for particles
+        const label = createTextSprite(labelText, 32, '#ffffff');
+        label.position.set(0, 15, 0);
+        group.add(label);
     }
 
-    return mesh;
+    return group;
 }
 
 // --- "Universe Nebula" Background to match Reference Images ---
@@ -647,7 +657,9 @@ const ThreeGraph = forwardRef(({
     className = "",
     activeFilters = {},
     timeValue = 100,
-    onNodesEnriched
+    onNodesEnriched,
+    multiSelectedNodes, // [NEW] Multi-select state
+    showMultiConnections, // [NEW] Multi-select isolation toggle
 }, ref) => {
     const containerRef = useRef(null);
     const mountRef = useRef(null);
@@ -676,6 +688,10 @@ const ThreeGraph = forwardRef(({
     const instancedMeshRef = useRef(null); // Core nodes
     const instancedShellRef = useRef(null); // Glow shells
     const textSpritesGroupRef = useRef(null); // Text labels group
+    const multiSelectedNodesRef = useRef(multiSelectedNodes || []);
+    const showMultiConnectionsRef = useRef(showMultiConnections);
+
+
     const dummyObject = useMemo(() => new THREE.Object3D(), []);
     const nodeColorBuffer = useMemo(() => new THREE.Color(), []);
 
@@ -736,7 +752,6 @@ const ThreeGraph = forwardRef(({
     const backgroundGroupRef = useRef(null);
     const axesRef = useRef(null);
 
-    // 3D Tables (tier3) Cluster Metadata State
     // Sync Prop to State
     useEffect(() => {
         if (activeLens && activeLens !== currentLens) {
@@ -744,12 +759,17 @@ const ThreeGraph = forwardRef(({
             setCurrentLens(activeLens);
             currentLensRef.current = activeLens;
 
-            // Switch Latent clusters if we are currently in latent mode
             if (layoutMode === 'latent') {
                 switchLatentLens(activeLens);
             }
         }
     }, [activeLens, layoutMode]);
+
+    // Sync Multi-Select Refs
+    useEffect(() => {
+        multiSelectedNodesRef.current = multiSelectedNodes || [];
+        showMultiConnectionsRef.current = showMultiConnections;
+    }, [multiSelectedNodes, showMultiConnections]);
 
     // ─────────────────────────────────────────────
     // MOUNT / UNMOUNT LATENT SPACE (ISOLATED)
@@ -792,39 +812,69 @@ const ThreeGraph = forwardRef(({
     const { focusOn: cameraFocus, stopTransition: stopCameraTransition, update: updateCamera } = useCameraManager(cameraRef, controlsRef);
 
     // --- SHARED UTILITIES ---
-    const spawnParticleForTarget = useCallback((targetNodeNames) => {
+    const spawnParticleForTarget = useCallback((targetNodeNames, isBridgeOnly = false) => {
         if (!sceneRef.current) return;
 
         let targetEdges = [];
+        const sNodes = multiSelectedNodesRef.current;
 
         // CASE 1: Specific Targets
         if (targetNodeNames && targetNodeNames.length > 0) {
-            // Normalize targets: lowercase, trim, remove trailing punctuation
             const targets = targetNodeNames.map(name =>
                 name.toString().toLowerCase().replace(/[.,!?;:]$/, '').trim()
             );
 
             targetEdges = edgesRef.current.filter(e => {
-                const s = nodesRef.current.find(n => n.id === e.userData.sourceId);
-                const t = nodesRef.current.find(n => n.id === e.userData.targetId);
+                const sId = typeof e.userData.sourceId === 'object' ? e.userData.sourceId.id : e.userData.sourceId;
+                const tId = typeof e.userData.targetId === 'object' ? e.userData.targetId.id : e.userData.targetId;
+
+                const s = nodesRef.current.find(n => n.id === sId);
+                const t = nodesRef.current.find(n => n.id === tId);
 
                 if (!s || !t) return false;
 
-                // Check if source or target matches requested name (case-insensitive)
                 const sourceMatch = targets.includes(s.name.toLowerCase()) || targets.includes(s.id.toLowerCase());
                 const targetMatch = targets.includes(t.name.toLowerCase()) || targets.includes(t.id.toLowerCase());
+
+                if (isBridgeOnly) {
+                    // Check if both ends are in multi-selection
+                    const bothSelected = sNodes.includes(sId) && sNodes.includes(tId);
+                    return bothSelected && (sourceMatch || targetMatch);
+                }
 
                 return sourceMatch || targetMatch;
             });
         }
         // CASE 2: Global Flow (No targets)
         else {
-            targetEdges = edgesRef.current;
+            // [FIX] Prioritize Bridge Edges if multiple nodes are selected
+            const bridgeEdges = edgesRef.current.filter(e => {
+                const sId = typeof e.userData.sourceId === 'object' ? e.userData.sourceId.id : e.userData.sourceId;
+                const tId = typeof e.userData.targetId === 'object' ? e.userData.targetId.id : e.userData.targetId;
+                return sNodes.includes(sId) && sNodes.includes(tId);
+            });
+
+            if (bridgeEdges.length > 0 && sNodes.length > 1) {
+                targetEdges = bridgeEdges;
+            } else {
+                targetEdges = edgesRef.current;
+            }
         }
 
         if (targetEdges.length > 0) {
             const randomEdge = targetEdges[Math.floor(Math.random() * targetEdges.length)];
-            const particle = createParticle('high_traffic'); // Always high traffic color for agent
+
+            // Check if this is a bridge edge to apply column label
+            const sId = typeof randomEdge.userData.sourceId === 'object' ? randomEdge.userData.sourceId.id : randomEdge.userData.sourceId;
+            const tId = typeof randomEdge.userData.targetId === 'object' ? randomEdge.userData.targetId.id : randomEdge.userData.targetId;
+            const isBridge = sNodes.includes(sId) && sNodes.includes(tId);
+
+            let label = null;
+            if (isBridge && randomEdge.userData.edgeData?.column) {
+                label = randomEdge.userData.edgeData.column;
+            }
+
+            const particle = createParticle(isBridge ? 'bridge' : 'high_traffic', label);
             sceneRef.current.add(particle);
 
             // Random speed variation for natural feel
@@ -837,7 +887,7 @@ const ThreeGraph = forwardRef(({
                 progress: 0
             });
         }
-    }, []);
+    }, [multiSelectedNodes]);
 
 
     // --- NODE VISIBILITY FILTERING (Class Filter) ---
@@ -878,8 +928,37 @@ const ThreeGraph = forwardRef(({
             }
 
             const isVisible = activeFilters[category] !== false;
+
+            // [NEW] Categorical Filter Matching
+            const hasCatFilter = Object.keys(activeFilters).some(k => k.startsWith(`cat:${n.id}:`));
+            const matchesCatFilter = Object.entries(activeFilters).some(([k, v]) =>
+                k.startsWith(`cat:${n.id}:`) && v === true
+            );
+
             if (n.mesh) {
                 n.mesh.visible = isVisible;
+
+                // If the node matches a specific categorical filter, give it a "selection pulse"
+                if (matchesCatFilter) {
+                    n.mesh.scale.set(1.5, 1.5, 1.5);
+                    if (n.mesh.material) {
+                        n.mesh.material.emissiveIntensity = 3.0;
+                    }
+                } else if (hasCatFilter) {
+                    // It has filters but this node doesn't match the active ones -> ghost it
+                    n.mesh.scale.set(0.8, 0.8, 0.8);
+                    if (n.mesh.material) {
+                        n.mesh.material.opacity = 0.2;
+                        n.mesh.material.transparent = true;
+                    }
+                } else {
+                    // Reset to normal
+                    n.mesh.scale.set(1, 1, 1);
+                    if (n.mesh.material) {
+                        n.mesh.material.opacity = 0.9;
+                        n.mesh.material.emissiveIntensity = isVisible ? 1.5 : 0.2;
+                    }
+                }
             }
 
             // Also handle edges - hide if either source or target is hidden
@@ -1741,6 +1820,7 @@ const ThreeGraph = forwardRef(({
             if (hoverNodeRef.current) {
                 const toggledNode = hoverNodeRef.current;
                 console.log("ThreeGraph: Node Clicked - Table:", toggledNode.name);
+                selectedNodeRef.current = toggledNode; // Track for Business Lens impact labels
 
                 // [STEP 4] Dependency Propagation Visual Pulse
                 if (layoutModeRef.current === 'latent') {
@@ -1781,8 +1861,11 @@ const ThreeGraph = forwardRef(({
 
                 // Also call onNodeClick if provided - THIS IS THE ONLY NAVIGATION SOURCE
                 if (onNodeClick) {
-                    onNodeClick(toggledNode);
+                    onNodeClick(toggledNode, event.shiftKey);
                 }
+            } else {
+                // Clicked on background
+                selectedNodeRef.current = null;
             }
         };
 
@@ -1892,30 +1975,77 @@ const ThreeGraph = forwardRef(({
                 const lineage = lineageRef.current;
                 let targetOpacity = 0.15; // Base visibility
 
-                if (hoverId) {
-                    if (edge.userData.sourceId === hoverId || edge.userData.targetId === hoverId) {
-                        targetOpacity = 0.8;
-                        edge.userData.isActive = true;
-                    } else {
-                        targetOpacity = 0.05;
-                        edge.userData.isActive = false;
-                    }
-                } else if (lineage.origin) {
-                    // Highlight edges within the lineage path
-                    const isSourceInLineage = edge.userData.sourceId === lineage.origin || lineage.nodes.includes(edge.userData.sourceId);
-                    const isTargetInLineage = edge.userData.targetId === lineage.origin || lineage.nodes.includes(edge.userData.targetId);
+                // [FIX] Use Refs to avoid stale closure issues in animate loop
+                const sNodes = multiSelectedNodesRef.current;
+                const sId = typeof edge.userData.sourceId === 'object' ? edge.userData.sourceId.id : edge.userData.sourceId;
+                const tId = typeof edge.userData.targetId === 'object' ? edge.userData.targetId.id : edge.userData.targetId;
+                const isIsolating = showMultiConnectionsRef.current && sNodes && sNodes.length > 0;
 
-                    if (isSourceInLineage && isTargetInLineage) {
-                        targetOpacity = 0.9;
+                if (isIsolating) {
+                    const isSourceSelected = sNodes.includes(sId);
+                    const isTargetSelected = sNodes.includes(tId);
+                    const isBridge = isSourceSelected && isTargetSelected;
+
+                    // If multiple nodes are selected, prioritize showing ONLY 'Bridges' (direct relationships)
+                    // If only one node is selected, show all its connections.
+                    const isFocusingBridges = sNodes.length > 1;
+                    const showCondition = isFocusingBridges ? isBridge : (isSourceSelected || isTargetSelected);
+
+                    if (showCondition) {
+                        targetOpacity = 1.0;
                         edge.userData.isActive = true;
+                        edge.visible = true;
+
+                        // [NEW] Visual Bridge Highlighting
+                        if (isBridge) {
+                            if (!edge.userData.originalColor) {
+                                edge.userData.originalColor = edge.material.color.clone();
+                            }
+                            edge.material.color.set(0x00d4ff); // Neon Cyan for technical bridge
+                            edge.material.linewidth = 4.0;
+                        } else {
+                            // Single node selection highlighting
+                            if (edge.userData.originalColor) {
+                                edge.material.color.copy(edge.userData.originalColor);
+                                edge.userData.originalColor = null;
+                            }
+                            edge.material.linewidth = 1.5;
+                        }
                     } else {
-                        targetOpacity = 0.05;
+                        targetOpacity = 0.0;
                         edge.userData.isActive = false;
+                        edge.visible = false;
+                        edge.material.opacity = 0.0;
+                    }
+                } else {
+                    edge.visible = true;
+                    if (hoverId) {
+                        if (sId === hoverId || tId === hoverId) {
+                            targetOpacity = 0.8;
+                            edge.userData.isActive = true;
+                        } else {
+                            targetOpacity = 0.05;
+                            edge.userData.isActive = false;
+                        }
+                    } else if (lineage.origin) {
+                        // Highlight edges within the lineage path
+                        const isSourceInLineage = sId === lineage.origin || lineage.nodes.includes(sId);
+                        const isTargetInLineage = tId === lineage.origin || lineage.nodes.includes(tId);
+
+                        if (isSourceInLineage && isTargetInLineage) {
+                            targetOpacity = 0.9;
+                            edge.userData.isActive = true;
+                        } else {
+                            targetOpacity = 0.05;
+                            edge.userData.isActive = false;
+                        }
                     }
                 }
 
-                // Smooth Opacity
-                edge.material.opacity = THREE.MathUtils.lerp(edge.material.opacity, targetOpacity, LERP_FACTOR);
+                // Smooth Opacity only if we are not forcibly hiding it
+                if (edge.visible) {
+                    edge.material.opacity = THREE.MathUtils.lerp(edge.material.opacity, targetOpacity, LERP_FACTOR);
+                }
                 edge.material.needsUpdate = true;
             });
 
@@ -1941,6 +2071,15 @@ const ThreeGraph = forwardRef(({
                             // Safe curve evaluation
                             if (p.curve && p.curve.getPoint) {
                                 p.mesh.position.copy(p.curve.getPoint(p.progress));
+
+                                // [NEW] If this is a bridge particle (Cube), rotate it for technical effect
+                                if (p.mesh.userData && p.mesh.userData.isBridge) {
+                                    // p.mesh is the Group returned by createParticle
+                                    // Use the stored mesh reference for cleaner rotation if available
+                                    const mesh = p.mesh.userData.mesh || p.mesh;
+                                    mesh.rotation.x += 0.05;
+                                    mesh.rotation.y += 0.05;
+                                }
                             }
                         }
                     }
@@ -2027,6 +2166,124 @@ const ThreeGraph = forwardRef(({
             }
         }
     }, [paused]);
+
+    // [NEW] Effect for dimming multi-selected nodes
+    useEffect(() => {
+        if (multiSelectedNodes && multiSelectedNodes.length > 1) {
+            console.log(`[ThreeGraph] 🌊 Multi-Selection Detected (${multiSelectedNodes.length}). Activating automated bridge flow.`);
+            flowEnabledRef.current = true;
+        } else if (!multiSelectedNodes || multiSelectedNodes.length === 0) {
+            // Optional: reset flow if selection cleared
+            // flowEnabledRef.current = false; 
+        }
+    }, [multiSelectedNodes?.length]);
+
+    // [NEW] Effect for dimming multi-selected nodes
+    useEffect(() => {
+        if (!nodesRef.current) return;
+
+        const isIsolating = showMultiConnections && multiSelectedNodes && multiSelectedNodes.length > 0;
+
+        // Pre-calculate which nodes should be visible
+        const visibleNodes = new Set();
+        if (isIsolating && edgesRef.current) {
+            // First, all explicitly selected nodes are visible
+            multiSelectedNodes.forEach(id => visibleNodes.add(id));
+
+            // Second, add neighbors of selected nodes (because their edges will be drawn)
+            edgesRef.current.forEach(edge => {
+                const sId = typeof edge.userData.sourceId === 'object' ? edge.userData.sourceId.id : edge.userData.sourceId;
+                const tId = typeof edge.userData.targetId === 'object' ? edge.userData.targetId.id : edge.userData.targetId;
+
+                const isSourceSelected = multiSelectedNodes.includes(sId);
+                const isTargetSelected = multiSelectedNodes.includes(tId);
+
+                if (isSourceSelected || isTargetSelected) {
+                    visibleNodes.add(sId);
+                    visibleNodes.add(tId);
+                }
+            });
+        }
+
+        nodesRef.current.forEach(node => {
+            if (node.mesh) {
+                let materials = [];
+                let shellMaterial = null;
+
+                if (node.mesh.isMesh) {
+                    materials = Array.isArray(node.mesh.material) ? node.mesh.material : [node.mesh.material];
+                } else if (node.mesh.isGroup) {
+                    node.mesh.children.forEach((child, index) => {
+                        if (child.isMesh) {
+                            // Detect the outer shell from legacy createNodeMesh which is always index 1
+                            if (index === 1 && child.geometry && child.geometry.type === 'SphereGeometry') {
+                                shellMaterial = child.material;
+                            } else {
+                                if (Array.isArray(child.material)) {
+                                    materials.push(...child.material);
+                                } else {
+                                    materials.push(child.material);
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // Filter out any undefined just in case
+                materials = materials.filter(m => m);
+
+                materials.forEach(mat => {
+                    mat.transparent = true;
+                    if (isIsolating) {
+                        if (visibleNodes.has(node.id)) {
+                            mat.opacity = 0.95;
+                            node.mesh.visible = true;
+                        } else {
+                            mat.opacity = 0.0;
+                            node.mesh.visible = false;
+                        }
+                    } else {
+                        // Restore basic opacity 
+                        mat.opacity = (layoutModeRef.current === 'analysis' || currentLensRef.current === 'tier3') ? 0.85 : 1.0;
+                        node.mesh.visible = true; // Ensure visibility is restored
+                    }
+                    mat.needsUpdate = true;
+                });
+
+                if (shellMaterial) {
+                    shellMaterial.transparent = true;
+                    if (isIsolating) {
+                        if (visibleNodes.has(node.id)) {
+                            shellMaterial.opacity = 0.9;
+                        } else {
+                            shellMaterial.opacity = 0.0;
+                        }
+                    } else {
+                        shellMaterial.opacity = layoutModeRef.current === 'latent' ? 0.9 : 0.45;
+                    }
+                    shellMaterial.needsUpdate = true;
+                }
+
+                // Dim/Hide Label Sprite
+                if (node.labelSprite && node.labelSprite.material) {
+                    if (isIsolating && !visibleNodes.has(node.id)) {
+                        node.labelSprite.material.opacity = 0.0;
+                        node.labelSprite.visible = false;
+                    } else {
+                        node.labelSprite.material.opacity = 1.0;
+                        node.labelSprite.visible = true;
+                    }
+                }
+            }
+        });
+    }, [multiSelectedNodes, showMultiConnections]);
+
+
+    // ═══════════════════════════════════════════════════════
+    // [BUSINESS LENS] Paint / Restore nodes based on active role
+    // This ONLY applies on top — existing behavior is untouched
+
+
 
 
 
@@ -2522,14 +2779,20 @@ const ThreeGraph = forwardRef(({
                     const source = nodeMap.get(edge.source);
                     const target = nodeMap.get(edge.target);
                     if (source && target) {
-                        // [FILTER] In Latent Mode, only show curvelin from NEURAL CORE to node
-                        // Hide node-to-node relationships to avoid clumsiness
+                        // [FILTER] In Latent Mode, usually only show connections from NEURAL CORE to node
+                        // However, if both ends are SELECTED (Bridge), we allow it for technical lineage visualization.
                         if (layoutMode === 'latent') {
                             const isSourceCore = source.id === 'hub' || source.id === 'DATABASE_CORE' || source.type === 'core' || source.name === 'Neural Core';
                             const isTargetCore = target.id === 'hub' || target.id === 'DATABASE_CORE' || target.type === 'core' || target.name === 'Neural Core';
 
-                            // If neither side is a core node, skip rendering this edge
-                            if (!isSourceCore && !isTargetCore) return;
+                            const sId = typeof edge.source === 'object' ? edge.source.id : edge.source;
+                            const tId = typeof edge.target === 'object' ? edge.target.id : edge.target;
+                            const isSourceSelected = (multiSelectedNodes || []).includes(sId);
+                            const isTargetSelected = (multiSelectedNodes || []).includes(tId);
+                            const isBridge = isSourceSelected && isTargetSelected;
+
+                            // If neither side is a core node AND it's not a bridge between selected nodes, skip it
+                            if (!isSourceCore && !isTargetCore && !isBridge) return;
                         }
 
                         // CHANGED: Use Curved Edge with DETERMINISTIC SEEDing
@@ -2544,6 +2807,11 @@ const ThreeGraph = forwardRef(({
                                 edgeColor = target.latent_color || target.color || edgeColor;
                             } else if (source.id !== 'hub' && source.id !== 'DATABASE_CORE') {
                                 edgeColor = source.latent_color || source.color || edgeColor;
+                            }
+
+                            // [FIX] Prevent black edges in Tier 3 / Analysis views
+                            if (new THREE.Color(edgeColor).getHex() === 0x000000) {
+                                edgeColor = 0x00d4ff;
                             }
                         }
 
@@ -2767,7 +3035,7 @@ const ThreeGraph = forwardRef(({
 
         simulation.alpha(1).restart();
 
-    }, [data, layoutMode, currentLens, clusteringMethod]); // Re-run when data, layoutMode, currentLens OR clusteringMethod changes
+    }, [data, layoutMode, currentLens, clusteringMethod, JSON.stringify(multiSelectedNodes || [])]); // Re-run when structure or selection changes
 
 
 
@@ -2889,12 +3157,25 @@ const ThreeGraph = forwardRef(({
 
     }, [liveTableCounts]);
 
+    // --- AUTOMATED BRIDGE FLOW ---
+    useEffect(() => {
+        if (showMultiConnections && multiSelectedNodes && multiSelectedNodes.length > 1) {
+            console.log("[ThreeGraph] 🌉 Bridge selection detected. Triggering automated technical flow.");
+            // Spawn bridge particles periodically
+            const interval = setInterval(() => {
+                spawnParticleForTarget(null, true); // true = isBridgeOnly
+            }, 500);
+            return () => clearInterval(interval);
+        }
+    }, [showMultiConnections, multiSelectedNodes?.length, spawnParticleForTarget]);
+
     return (
         <div ref={containerRef} className={className || "absolute inset-0 z-0"} style={containerStyle}>
             {/* DEBUG HUD - REMOVE BEFORE PRODUCTION */}
             {/* TOPOLOGY VIEW (Always Mounted) */}
             <div ref={mountRef} className="absolute inset-0 z-0" />
 
+            {/* [BUSINESS LENS] Floating Impact Labels removed per user request */}
 
         </div>
     );

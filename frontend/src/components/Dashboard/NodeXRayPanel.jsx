@@ -97,6 +97,12 @@ export default function NodeXRayPanel({ node, connectionId, onClose, onDrillDown
                             <Shield size={24} style={{ color: '#f87171' }} />
                             <p style={{ color: '#f87171', fontSize: '12px', marginTop: '8px' }}>{error}</p>
                         </div>
+                    ) : node.selectedColumns && node.selectedColumns.length > 0 ? (
+                        <ComparisonView
+                            node={node}
+                            data={data}
+                            selectedColumns={node.selectedColumns}
+                        />
                     ) : (
                         <>
                             {/* === SECTION 1: DATA QUALITY RADAR === */}
@@ -220,6 +226,117 @@ export default function NodeXRayPanel({ node, connectionId, onClose, onDrillDown
                 </div>
             </motion.div>
         </AnimatePresence>
+    );
+}
+
+function ComparisonView({ node, data, selectedColumns }) {
+    const columns = data?.column_stats || {};
+
+    // Filter columns based on selection
+    const compareItems = selectedColumns.map(key => {
+        const [nodeId, colName] = key.includes('-') ? key.split('-') : [node.id, key];
+        const stats = columns[colName];
+        return { nodeId, colName, stats };
+    }).filter(item => item.stats);
+
+    if (compareItems.length === 0) {
+        return (
+            <div style={styles.errorWrap}>
+                <Layers size={24} style={{ color: 'rgba(129,140,248,0.4)' }} />
+                <p style={{ color: 'rgba(167,186,220,0.5)', fontSize: '11px', marginTop: '8px' }}>
+                    SELECT OR PIN COLUMNS TO COMPARE
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ padding: '10px 0' }}>
+            <Section title="COLUMN COMPARISON MATRIX" icon={<Layers size={14} />}>
+                <div style={styles.compareGrid}>
+                    {compareItems.map((item, i) => (
+                        <ColumnComparisonCard
+                            key={i}
+                            name={item.colName}
+                            nodeName={item.nodeId === node.id ? node.name : item.nodeId}
+                            stats={item.stats}
+                        />
+                    ))}
+                </div>
+            </Section>
+
+            <Section title="DEEP METRIC DIFF" icon={<BarChart3 size={14} />}>
+                <div style={styles.metricTableWrap}>
+                    <table style={styles.metricTable}>
+                        <thead>
+                            <tr>
+                                <th style={styles.metricTh}>Metric</th>
+                                {compareItems.map((item, i) => (
+                                    <th key={i} style={styles.metricTh}>{item.colName}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style={styles.metricTd}>Null Rate</td>
+                                {compareItems.map((item, i) => (
+                                    <td key={i} style={{ ...styles.metricTd, color: item.stats.null_percentage > 10 ? '#f87171' : '#4ade80' }}>
+                                        {item.stats.null_percentage}%
+                                    </td>
+                                ))}
+                            </tr>
+                            <tr>
+                                <td style={styles.metricTd}>Uniqueness</td>
+                                {compareItems.map((item, i) => (
+                                    <td key={i} style={styles.metricTd}>{item.stats.unique_count.toLocaleString()}</td>
+                                ))}
+                            </tr>
+                            {compareItems.some(i => i.stats.avg !== undefined) && (
+                                <>
+                                    <tr>
+                                        <td style={styles.metricTd}>Mean Value</td>
+                                        {compareItems.map((item, i) => (
+                                            <td key={i} style={styles.metricTd}>{item.stats.avg?.toFixed(2) || 'N/A'}</td>
+                                        ))}
+                                    </tr>
+                                    <tr>
+                                        <td style={styles.metricTd}>StDev</td>
+                                        {compareItems.map((item, i) => (
+                                            <td key={i} style={styles.metricTd}>{item.stats.stddev?.toFixed(2) || 'N/A'}</td>
+                                        ))}
+                                    </tr>
+                                </>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </Section>
+        </div>
+    );
+}
+
+function ColumnComparisonCard({ name, nodeName, stats }) {
+    return (
+        <div style={{
+            ...styles.colCard,
+            minWidth: 'auto',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+            border: '1px solid rgba(129,140,248,0.2)'
+        }}>
+            <div style={{ marginBottom: '8px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff', fontFamily: 'Share Tech Mono' }}>{name}</div>
+                <div style={{ fontSize: '8px', color: 'rgba(167,186,220,0.4)', textTransform: 'uppercase' }}>{nodeName}</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
+                    <span style={{ color: 'rgba(167,186,220,0.4)' }}>QUALITY</span>
+                    <span style={{ color: '#4ade80', fontWeight: 800 }}>{Math.round(100 - (stats.null_percentage || 0))}%</span>
+                </div>
+                <div style={{ height: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#4ade80', width: `${100 - (stats.null_percentage || 0)}%` }} />
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -786,4 +903,9 @@ const styles = {
     table: { width: '100%', borderCollapse: 'collapse', fontSize: '9px', fontFamily: 'Share Tech Mono, monospace' },
     th: { textAlign: 'left', padding: '6px 8px', color: 'rgba(167,186,220,0.5)', borderBottom: '1px solid rgba(255,255,255,0.06)', whiteSpace: 'nowrap', fontSize: '8px', letterSpacing: '0.08em' },
     td: { padding: '5px 8px', color: '#d1d5db', borderBottom: '1px solid rgba(255,255,255,0.03)', whiteSpace: 'nowrap' },
+    compareGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '10px' },
+    metricTableWrap: { marginTop: '12px', border: '1px solid rgba(129,140,248,0.1)', borderRadius: '10px', overflow: 'hidden', background: 'rgba(129,140,248,0.02)' },
+    metricTable: { width: '100%', borderCollapse: 'collapse', fontSize: '10px' },
+    metricTh: { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid rgba(129,140,248,0.1)', color: 'rgba(167,186,220,0.6)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' },
+    metricTd: { padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', color: '#fff', fontFamily: 'Share Tech Mono, monospace' },
 };

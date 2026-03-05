@@ -14,10 +14,13 @@ import DataFlowView from './components/Dashboard/DataFlowView';
 import AnalyticsView from './components/Dashboard/AnalyticsView';
 import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
+import PerspectiveLineageView from './components/Dashboard/PerspectiveLineageView';
 import HealthDashboard from './components/Dashboard/HealthDashboard';
 import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import { LatentWorld, LatentSpaceUIOverlay, getLensCategories } from './components/Dashboard/LatentSpaceLogic.jsx';
 import EdgeStatsPanel from './components/Dashboard/EdgeStatsPanel';
+import LineageInsightHUD from './components/Dashboard/LineageInsightHUD';
+// Navigation
 
 import NavigationBar from './components/Layout/NavigationBar';
 import DashboardLayout from './components/Layout/DashboardLayout';
@@ -124,6 +127,8 @@ const MainDashboard = () => {
   const [hoveredEdge, setHoveredEdge] = useState(null); // [NEW] Edge hover state
   const [hoveredEdgePos, setHoveredEdgePos] = useState(null);
   const [timeValue, setTimeValue] = useState(100); // Time Travel State
+  const [multiSelectedNodes, setMultiSelectedNodes] = useState([]); // [NEW] Multi-select state
+  const [showMultiConnections, setShowMultiConnections] = useState(false); // [NEW] Isolates connections
   const [activeFilters, setActiveFilters] = useState({
     'Independent Facts': true,
     'Dependent Facts': true,
@@ -131,6 +136,10 @@ const MainDashboard = () => {
     'Anomalous Peaks': true
   });
   const [enrichedNodes, setEnrichedNodes] = useState(null);
+  const [insightPerspective, setInsightPerspective] = useState('analyst'); // 'analyst' or 'business'
+  const [pinnedNodes, setPinnedNodes] = useState(new Set()); // [NEW] Pin state persistence
+  const [pinnedCols, setPinnedCols] = useState(new Set()); // [NEW] Pin state persistence
+  const [columnAliases, setColumnAliases] = useState({}); // [NEW] Manual business term overrides
 
   // Lens Switch Handler
   const handleToggleLens = React.useCallback((lens) => {
@@ -464,7 +473,22 @@ const MainDashboard = () => {
     } finally { setLoading(false); }
   }, [fetchGravitySuggestions, graphData.nodes.length]);
 
-  const handleNodeClick = React.useCallback((node) => {
+  const handleNodeClick = React.useCallback((node, shiftKey = false) => {
+    if (shiftKey) {
+      setMultiSelectedNodes(prev => {
+        const isSelected = prev.some(n => n.id === node.id);
+        if (isSelected) {
+          return prev.filter(n => n.id !== node.id);
+        } else {
+          return [...prev, node];
+        }
+      });
+      // Skip drilldown and other single-node logic when shift-selecting
+      return;
+    }
+
+    // Normal click: Clear multi-selection and select single node
+    setMultiSelectedNodes([]);
     setSelectedNode(node);
 
     // [STRICT ALIGNMENT] Dependency Propagation Logic
@@ -507,7 +531,7 @@ const MainDashboard = () => {
 
     if (node.id !== 'hub') handleNodeDrillDown(node.id); else setShowDrillDown(false);
     setMlInsights(prev => ({ ...prev, anomalyScore: node.vitality ? (100 - node.vitality) : 0, gravity: (node.importance_score || 0) > 0.8 ? 'High' : 'Normal' }));
-  }, [handleNodeDrillDown, activeLayoutMode, graphData.nodes]);
+  }, [handleNodeDrillDown, activeLayoutMode, graphData.nodes, setMultiSelectedNodes]);
 
   const handleColumnClick = React.useCallback((col) => { setSelectedColumn(col); setShowRecordGravity(true); }, []);
 
@@ -634,6 +658,8 @@ const MainDashboard = () => {
     }
   }, [executeCommand]);
 
+
+
   return (
     <>
       <DashboardLayout
@@ -651,6 +677,8 @@ const MainDashboard = () => {
             onToggleLens={handleToggleLens}
             activeLayoutMode={activeLayoutMode}
             onToggleLayoutMode={handleToggleLayoutMode}
+            perspective={insightPerspective}
+            onTogglePerspective={() => setInsightPerspective(p => p === 'analyst' ? 'business' : 'analyst')}
           />
         }
       >
@@ -662,6 +690,8 @@ const MainDashboard = () => {
           </div>
         )}
 
+
+
         {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
         <div
           className={`absolute inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent' || viewMode === 'latent'
@@ -670,6 +700,7 @@ const MainDashboard = () => {
             }`}
           style={{ zIndex: 0 }}
         >
+
           <ThreeGraph
             ref={graphRef}
             data={graphData}
@@ -686,6 +717,8 @@ const MainDashboard = () => {
             paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'}
             activeFilters={activeFilters}
             onNodesEnriched={setEnrichedNodes}
+            multiSelectedNodes={multiSelectedNodes}
+            showMultiConnections={showMultiConnections}
           />
 
           {/* AI STATUS TOAST - REPOSITIONED TO GRAPH CORNER */}
@@ -710,6 +743,15 @@ const MainDashboard = () => {
             visible={!!hoveredEdge && viewMode !== 'latent' && viewMode !== 'globalLatent'}
           />
 
+          {/* LINEAGE INSIGHT HUD - Appears on Selection + Hover */}
+          <LineageInsightHUD
+            hoveredNode={hoveredNode}
+            selectedNode={selectedNode}
+            multiSelectedNodes={multiSelectedNodes}
+            graphData={graphData}
+            perspective={insightPerspective}
+          />
+
           {/* LATENT SPACE HUD OVERLAY */}
           {(viewMode === 'globalLatent' || viewMode === 'latent') && (
             <LatentSpaceUIOverlay
@@ -724,6 +766,8 @@ const MainDashboard = () => {
               hoveredEdge={hoveredEdge}
               connectionId={connectionId}
               onDrillDown={handleNodeDrillDown}
+              insightPerspective={insightPerspective}
+              setInsightPerspective={setInsightPerspective}
               onClose={() => {
                 if (viewMode === 'latent') setViewMode('drilldown');
                 else setViewMode('overview');
@@ -742,8 +786,14 @@ const MainDashboard = () => {
               onFilterChange={(label, value) => {
                 setActiveFilters(prev => ({ ...prev, [label]: value }));
               }}
+              multiSelectedNodes={multiSelectedNodes}
+              setMultiSelectedNodes={setMultiSelectedNodes}
+              showMultiConnections={showMultiConnections}
+              setShowMultiConnections={setShowMultiConnections}
             />
           )}
+
+
         </div>
 
         {/* Legend Layer */}
@@ -802,6 +852,28 @@ const MainDashboard = () => {
                 {viewMode === 'vitals' && <HealthDashboard />}
                 {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
                 {viewMode === 'intelligence' && <IntelligenceHub connectionId={connectionId} selectedNode={selectedNode} />}
+                {viewMode === 'lineage' && (
+                  <PerspectiveLineageView
+                    multiSelectedNodes={multiSelectedNodes}
+                    setMultiSelectedNodes={setMultiSelectedNodes}
+                    showMultiConnections={showMultiConnections}
+                    setShowMultiConnections={setShowMultiConnections}
+                    graphData={graphData}
+                    insightPerspective={insightPerspective}
+                    setInsightPerspective={setInsightPerspective}
+                    activeFilters={activeFilters}
+                    onFilterChange={(label, value) => {
+                      setActiveFilters(prev => ({ ...prev, [label]: value }));
+                    }}
+                    connectionId={connectionId}
+                    pinnedNodes={pinnedNodes}
+                    setPinnedNodes={setPinnedNodes}
+                    pinnedCols={pinnedCols}
+                    setPinnedCols={setPinnedCols}
+                    columnAliases={columnAliases}
+                    setColumnAliases={setColumnAliases}
+                  />
+                )}
               </>
             )}
           </div>

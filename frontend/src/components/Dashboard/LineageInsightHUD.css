@@ -1,0 +1,211 @@
+.lineage-insight-hud {
+    position: fixed;
+    z-index: 5000;
+    pointer-events: none;
+    width: 320px;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    color: #e6edf3;
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+}
+
+.lineage-insight-hud::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #22d3ee, #818cf8);
+}
+
+.hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+.hud-title-area {
+    flex: 1;
+}
+
+.hud-table-name {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: #fff;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.hud-table-type {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: rgba(139, 148, 158, 0.8);
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+}
+
+.impact-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.impact-badge.core {
+    background: rgba(34, 211, 238, 0.15);
+    color: #22d3ee;
+    border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+.impact-badge.pivot {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.impact-badge.consumer {
+    background: rgba(129, 140, 248, 0.15);
+    color: #818cf8;
+    border: 1px solid rgba(129, 140, 248, 0.3);
+}
+
+.hud-section {
+    margin-bottom: 18px;
+}
+
+.hud-section-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: rgba(139, 148, 158, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.business-reasoning {
+    font-size: 12px;
+    line-height: 1.5;
+    color: rgba(230, 237, 243, 0.9);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 12px;
+    border-radius: 10px;
+    border-left: 3px solid #22d3ee;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.stat-item {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    font-family: 'Share Tech Mono', monospace;
+}
+
+.stat-label {
+    font-size: 9px;
+    color: rgba(139, 148, 158, 0.7);
+    margin-top: 2px;
+}
+
+.connection-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.connection-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+}
+
+.conn-col {
+    color: #22d3ee;
+    font-family: monospace;
+}
+
+.conn-arrow {
+    color: rgba(255, 255, 255, 0.2);
+    font-size: 14px;
+}
+
+.conn-target {
+    color: #818cf8;
+    font-weight: 600;
+}
+
+.perspective-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 20px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.perspective-analyst .perspective-indicator {
+    color: #22d3ee;
+    border-color: rgba(34, 211, 238, 0.2);
+}
+
+.perspective-business .perspective-indicator {
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.2);
+}
+
+.perspective-business {
+    border-color: rgba(251, 191, 36, 0.3);
+}
+
+.perspective-business::before {
+    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+}
+
+.hud-footer {
+    margin-top: 15px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 9px;
+    color: rgba(139, 148, 158, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}

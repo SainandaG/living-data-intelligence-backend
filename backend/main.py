@@ -213,6 +213,7 @@ registry.register_optional("app.api.intelligence", prefix="/api/intelligence", t
 registry.register_optional("app.api.ontology", prefix="/api/ontology", tags=["ontology"])
 registry.register_optional("app.api.node_xray", prefix="/api", tags=["node-xray"])
 
+
 # ============================================================================
 # HEALTH CHECK ENDPOINT
 # ============================================================================

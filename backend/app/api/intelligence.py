@@ -273,6 +273,23 @@ async def get_data_quality_report(connection_id: str, table_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/bulk-analysis/{connection_id}")
+async def get_bulk_analysis(connection_id: str):
+    """
+    Get comprehensive neural analysis report for all nodes.
+    """
+    try:
+        from app.services.neural_core import neural_core
+        report = await neural_core.get_bulk_analysis_report(connection_id)
+        if report.get("status") == "error":
+            raise HTTPException(status_code=400, detail=report.get("message"))
+        return report
+    except Exception as e:
+        logger.error(f"Error generating bulk analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.get("/business-insights/{connection_id}/{table_name}")
 async def get_business_insights(connection_id: str, table_name: str):
     """
