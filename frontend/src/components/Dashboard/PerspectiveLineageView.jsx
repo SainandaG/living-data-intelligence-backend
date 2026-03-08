@@ -93,17 +93,19 @@ const PerspectiveLineageView = ({
         return graphData.edges
             .filter(e => selectedSet.has(e.source) && selectedSet.has(e.target))
             .map(e => {
-                const velocity = Math.random() * 80 + 20;
+                // Using a simple hash of source/target/column to get 'stable' randomness
+                const hash = (e.source.length + e.target.length + (e.column?.length || 0)) % 100;
+                const velocity = 20 + (hash % 80);
                 const flowSpeed = (1 / (velocity / 50)).toFixed(2) + 's';
                 return {
                     ...e,
                     sourceCol: e.column || 'id',
                     targetCol: 'id',
-                    timing: `${Math.floor(Math.random() * 59) + 1}m ago`,
+                    timing: `${(hash % 59) + 1}m ago`,
                     velocity,
                     flowSpeed,
-                    tranche: `TR-${Math.floor(Math.random() * 900) + 100}`,
-                    last_tx_time: new Date(Date.now() - Math.random() * 1000000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    tranche: `TR-${100 + (hash * 9) % 899}`,
+                    last_tx_time: new Date(Date.now() - (hash * 10000)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
             });
     }, [graphData.edges, multiSelectedIds]);
@@ -348,7 +350,7 @@ const LineageCard = ({ node, idx, perspective, onHoverCol, onTogglePin, onToggle
     const [editingCol, setEditingCol] = React.useState(null);
     const [editValue, setEditValue] = React.useState('');
 
-    const getBizTerm = (colName, isFk) => {
+    const getBizTerm = React.useCallback((colName, isFk) => {
         const aliasKey = `${node.id}-${colName}`;
         if (columnAliases[aliasKey]) return columnAliases[aliasKey];
 
@@ -363,9 +365,11 @@ const LineageCard = ({ node, idx, perspective, onHoverCol, onTogglePin, onToggle
             return (base || 'Entity').charAt(0).toUpperCase() + (base || 'Entity').slice(1).trim() + ' Link';
         }
         return colName.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    };
+    }, [node.id, columnAliases]);
 
-    const vitality = node.vitality || node.healthScore || Math.floor(Math.random() * 20 + 80);
+    // Stable dynamic vitality based on node ID hash
+    const nodeHash = (node.name?.length || 0) + (node.id?.length || 0);
+    const vitality = node.vitality || node.healthScore || (80 + (nodeHash % 20));
     const impactMagnitude = ((node.affectedDownstreamCount || 0) * 1.5 + (node.importance || 0) * 0.5).toFixed(1);
     const rowCount = node.row_count || 1240;
     const txVolume = (rowCount * 0.15).toFixed(1) + "K";
@@ -394,7 +398,7 @@ const LineageCard = ({ node, idx, perspective, onHoverCol, onTogglePin, onToggle
         if (!baseCols.find(c => c.name === 'id')) baseCols.unshift({ name: 'id', type: 'PK', bizTerm: 'Record ID' });
 
         return baseCols;
-    }, [node]);
+    }, [node, getBizTerm]);
 
     const isFiltered = React.useMemo(() => {
         const nodePrefix = `cat:${node.id.toLowerCase()}:`;
@@ -469,7 +473,7 @@ const LineageCard = ({ node, idx, perspective, onHoverCol, onTogglePin, onToggle
                 <div className="telemetry-badge">
                     <div className="tranche-pill">
                         <div className="tranche-dot" />
-                        TR-{Math.floor(Math.random() * 900) + 100} ACTIVE
+                        TR-{100 + (nodeHash * 7) % 899} ACTIVE
                     </div>
                     <div className="text-[7px] opacity-40 font-mono text-white">
                         LAST TX: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

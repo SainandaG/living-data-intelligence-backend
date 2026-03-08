@@ -13,7 +13,6 @@ export class GraphActionHandler implements ActionHandler {
     }
 
     async handle(action: string, params: any): Promise<any> {
-        console.log(`[GraphHandler] Executing ${action}`, params);
 
         // In a real implementation, this would call the ThreeGraph methods
         // For now, we just structure the call

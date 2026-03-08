@@ -8,7 +8,6 @@ export class DataflowActionHandler {
             if (params.target) nodes.push(params.target);
             if (params.table_name) nodes.push(params.table_name);
 
-            console.log('[DataflowHandler] Starting flow for nodes:', nodes);
             EventBus.getInstance().emit('AGENT_START_FLOW', { nodes });
             return { success: true };
         }

@@ -110,7 +110,6 @@ export default function RecommendationDashboard({ connectionId, tableName, setAc
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     const action = rec.action;
-                                    console.log("Action Triggered:", action);
                                     if (action === 'View Full Status' || action === 'Open Metrics Explorer') setActiveTab('deep-status');
                                     else if (action === 'Trace Root Cause') setActiveTab('root-cause');
                                     else if (action === 'Review Anomalies') setActiveTab('anomalies');

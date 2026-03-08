@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from '../config/features';
 // Optional import logic for legacy system would be handled by build system or just assumed
 // For now we mock the interface of the legacy system to avoid build errors if missing during this phase
 class LegacySoundSystem {
-    play(sound: string) { console.log("Legacy play:", sound); }
+    play(sound: string) {  }
 }
 
 export class GraphSoundEngine {
@@ -41,7 +41,6 @@ export class GraphSoundEngine {
 
         // Fallback to existing pre-defined samples
         // return this.legacySystem.play('path_traversal');
-        console.log("Fallback to legacy sound: path_traversal");
     }
 
     private generateAdvancedSound(path: any[]) {

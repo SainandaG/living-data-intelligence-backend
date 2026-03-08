@@ -10,12 +10,10 @@ export const useWebSocket = (url: string | null) => {
         if (!url) return;
         if (socketRef.current?.readyState === WebSocket.OPEN) return;
 
-        console.log(`📡 Connecting to WebSocket: ${url}`);
         const socket = new WebSocket(url);
         socketRef.current = socket;
 
         socket.onopen = () => {
-            console.log('✅ WebSocket Connected:', url);
             setIsConnected(true);
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);

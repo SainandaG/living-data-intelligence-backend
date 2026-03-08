@@ -51,7 +51,6 @@ const ConnectionModal = ({ onClose }) => {
                 username: config.username.trim(),
                 port: parseInt(config.port, 10)
             };
-            console.log('Attempting to connect with (trimmed):', payload);
             const response = await fetch('/api/connect', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -88,7 +87,6 @@ const ConnectionModal = ({ onClose }) => {
             }
 
             const data = await response.json();
-            console.log('Connection successful:', data);
             setConnectionId(data.connection_id);
             onClose();
         } catch (err) {

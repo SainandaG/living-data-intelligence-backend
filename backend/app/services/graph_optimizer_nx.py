@@ -14,6 +14,7 @@ import networkx as nx
 import community as community_louvain  # python-louvain
 import numpy as np
 from typing import Dict, List, Any
+import asyncio
 
 
 class SchemaAnalyzer:
@@ -191,7 +192,7 @@ class GraphOptimizerNX:
             Analysis results with clusters and gravity scores
         """
         print("🧠 Graph Optimizer (NetworkX): Analyzing schema structure...")
-        self.last_analysis = self.analyzer.analyze(schema)
+        self.last_analysis = await asyncio.to_thread(self.analyzer.analyze, schema)
         self.adapter = LiveAdapter(self.last_analysis)
         print(f"✅ Found {self.last_analysis['num_clusters']} natural clusters using Louvain algorithm")
         return self.last_analysis
@@ -222,7 +223,7 @@ class GraphOptimizerNX:
             {table_name: cluster_name} mapping
         """
         if not self.last_analysis:
-            analysis = self.analyzer.analyze(schema)
+            analysis = await asyncio.to_thread(self.analyzer.analyze, schema)
             self.last_analysis = analysis
             self.adapter = LiveAdapter(analysis)
         

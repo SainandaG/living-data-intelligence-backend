@@ -21,7 +21,6 @@ export const CommandRegistryProvider = ({ children }) => {
 
         const stack = registryRef.current.get(action);
         stack.push(callback);
-        console.log(`[CommandRegistry] Registered [${stack.length}]: ${action}`);
 
         return () => {
             const currentStack = registryRef.current.get(action);
@@ -29,7 +28,6 @@ export const CommandRegistryProvider = ({ children }) => {
                 const index = currentStack.indexOf(callback);
                 if (index > -1) {
                     currentStack.splice(index, 1);
-                    console.log(`[CommandRegistry] Unregistered: ${action} (remaining: ${currentStack.length})`);
                 }
                 if (currentStack.length === 0) {
                     registryRef.current.delete(action);
@@ -45,7 +43,6 @@ export const CommandRegistryProvider = ({ children }) => {
         * @returns {Object} - Result of execution
      */
     const executeCommand = useCallback((action, params = {}) => {
-        console.log(`[CommandRegistry] Executing: ${action}`, params);
 
         const stack = registryRef.current.get(action);
         if (stack && stack.length > 0) {
@@ -68,8 +65,14 @@ export const CommandRegistryProvider = ({ children }) => {
         return Array.from(registryRef.current.keys());
     }, []);
 
+    const contextValue = React.useMemo(() => ({
+        registerCommand,
+        executeCommand,
+        getRegisteredCommands
+    }), [registerCommand, executeCommand, getRegisteredCommands]);
+
     return (
-        <CommandRegistryContext.Provider value={{ registerCommand, executeCommand, getRegisteredCommands }}>
+        <CommandRegistryContext.Provider value={contextValue}>
             {children}
         </CommandRegistryContext.Provider>
     );

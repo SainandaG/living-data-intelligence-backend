@@ -21,7 +21,6 @@ export class T0Agent {
     }
 
     constructor() {
-        console.log("T0Agent Class Initialized (Feature Enabled: " + FEATURE_FLAGS.ENABLE_AGENT_CLASSES + ")");
     }
 
     // State management
@@ -53,14 +52,12 @@ export class T0Agent {
         }
 
         this.setState('processing');
-        console.log(`[T0] Processing intent: ${text}`);
 
         // 1. First Pass: Local Fuzzy Matching (Command Registry)
         const registry = CommandRegistry.getInstance();
         const matched = registry.findCommand(text);
 
         if (matched) {
-            console.log(`[T0] Local Match Found: ${matched.id} -> ${matched.action}`);
             EventBus.getInstance().emit('AGENT_DISPATCH', {
                 intent: matched.id,
                 action: matched.action,
@@ -74,7 +71,6 @@ export class T0Agent {
 
         // 2. Second Pass: Backend API (Placeholder logic)
         // In a full implementation, this calls /api/agent/intent
-        console.log(`[T0] No local match, delegating to backend...`);
 
         setTimeout(() => {
             this.setState('idle');

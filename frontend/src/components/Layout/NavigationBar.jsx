@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Activity, Layers, Brain } from 'lucide-react';
+import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Activity, Layers, Brain, Share2 } from 'lucide-react';
 
 export default function NavigationBar({
     currentView,
@@ -10,7 +10,10 @@ export default function NavigationBar({
     activeLens,
     onToggleLens,
     perspective = 'analyst',
-    onTogglePerspective
+    onTogglePerspective,
+    onShareView,
+    activePeers = {},
+    persona = null
 }) {
     const navItems = [
         { id: 'overview', label: 'Overview', icon: null },
@@ -45,8 +48,8 @@ export default function NavigationBar({
                                 )}
                             </button>
 
-                            {/* Perspective Toggle - Only beside Latent Space or Lineage tab */}
-                            {(item.id === 'globalLatent' || item.id === 'lineage') && (
+                            {/* Perspective Toggle - Only show for the ACTIVE tab (if Latent Space or Lineage) */}
+                            {isActive && (item.id === 'globalLatent' || item.id === 'lineage') && (
                                 <button
                                     onClick={() => onTogglePerspective && onTogglePerspective()}
                                     className={`
@@ -99,6 +102,51 @@ export default function NavigationBar({
                         </button>
                     ))}
                 </div>
+            )}
+
+            {/* Multiplayer Avatars */}
+            {persona && (
+                <div className="flex items-center -space-x-2 ml-4 relative" title={`${Object.keys(activePeers).length} others in workspace`}>
+                    {/* Current User */}
+                    <div
+                        className="w-7 h-7 rounded-full border border-black/30 flex items-center justify-center text-[10px] font-bold text-white shadow-lg relative z-10"
+                        style={{ backgroundColor: persona.color, zIndex: 50 }}
+                        title={`${persona.name} (You)`}
+                    >
+                        {persona.name.charAt(0)}
+                    </div>
+
+                    {/* Active Peers */}
+                    {Object.entries(activePeers).slice(0, 4).map(([id, peer], idx) => (
+                        <div
+                            key={id}
+                            className="w-7 h-7 rounded-full border border-black/30 flex items-center justify-center text-[10px] font-bold text-white shadow-lg relative transition-transform hover:scale-110 hover:z-50"
+                            style={{ backgroundColor: peer.color, zIndex: 40 - idx }}
+                            title={`${peer.name} | Looking at: ${peer.selected_node || 'Overview'}`}
+                        >
+                            {peer.name.charAt(0)}
+                        </div>
+                    ))}
+
+                    {/* Overflow count */}
+                    {Object.keys(activePeers).length > 4 && (
+                        <div className="w-7 h-7 rounded-full bg-slate-800 border border-black/30 flex items-center justify-center text-[10px] font-bold text-white relative z-0">
+                            +{Object.keys(activePeers).length - 4}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Copy Deep Link Button */}
+            {onShareView && (
+                <button
+                    onClick={onShareView}
+                    className="ml-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--primary)] bg-[var(--primary)]/10 border border-[var(--primary)]/30 hover:bg-[var(--primary)]/20 transition-all shadow-[0_0_10px_rgba(99,102,241,0.15)]"
+                    title="Copy Deep-Link to current perspective"
+                >
+                    <Share2 size={14} />
+                    SHARE VIEW
+                </button>
             )}
 
             {/* AI Analyst Toggle Button - Styled for Header */}

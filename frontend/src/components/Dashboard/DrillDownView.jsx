@@ -22,7 +22,6 @@ export default function DrillDownView({ connectionId, tableName, onBack, onToggl
 
     useEffect(() => {
         if (initialShowSimulation) {
-            console.log(`[DrillDownView] Auto-starting simulation for ${tableName}`);
             setShowSimulation(true);
         }
     }, [initialShowSimulation, tableName]);
@@ -37,17 +36,14 @@ export default function DrillDownView({ connectionId, tableName, onBack, onToggl
     // --- VOICE COMMAND REGISTRATION ---
     const handleNav = useCallback(({ instruction, target }) => {
         if (instruction === 'go_back') {
-            console.log("[DrillDownView] Voice Command: Going back to overview");
             onBack();
         } else if (instruction === 'drill_down' && (!target || target === tableName)) {
-            console.log("[DrillDownView] Voice Command: Cascaded drill down detected. Triggering simulation.");
             setShowSimulation(true);
         }
     }, [onBack, tableName]);
 
     const handleEvolution = useCallback(({ instruction }) => {
         if (instruction === 'simulate_formation') {
-            console.log("[DrillDownView] Voice Command: Simulating formation");
             setShowSimulation(true);
         }
     }, []);
@@ -230,7 +226,6 @@ export default function DrillDownView({ connectionId, tableName, onBack, onToggl
                                 // Potentially drill into the discovered node
                                 // This would require updating the state in DrillDownView
                                 // For now, we'll just log or we can implement a reload logic.
-                                console.log(`Selected semantic target: ${id}`);
                             }}
                         />
                     </div>

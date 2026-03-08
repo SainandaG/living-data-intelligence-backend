@@ -134,7 +134,6 @@ const VoiceControl = ({ onActionTriggered, uiContext = {} }) => {
                 "start evolution playback"
             ];
             const randomPhrase = testPhrases[Math.floor(Math.random() * testPhrases.length)];
-            console.log(`[VoiceControl] Running test command: ${randomPhrase}`);
             handleVoiceResult(randomPhrase);
         };
 

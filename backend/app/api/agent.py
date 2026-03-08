@@ -266,10 +266,17 @@ async def get_system_config():
     """
     try:
         from app.config.feature_flags import get_enabled_features
+        from app.services.db_connector import db_connector
+        
+        # Get the first active connection if available
+        connections = db_connector.list_connections()
+        active_id = connections[0]['id'] if connections else None
+        
         return {
             "features": get_enabled_features(),
             "version": "2.0.0",
-            "environment": "production"
+            "environment": "production",
+            "active_connection_id": active_id
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

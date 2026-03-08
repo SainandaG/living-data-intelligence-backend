@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, Suspense, lazy } from 'react';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { WindowManagerProvider, useWindowManager } from './context/WindowManagerContext';
 import Window from './components/WindowManager/Window';
@@ -7,19 +8,21 @@ import ConnectionModal from './components/WindowManager/ConnectionModal';
 import Settings from './components/Apps/Settings';
 
 // New Dashboard Imports
-import ThreeGraph from './components/Dashboard/ThreeGraph';
-import Record3DGraph from './components/Dashboard/Record3DGraph';
+const ThreeGraph = lazy(() => import('./components/Dashboard/ThreeGraph'));
+const Record3DGraph = lazy(() => import('./components/Dashboard/Record3DGraph'));
 import DrillDownView from './components/Dashboard/DrillDownView';
 import DataFlowView from './components/Dashboard/DataFlowView';
 import AnalyticsView from './components/Dashboard/AnalyticsView';
 import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
-import PerspectiveLineageView from './components/Dashboard/PerspectiveLineageView';
-import HealthDashboard from './components/Dashboard/HealthDashboard';
+const PerspectiveLineageView = lazy(() => import('./components/Dashboard/PerspectiveLineageView'));
+import SystemVitalsDashboard from './components/Dashboard/SystemVitalsDashboard';
 import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import { LatentWorld, LatentSpaceUIOverlay, getLensCategories } from './components/Dashboard/LatentSpaceLogic.jsx';
+import { SidebarSkeleton, GraphOverlaySkeleton } from './components/Dashboard/LoadingSkeleton';
 import EdgeStatsPanel from './components/Dashboard/EdgeStatsPanel';
 import LineageInsightHUD from './components/Dashboard/LineageInsightHUD';
+import WarRoomHUD from './components/Incident/WarRoomHUD';
 // Navigation
 
 import NavigationBar from './components/Layout/NavigationBar';
@@ -34,15 +37,16 @@ import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
 import { CommandRegistryProvider, useCommandRegistry, useRegisterCommand } from './context/CommandRegistryContext';
 import soundSystem from './utils/SoundSystem';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useMultiplayer } from './hooks/useMultiplayer';
 import apiClient from './utils/apiClient';
-
+import { decodeViewState, encodeViewState } from './utils/stateEncoder';
 
 
 // Simple Error Boundary for Debugging
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorInfo: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -50,7 +54,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error("ErrorBoundary caught an error", error, errorInfo);
+    this.setState({ errorInfo });
   }
 
   render() {
@@ -83,11 +87,19 @@ const App = () => {
 
 const MainDashboard = () => {
   const graphRef = React.useRef(null);
-  const { openWindow, windows, connectionId } = useWindowManager();
+  const { openWindow, windows, connectionId, setConnectionId } = useWindowManager();
   const { executeCommand } = useCommandRegistry(); // Use Registry for execution
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Decode the Deep-Link view state ONCE
+  const initialViewState = React.useMemo(() => {
+    return decodeViewState(searchParams.get('view'));
+  }, [searchParams]);
 
   // ... (State definitions remain the same) ...
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(initialViewState?.selectedNodeId || null);
   const [aiStatus, setAiStatus] = useState(null);
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [showRecordGravity, setShowRecordGravity] = useState(false);
@@ -101,7 +113,15 @@ const MainDashboard = () => {
   const [mlInsights, setMlInsights] = useState(null);
   const [simUpdate, setSimUpdate] = useState(null); // Toast for simulation updates 
   const [gravitySuggestions, setGravitySuggestions] = React.useState([]);
-  const [viewMode, setViewMode] = useState('overview');
+  const [viewMode, setViewMode] = useState(() => {
+    // Priority 1: URL path
+    const path = window.location.pathname.substring(1);
+    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
+    if (validModes.includes(path)) return path;
+
+    // Priority 2: localStorage
+    return localStorage.getItem('viewMode') || 'overview';
+  });
   const [drillDownTable, setDrillDownTable] = useState(null);
   const [autoSimulate, setAutoSimulate] = useState(false);
   const [evolutionMode, setEvolutionMode] = useState(false);
@@ -121,19 +141,25 @@ const MainDashboard = () => {
   const [liveTableCounts, setLiveTableCounts] = useState({});
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
-  const [activeLens, setActiveLens] = useState('ops'); // New Lens State
-  const [activeLayoutMode, setActiveLayoutMode] = useState('galaxy'); // SAI Layout Mode
+  const [activeLens, setActiveLens] = useState(() => initialViewState?.currentLens || localStorage.getItem('activeLens') || 'ops'); // New Lens State
+  const [activeLayoutMode, setActiveLayoutMode] = useState(() => localStorage.getItem('activeLayoutMode') || 'galaxy'); // SAI Layout Mode
   const [hoveredNode, setHoveredNode] = useState(null); // Intelligence Preview State
   const [hoveredEdge, setHoveredEdge] = useState(null); // [NEW] Edge hover state
   const [hoveredEdgePos, setHoveredEdgePos] = useState(null);
   const [timeValue, setTimeValue] = useState(100); // Time Travel State
-  const [multiSelectedNodes, setMultiSelectedNodes] = useState([]); // [NEW] Multi-select state
+  const [multiSelectedNodes, setMultiSelectedNodes] = useState(initialViewState?.multiSelectedNodes || []); // [NEW] Multi-select state
   const [showMultiConnections, setShowMultiConnections] = useState(false); // [NEW] Isolates connections
-  const [activeFilters, setActiveFilters] = useState({
-    'Independent Facts': true,
-    'Dependent Facts': true,
-    'Healthy Tables': true,
-    'Anomalous Peaks': true
+  const hasResetOverviewRef = useRef(false);
+  const firstLoadRef = useRef(true);
+  const initialCameraState = useRef(initialViewState?.cameraState || null);
+  const [activeFilters, setActiveFilters] = useState(() => {
+    const saved = localStorage.getItem('activeFilters');
+    return saved ? JSON.parse(saved) : {
+      'Independent Facts': true,
+      'Dependent Facts': true,
+      'Healthy Tables': true,
+      'Anomalous Peaks': true
+    };
   });
   const [enrichedNodes, setEnrichedNodes] = useState(null);
   const [insightPerspective, setInsightPerspective] = useState('analyst'); // 'analyst' or 'business'
@@ -141,9 +167,51 @@ const MainDashboard = () => {
   const [pinnedCols, setPinnedCols] = useState(new Set()); // [NEW] Pin state persistence
   const [columnAliases, setColumnAliases] = useState({}); // [NEW] Manual business term overrides
 
+  // --- WAR ROOM STATE ---
+  const [isWarRoomActive, setIsWarRoomActive] = useState(false);
+  const [warRoomTargetNode, setWarRoomTargetNode] = useState(null);
+
+  // --- UNIFIED URL-DRIVEN NAVIGATION SYSTEM ---
+  // The URL is the single source of truth. All navigation should use navigate(path).
+  useEffect(() => {
+    const rawPath = location.pathname.substring(1).replace(/\/$/, "");
+    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
+
+    // 1. Determine target mode from URL (fallback to overview at root)
+    const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
+
+    // 2. Sync State from URL (only if mismatch)
+    if (viewMode !== targetMode) {
+      setViewMode(targetMode);
+      localStorage.setItem('viewMode', targetMode);
+    }
+
+    // 3. Sync URL from State (only for normalizing / invalid paths)
+    // If we are at root / and mode is already overview, we're good.
+    // If we are at an invalid path or missing mode segment, enforce it.
+    if (location.pathname !== `/${targetMode}`) {
+      if (location.pathname === '/' && targetMode === 'overview') {
+        // Allow root / to stay as /
+      } else {
+        navigate(`/${targetMode}`, { replace: true });
+      }
+    }
+  }, [location.pathname, viewMode, navigate]);
+
+  useEffect(() => {
+    localStorage.setItem('activeLens', activeLens);
+  }, [activeLens]);
+
+  useEffect(() => {
+    localStorage.setItem('activeLayoutMode', activeLayoutMode);
+  }, [activeLayoutMode]);
+
+  useEffect(() => {
+    localStorage.setItem('activeFilters', JSON.stringify(activeFilters));
+  }, [activeFilters]);
+
   // Lens Switch Handler
   const handleToggleLens = React.useCallback((lens) => {
-    console.log(`[App] Switching Lens to: ${lens}`);
     setActiveLens(lens);
 
     // [FEATURE] Reset filters based on the selected lens categories
@@ -161,7 +229,6 @@ const MainDashboard = () => {
 
   // SAI Layout Mode Handler
   const handleToggleLayoutMode = React.useCallback((mode) => {
-    console.log(`[App] Switching Layout Mode to: ${mode}`);
     setActiveLayoutMode(mode);
     if (graphRef.current && graphRef.current.setLatentMode) {
       graphRef.current.setLatentMode(mode);
@@ -170,133 +237,123 @@ const MainDashboard = () => {
 
   // --- REAL-TIME SYNC (WebSocket) ---
   const wsUrl = connectionId ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${connectionId}` : null;
-  const { isConnected: wsConnected, lastMessage } = useWebSocket(wsUrl);
+  const { isConnected: wsConnected, lastMessage, sendMessage } = useWebSocket(wsUrl);
 
+  // --- MULTIPLAYER PRESENCE ---
+  const { persona, activePeers, handlePresenceMessage } = useMultiplayer(sendMessage, wsConnected, {
+    getCurrentCameraState: () => graphRef.current?.getCurrentCameraState ? graphRef.current.getCurrentCameraState() : null,
+    selectedNodeId: selectedNode,
+    currentLens: activeLens
+  });
 
   useEffect(() => {
-    if (lastMessage && lastMessage.type === 'metrics_update') {
-      const metrics = lastMessage.data || {};
-      const aiStats = lastMessage.ai_stats || {};
-
-      // Update per-table counts for node glow (every 2s)
-      if (lastMessage.table_counts && Object.keys(lastMessage.table_counts).length > 0) {
-        setLiveTableCounts(lastMessage.table_counts);
+    if (lastMessage) {
+      if (lastMessage.type === 'presence_update') {
+        handlePresenceMessage(lastMessage);
+        return;
       }
 
-      setLiveStats(prev => ({
-        ...prev,
-        totalTransactions: metrics.total_transactions || prev.totalTransactions || 0,
-        tps: metrics.transaction_rate || prev.tps || 0,
-        activeNodes: aiStats.total_nodes || prev.activeNodes,
-        health: lastMessage.health || prev.health,
-        anomalies: (lastMessage.anomalies || prev.anomalies || []).map(a => ({
-          ...a,
-          explanation: a.justification || a.explanation || a.description || a.message
-        })),
-        // WEZU Energy — direct from backend battery queries (now fixed with current_a)
-        activeBatteries: metrics.active_batteries != null ? metrics.active_batteries : prev.activeBatteries,
-        onlineStations: metrics.online_stations != null ? metrics.online_stations : prev.onlineStations,
-        networkHealth: metrics.network_health != null ? metrics.network_health : prev.networkHealth,
-        energyAlerts: metrics.energy_alerts != null ? metrics.energy_alerts : prev.energyAlerts,
-        avgBatteryTemp: metrics.avg_battery_temp || prev.avgBatteryTemp || 0,
-        avgBatteryVolt: metrics.avg_battery_volt || prev.avgBatteryVolt || 0,
-        avgBatteryCurr: metrics.avg_battery_curr || prev.avgBatteryCurr || 0,
-        cacheHitRate: metrics.cache_hit_rate || prev.cacheHitRate || 99,
-      }));
+      if (lastMessage.type === 'metrics_update') {
+        const metrics = lastMessage.data || {};
+        const aiStats = lastMessage.ai_stats || {};
 
-      if (aiStats.status) {
-        setAiStatus(`Neural Core: ${aiStats.status} | Scanned: ${aiStats.scanned_nodes || 0}/${aiStats.total_nodes || 0}`);
-      }
+        // Update per-table counts for node glow (every 2s)
+        if (lastMessage.table_counts && Object.keys(lastMessage.table_counts).length > 0) {
+          setLiveTableCounts(lastMessage.table_counts);
+        }
 
-      setMlInsights(prev => ({
-        ...prev,
-        anomalyScore: (100 - (lastMessage.health?.score || 100)).toFixed(0),
-        gravity: aiStats.avg_gravity ? `${aiStats.avg_gravity.toFixed(2)}x` : '1.0x',
-        optimization: 'Active'
-      }));
-
-      // Live Node Update: Inject Battery Temp without reload
-      if (metrics.avg_battery_temp) {
-        // VISUALIZATION: Notify user of update
-        const temp = parseFloat(metrics.avg_battery_temp).toFixed(1);
-        const volt = metrics.avg_battery_volt ? parseFloat(metrics.avg_battery_volt).toFixed(1) : '—';
-        const curr = metrics.avg_battery_curr ? parseFloat(metrics.avg_battery_curr).toFixed(1) : '—';
-
-        setSimUpdate(`🔋 Battery Update: ${temp}°C | ${volt}V | ${curr}A`);
-        setTimeout(() => setSimUpdate(null), 4000);
-
-        setGraphData(prev => ({
+        setLiveStats(prev => ({
           ...prev,
-          nodes: prev.nodes.map(n =>
-            n.name === 'batteries'
-              ? {
-                ...n,
-                avg_temperature: metrics.avg_battery_temp,
-                avg_voltage: metrics.avg_battery_volt,
-                avg_current: metrics.avg_battery_curr
-              }
-              : n
-          )
+          totalTransactions: metrics.total_transactions || prev.totalTransactions || 0,
+          tps: metrics.transaction_rate || prev.tps || 0,
+          activeNodes: aiStats.total_nodes || prev.activeNodes,
+          health: lastMessage.health || prev.health,
+          anomalies: (lastMessage.anomalies || prev.anomalies || []).map(a => ({
+            ...a,
+            explanation: a.justification || a.explanation || a.description || a.message
+          })),
+          // WEZU Energy — direct from backend battery queries (now fixed with current_a)
+          activeBatteries: metrics.active_batteries != null ? metrics.active_batteries : prev.activeBatteries,
+          onlineStations: metrics.online_stations != null ? metrics.online_stations : prev.onlineStations,
+          networkHealth: metrics.network_health != null ? metrics.network_health : prev.networkHealth,
+          energyAlerts: metrics.energy_alerts != null ? metrics.energy_alerts : prev.energyAlerts,
+          avgBatteryTemp: metrics.avg_battery_temp || prev.avgBatteryTemp || 0,
+          avgBatteryVolt: metrics.avg_battery_volt || prev.avgBatteryVolt || 0,
+          avgBatteryCurr: metrics.avg_battery_curr || prev.avgBatteryCurr || 0,
+          cacheHitRate: metrics.cache_hit_rate || prev.cacheHitRate || 99,
         }));
-      }
 
-      // 4. Update Node Evolution (Incremental)
-      if (lastMessage.evolved_nodes) {
-        setGraphData(prev => {
-          const updatedNodes = prev.nodes.map(node => {
-            const evolved = lastMessage.evolved_nodes.find(e => e.id === node.id);
-            if (evolved) {
-              return {
-                ...node,
-                size: evolved.size || node.size,
-                status: evolved.status || node.status,
-                vitality: evolved.vitality || node.vitality
-              };
-            }
-            return node;
+        if (aiStats.status) {
+          setAiStatus(`Neural Core: ${aiStats.status} | Scanned: ${aiStats.scanned_nodes || 0}/${aiStats.total_nodes || 0}`);
+        }
+
+        setMlInsights(prev => ({
+          ...prev,
+          anomalyScore: (100 - (lastMessage.health?.score || 100)).toFixed(0),
+          gravity: aiStats.avg_gravity ? `${aiStats.avg_gravity.toFixed(2)}x` : '1.0x',
+          optimization: 'Active'
+        }));
+
+        // Live Node Update: Inject Battery Temp without reload
+        if (metrics.avg_battery_temp) {
+          // VISUALIZATION: Notify user of update
+          const temp = parseFloat(metrics.avg_battery_temp).toFixed(1);
+          const volt = metrics.avg_battery_volt ? parseFloat(metrics.avg_battery_volt).toFixed(1) : '—';
+          const curr = metrics.avg_battery_curr ? parseFloat(metrics.avg_battery_curr).toFixed(1) : '—';
+
+          setSimUpdate(`🔋 Battery Update: ${temp}°C | ${volt}V | ${curr}A`);
+          setTimeout(() => setSimUpdate(null), 4000);
+
+          setGraphData(prev => ({
+            ...prev,
+            nodes: prev.nodes.map(n =>
+              n.name === 'batteries'
+                ? {
+                  ...n,
+                  avg_temperature: metrics.avg_battery_temp,
+                  avg_voltage: metrics.avg_battery_volt,
+                  avg_current: metrics.avg_battery_curr
+                }
+                : n
+            )
+          }));
+        }
+
+        // 4. Update Node Evolution (Incremental)
+        if (lastMessage.evolved_nodes) {
+          setGraphData(prev => {
+            const updatedNodes = prev.nodes.map(node => {
+              const evolved = lastMessage.evolved_nodes.find(e => e.id === node.id);
+              if (evolved) {
+                return {
+                  ...node,
+                  size: evolved.size || node.size,
+                  status: evolved.status || node.status,
+                  vitality: evolved.vitality || node.vitality
+                };
+              }
+              return node;
+            });
+            return { ...prev, nodes: updatedNodes };
           });
-          return { ...prev, nodes: updatedNodes };
-        });
+        }
       }
     }
   }, [lastMessage]);
 
 
 
-  // Initial load check
-  useEffect(() => {
-    // Fetch System Config & Feature Flags
-    apiClient.get('/agent/config')
-      .then(config => {
-        console.log("🛠️ System Config Loaded:", config);
-        // Store in global window for easy debugging access
-        window.SYSTEM_FEATURES = config.features;
 
-        // If specific features are enabled, we might want to set initial state
-        if (config.features?.USE_NLP_V2) console.log("🧠 NLP V2 Active");
-        if (config.features?.USE_NETWORKX_GLOW) console.log("✨ NetworkX Glow Active");
-      })
-      .catch(err => console.error("Could not fetch system config:", err));
 
-    if (!connectionId) setTimeout(() => setShowConnectModal(true), 500);
-    else fetchRealGraphData(connectionId);
-  }, [connectionId]);
-
-  // Navigation handlers (Same as before)
+  // Navigation handlers (URL-driven)
   const handleNavigate = React.useCallback((view) => {
-    console.log('[App] Navigation:', view);
+    navigate(`/${view}`);
 
-    // Standard navigation
-    setViewMode(view);
     if (view === 'overview') {
       setBreadcrumbs([]);
       setDrillDownTable(null);
-      if (graphRef.current) {
-        console.log("[App] Resetting graph view on navigation to overview");
-        graphRef.current.resetView();
-      }
     }
-  }, []);
+  }, [navigate]);
 
   const handleNodeDrillDown = React.useCallback((nodeId, shouldSimulate = false) => {
     // CINEMATIC TRANSITION: Zoom in first if we are in overview
@@ -306,14 +363,14 @@ const MainDashboard = () => {
 
       // Wait for camera to arrive (1.2s) before unmounting graph
       setTimeout(() => {
-        setViewMode('drilldown');
+        handleNavigate('drilldown');
         setDrillDownTable(nodeId);
         setAutoSimulate(shouldSimulate);
         setAiStatus(null);
       }, 1200);
     } else {
       // Direct switch if already in another view or graph not ready
-      setViewMode('drilldown');
+      handleNavigate('drilldown');
       setDrillDownTable(nodeId);
       setAutoSimulate(shouldSimulate);
     }
@@ -323,25 +380,29 @@ const MainDashboard = () => {
 
   // Effect to ensure graph is reset whenever we return to overview
   useEffect(() => {
-    if (viewMode === 'overview' && graphRef.current) {
-      console.log("🔄 [App] Auto-resetting graph view for Overview");
-      graphRef.current.resetView();
+    if (viewMode === 'overview') {
+      if (graphRef.current && !hasResetOverviewRef.current) {
+        graphRef.current.resetView();
+        hasResetOverviewRef.current = true;
+      }
+    } else {
+      // Clear flag when we leave overview
+      hasResetOverviewRef.current = false;
     }
   }, [viewMode]);
 
   const handleBackToOverview = React.useCallback(() => {
-    setViewMode('overview');
+    navigate('/overview');
     setDrillDownTable(null);
     setSelectedNode(null); // [FIX] Clear selection to restore hover hud
     setHoveredNode(null);
     setBreadcrumbs([]);
-  }, []);
+  }, [navigate]);
 
-  // Sync Graph Mode with View Mode
+  // Sync Graph Mode with View Mode (Visual Bridge)
   useEffect(() => {
     if (graphRef.current) {
       if (viewMode === 'globalLatent' || viewMode === 'latent') {
-        console.log("[App] Switching Graph to Latent Mode");
         graphRef.current.setLatentMode('latent');
       } else if (viewMode === 'overview') {
         graphRef.current.setLatentMode('galaxy');
@@ -354,40 +415,36 @@ const MainDashboard = () => {
     if (viewMode === 'drilldown' || viewMode === 'latent') {
       const nextView = viewMode === 'latent' ? 'drilldown' : 'latent';
 
-      // [FIX] Clear stale selection when returning to latent view
       if (nextView === 'latent') {
         setSelectedNode(null);
         setHoveredNode(null);
       }
-
-      setViewMode(nextView);
+      navigate(`/${nextView}`);
     } else {
-      // Default global toggle
       if (viewMode === 'overview') {
         setSelectedNode(null);
         setHoveredNode(null);
       }
-      setViewMode(prev => prev === 'globalLatent' ? 'overview' : 'globalLatent');
+      const target = viewMode === 'globalLatent' ? 'overview' : 'globalLatent';
+      navigate(`/${target}`);
     }
-  }, [viewMode]);
+  }, [viewMode, navigate]);
 
   const fetchGravitySuggestions = React.useCallback(async (connId) => {
     try {
-      const resp = await fetch(`/api/ai/gravity-suggestions/${connId}`);
-      const data = await resp.json();
+      const data = await apiClient.get(`/ai/gravity-suggestions/${connId}`);
       setGravitySuggestions(data.suggestions || []);
     } catch (e) { console.error('Failed to fetch gravity suggestions:', e); }
   }, []);
 
   const fetchRealGraphData = React.useCallback(async (id) => {
     // V17 Load Guard: Only show global loading on first mount or empty state
-    if (!graphData.nodes || graphData.nodes.length === 0) setLoading(true);
+    if (firstLoadRef.current) { setLoading(true); firstLoadRef.current = false; }
     fetchGravitySuggestions(id);
     try {
       const rawData = await apiClient.get(`/graph/${id}`);
       // if (!resp.ok) throw new Error('Failed to fetch graph'); // Axios handles this
       // const rawData = await resp.json(); // Axios returns data directly
-      console.log(`[App] 📥 Graph Data Received from Backend:`, rawData);
       if (rawData.neural_core) {
         const core = rawData.neural_core;
         setAiStatus(`Neural Core: ${core.ai_stats?.status || 'ACTIVE'} | Scanned: ${core.ai_stats?.scanned_nodes || 0}/${core.ai_stats?.total_nodes || 0}`);
@@ -471,7 +528,45 @@ const MainDashboard = () => {
       setAiStatus(`Backend Unavailable: ${e.message}`);
       // No demo fallback — show honest empty state
     } finally { setLoading(false); }
-  }, [fetchGravitySuggestions, graphData.nodes.length]);
+  }, [fetchGravitySuggestions]);
+
+  // Initial load check
+  useEffect(() => {
+    // Fetch System Config & Feature Flags
+    apiClient.get('/agent/config')
+      .then(config => {
+        // Store in global window for easy debugging access
+        window.SYSTEM_FEATURES = config.features;
+
+        // If we don't have a connection yet, but the backend has one ready, use it!
+        if (!connectionId && config.active_connection_id) {
+          console.log(`🔌 Auto-adopting backend connection: ${config.active_connection_id}`);
+          setConnectionId(config.active_connection_id);
+          fetchRealGraphData(config.active_connection_id);
+        } else if (!connectionId) {
+          setTimeout(() => setShowConnectModal(true), 500);
+        }
+      })
+      .catch(err => {
+        console.error("Could not fetch system config:", err);
+        if (!connectionId) setTimeout(() => setShowConnectModal(true), 500);
+      });
+  }, [connectionId, fetchRealGraphData]);
+
+  // Fallback check
+  useEffect(() => {
+    if (!showConnectModal && !connectionId) {
+      // Look for any connection instead of hardcoded demo
+      apiClient.get('/connections')
+        .then(conns => {
+          if (conns && conns.length > 0) {
+            setConnectionId(conns[0].id);
+            fetchRealGraphData(conns[0].id);
+          }
+        })
+        .catch(err => console.error("Auto-discovery failed:", err));
+    }
+  }, [showConnectModal, connectionId, fetchRealGraphData]);
 
   const handleNodeClick = React.useCallback((node, shiftKey = false) => {
     if (shiftKey) {
@@ -508,7 +603,6 @@ const MainDashboard = () => {
         }
       }
 
-      console.log(`[App] Propagating impact from ${node.id} to ${impactedIds.size} nodes.`);
 
       // Update graph data with impacted flags
       setGraphData(prev => ({
@@ -538,16 +632,42 @@ const MainDashboard = () => {
   const handleToggleRL = useCallback(async () => {
     setRlActive(prev => {
       const next = !prev;
-      fetch('/api/ai/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: next, connection_id: connectionId, method: clusteringMethod })
-      })
+      apiClient.post('/ai/optimize', { active: next, connection_id: connectionId, method: clusteringMethod })
         .then(() => { if (connectionId) fetchRealGraphData(connectionId); })
         .catch(e => console.error("RL Toggle Failed", e));
       return next;
     });
   }, [connectionId, clusteringMethod, fetchRealGraphData]);
+
+  // --- DEEP-LINK SHARE HANDLER ---
+  const handleShareView = useCallback(() => {
+    try {
+      // 1. Get Camera State from ThreeGraph
+      const cameraState = graphRef.current?.getCurrentCameraState ? graphRef.current.getCurrentCameraState() : null;
+
+      // 2. Build state payload
+      const viewState = {
+        selectedNodeId: selectedNode?.id || null,
+        currentLens: activeLens,
+        multiSelectedNodes: multiSelectedNodes || [],
+        cameraState: cameraState
+      };
+
+      // 3. Encode and build URL
+      const hash = encodeViewState(viewState);
+      const url = `${window.location.origin}${window.location.pathname}?view=${hash}`;
+
+      // 4. Copy to clipboard
+      navigator.clipboard.writeText(url).then(() => {
+        setSimUpdate("🔗 Deep-Link Copied to Clipboard!");
+        setTimeout(() => setSimUpdate(null), 3000);
+      });
+    } catch (e) {
+      console.error("Failed to generate Share Link", e);
+      setAiStatus("Failed to generate link");
+      setTimeout(() => setAiStatus(null), 3000);
+    }
+  }, [selectedNode, activeLens, multiSelectedNodes]);
 
   // --- GLOBAL COMMAND REGISTRATION (App Level) ---
   const handleEvolution = useCallback(({ instruction, target }) => {
@@ -568,11 +688,9 @@ const MainDashboard = () => {
     else if (instruction === 'go_home') handleNavigate('overview');
     else if (instruction === 'drill_down' && target) {
       if (viewMode === 'drilldown' && drillDownTable === target) {
-        console.log(`[App] Already in drilldown for ${target}. Triggering deep analysis.`);
         // Note: The specific viewer (DrillDownView) will also catch this via its own registration
         // but we can add global logic here if needed.
       } else {
-        console.log(`[App] Navigating to DrillDown: ${target}`);
         handleNodeDrillDown(target);
       }
     }
@@ -603,13 +721,6 @@ const MainDashboard = () => {
         await apiClient.post('/ai/optimize', {
           active: true, connection_id: connectionId, method: newMethod
         });
-        /*
-        await fetch('/api/ai/optimize', {
-        method: 'POST',
-      headers: {'Content-Type': 'application/json' },
-      body: JSON.stringify({active: true, connection_id: connectionId, method: newMethod })
-        });
-      */
         if (connectionId) fetchRealGraphData(connectionId);
       } catch (e) { console.error("Failed to update clustering", e); }
     }
@@ -620,7 +731,7 @@ const MainDashboard = () => {
   const sidebarProps = {
     actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod, recalculateGravity: handleRecalculateGravity, navigateTo: handleNavigate },
     clusters: mlInsights?.clusters || [],
-    onClusterClick: console.log,
+    onClusterClick: () => { },
     selectedNode,
     impactedNodes: graphData.nodes.filter(n => n.propagationState === 'impacted'),
     mlInsights,
@@ -639,7 +750,6 @@ const MainDashboard = () => {
     if (!executionResult.success || !executionResult.result) return;
     const { instruction, target, action_type, parameters } = executionResult.result;
 
-    console.log(`[App] Dispatching Agent Action via Registry: ${action_type}/${instruction}`);
 
     // Dispatch to Registry
     const outcome = executeCommand(action_type, { instruction, target, ...parameters });
@@ -679,6 +789,10 @@ const MainDashboard = () => {
             onToggleLayoutMode={handleToggleLayoutMode}
             perspective={insightPerspective}
             onTogglePerspective={() => setInsightPerspective(p => p === 'analyst' ? 'business' : 'analyst')}
+            onShareView={handleShareView}
+            activePeers={activePeers}
+            persona={persona}
+            isWarRoomActive={isWarRoomActive}
           />
         }
       >
@@ -700,26 +814,32 @@ const MainDashboard = () => {
             }`}
           style={{ zIndex: 0 }}
         >
+          {loading && <GraphOverlaySkeleton />}
 
-          <ThreeGraph
-            ref={graphRef}
-            data={graphData}
-            tps={liveStats.tps}
-            liveTableCounts={liveTableCounts}
-            onNodeClick={handleNodeClick}
-            onNodeHover={setHoveredNode}
-            onEdgeHover={(edgeData) => {
-              setHoveredEdge(edgeData);
-              if (edgeData?.mousePos) setHoveredEdgePos(edgeData.mousePos);
-            }}
-            activeLens={activeLens}
-            clusteringMethod={clusteringMethod}
-            paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'}
-            activeFilters={activeFilters}
-            onNodesEnriched={setEnrichedNodes}
-            multiSelectedNodes={multiSelectedNodes}
-            showMultiConnections={showMultiConnections}
-          />
+          <Suspense fallback={<GraphOverlaySkeleton />}>
+            <ThreeGraph
+              ref={graphRef}
+              data={graphData}
+              initialCameraState={initialCameraState.current}
+              tps={liveStats.tps}
+              liveTableCounts={liveTableCounts}
+              onNodeClick={handleNodeClick}
+              onNodeHover={setHoveredNode}
+              onEdgeHover={(edgeData) => {
+                setHoveredEdge(edgeData);
+                if (edgeData?.mousePos) setHoveredEdgePos(edgeData.mousePos);
+              }}
+              activeLens={activeLens}
+              clusteringMethod={clusteringMethod}
+              paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'}
+              activeFilters={activeFilters}
+              onNodesEnriched={setEnrichedNodes}
+              multiSelectedNodes={multiSelectedNodes}
+              showMultiConnections={showMultiConnections}
+              isWarRoomActive={isWarRoomActive}
+              warRoomTargetNode={warRoomTargetNode}
+            />
+          </Suspense>
 
           {/* AI STATUS TOAST - REPOSITIONED TO GRAPH CORNER */}
           <AnimatePresence>
@@ -750,7 +870,39 @@ const MainDashboard = () => {
             multiSelectedNodes={multiSelectedNodes}
             graphData={graphData}
             perspective={insightPerspective}
+            onEnterWarRoom={(nodeId) => {
+              setIsWarRoomActive(true);
+              setWarRoomTargetNode(nodeId);
+              // Cinematic zoom
+              if (graphRef.current?.highlightNode) {
+                graphRef.current.highlightNode(nodeId);
+              }
+            }}
           />
+
+          {/* WAR ROOM INCIDENT HUD */}
+          <AnimatePresence>
+            {isWarRoomActive && (
+              <WarRoomHUD
+                targetNode={warRoomTargetNode}
+                activePeers={activePeers}
+                connectionId={connectionId}
+                anomalyData={liveStats.anomalies.find(a => {
+                  const name = typeof warRoomTargetNode === 'object' ? (warRoomTargetNode.name || warRoomTargetNode.id) : warRoomTargetNode;
+                  return a.metric === name ||
+                    (typeof a.explanation === 'string' && a.explanation.toLowerCase().includes(String(name).toLowerCase()));
+                })}
+                onExit={() => {
+                  setIsWarRoomActive(false);
+                  setWarRoomTargetNode(null);
+                  if (graphRef.current?.resetView) {
+                    graphRef.current.resetView(); // Optional: reset camera
+                  }
+                }}
+              />
+            )}
+          </AnimatePresence>
+
 
           {/* LATENT SPACE HUD OVERLAY */}
           {(viewMode === 'globalLatent' || viewMode === 'latent') && (
@@ -769,8 +921,8 @@ const MainDashboard = () => {
               insightPerspective={insightPerspective}
               setInsightPerspective={setInsightPerspective}
               onClose={() => {
-                if (viewMode === 'latent') setViewMode('drilldown');
-                else setViewMode('overview');
+                if (viewMode === 'latent') handleNavigate('drilldown');
+                else handleNavigate('overview');
               }}
               onZoomIn={() => {
                 if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(0.8);
@@ -790,6 +942,7 @@ const MainDashboard = () => {
               setMultiSelectedNodes={setMultiSelectedNodes}
               showMultiConnections={showMultiConnections}
               setShowMultiConnections={setShowMultiConnections}
+              onShareView={handleShareView}
             />
           )}
 
@@ -849,7 +1002,7 @@ const MainDashboard = () => {
                 )}
                 {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
                 {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
-                {viewMode === 'vitals' && <HealthDashboard />}
+                {viewMode === 'vitals' && <SystemVitalsDashboard />}
                 {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
                 {viewMode === 'intelligence' && <IntelligenceHub connectionId={connectionId} selectedNode={selectedNode} />}
                 {viewMode === 'lineage' && (

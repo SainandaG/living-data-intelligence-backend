@@ -3,22 +3,24 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Share2, Info, ArrowRight, Zap, AlertTriangle, Activity, GitBranch, BarChart3, Database } from 'lucide-react';
 import './LineageInsightHUD.css';
 
-const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [], graphData = {}, perspective = 'analyst' }) => {
-    // Logic: Always show if hovered. 
+const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [], graphData = {}, perspective = 'analyst', onEnterWarRoom }) => {
+    // Logic: Always show if hovered, otherwise fall back to selected.
+    const activeNode = hoveredNode || selectedNode;
+
     const isPartOfSelection = useMemo(() => {
-        if (!hoveredNode) return false;
-        if (selectedNode?.id === hoveredNode.id) return true;
-        return multiSelectedNodes.includes(hoveredNode.id);
-    }, [hoveredNode, selectedNode, multiSelectedNodes]);
+        if (!activeNode) return false;
+        if (selectedNode?.id === activeNode.id) return true;
+        return multiSelectedNodes.includes(activeNode.id);
+    }, [activeNode, selectedNode, multiSelectedNodes]);
 
     // --- Business Impact Logic ---
     const impact = useMemo(() => {
-        if (!hoveredNode) return { label: '', class: '', reason: '', risk: '', volume: '0' };
+        if (!activeNode) return { label: '', class: '', reason: '', risk: '', volume: '0' };
 
-        const in_deg = hoveredNode.in_degree || 0;
-        const out_deg = hoveredNode.out_degree || 0;
-        const down_count = hoveredNode.affectedDownstreamCount || 0;
-        const row_count = hoveredNode.row_count || 1000;
+        const in_deg = activeNode.in_degree || 0;
+        const out_deg = activeNode.out_degree || 0;
+        const down_count = activeNode.affectedDownstreamCount || 0;
+        const row_count = activeNode.row_count || 1000;
 
         // Simulated Transaction Volume (Scaled by row count and connectivity)
         const simVolume = (row_count * (1 + out_deg * 0.2) / 1000).toFixed(1);
@@ -43,30 +45,31 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
         return {
             label: 'Data Origin',
             class: 'consumer',
-            reason: hoveredNode.isSource ? 'Primary source system. Foundational data for the network.' : 'Downstream terminal node used for reporting.',
-            risk: hoveredNode.isSource ? 'Low - Source Integrity' : 'None - Leaf Node',
+            reason: activeNode.isSource ? 'Primary source system. Foundational data for the network.' : 'Downstream terminal node used for reporting.',
+            risk: activeNode.isSource ? 'Low - Source Integrity' : 'None - Leaf Node',
             volume: simVolume + 'K'
         };
-    }, [hoveredNode]);
+    }, [activeNode]);
+
 
     // --- Lineage Logic ---
     const fks = useMemo(() => {
-        if (!hoveredNode) return [];
-        return (hoveredNode.foreign_keys || []).slice(0, 5);
-    }, [hoveredNode]);
+        if (!activeNode) return [];
+        return (activeNode.foreign_keys || []).slice(0, 5);
+    }, [activeNode]);
 
     // --- Bridge Connection Logic (Specific to Multi-Selection) ---
     const bridgeConnections = useMemo(() => {
-        if (!hoveredNode || multiSelectedNodes.length < 2) return [];
+        if (!activeNode || multiSelectedNodes.length < 2) return [];
 
         const selectedIds = new Set(multiSelectedNodes);
-        return (hoveredNode.foreign_keys || []).filter(fk => {
+        return (activeNode.foreign_keys || []).filter(fk => {
             const targetId = typeof fk === 'string' ? fk : fk.referenced_table;
-            return selectedIds.has(targetId) && targetId !== hoveredNode.id;
+            return selectedIds.has(targetId) && targetId !== activeNode.id;
         });
-    }, [hoveredNode, multiSelectedNodes]);
+    }, [activeNode, multiSelectedNodes]);
 
-    if (!hoveredNode) return null;
+    if (!activeNode) return null;
 
     const isBusiness = perspective === 'business';
 
@@ -84,11 +87,11 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
                 <header className="hud-header">
                     <div className="hud-title-area">
                         <div className="flex items-center gap-2 mb-1">
-                            <h3 className="hud-table-name">{hoveredNode.name}</h3>
+                            <h3 className="hud-table-name">{activeNode.name}</h3>
                             {isPartOfSelection && <Shield size={10} className="text-cyan-400" />}
                         </div>
                         <div className="hud-table-type">
-                            {hoveredNode.table_type || 'Table'} • {hoveredNode.row_count?.toLocaleString()} Records
+                            {activeNode.table_type || 'Table'} • {activeNode.row_count?.toLocaleString()} Records
                         </div>
                     </div>
                     <div className={`impact-badge ${impact.class}`}>
@@ -174,7 +177,7 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
                                     <div className="stat-label">Tx Volume</div>
                                 </div>
                                 <div className="stat-item !border-amber-500/30">
-                                    <div className="stat-value text-amber-500">₹{((hoveredNode.row_count || 0) * 0.01).toFixed(1)}L</div>
+                                    <div className="stat-value text-amber-500">₹{((activeNode.row_count || 0) * 0.01).toFixed(1)}L</div>
                                     <div className="stat-label">Risk Value</div>
                                 </div>
                             </div>
@@ -190,7 +193,7 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
                         <section className="hud-section mb-0">
                             <div className="hud-section-label">Downstream ROI Flow</div>
                             <div className="flex flex-wrap gap-1.5">
-                                {(hoveredNode.downstream_node_ids || []).slice(0, 4).map((id, i) => (
+                                {(activeNode.downstream_node_ids || []).slice(0, 4).map((id, i) => (
                                     <span key={i} className="px-1.5 py-0.5 bg-amber-500/10 rounded text-[9px] text-amber-400 border border-amber-500/20 uppercase">
                                         {id}
                                     </span>
@@ -200,7 +203,18 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
                     </>
                 )}
 
-                <footer className="hud-footer">
+                {/* WAR ROOM TRIGGER */}
+                {(activeNode.health?.score < 50 || activeNode.status === 'error' || activeNode.vitality < 50) && onEnterWarRoom && (
+                    <button
+                        onClick={() => onEnterWarRoom(activeNode.id)}
+                        className="w-full mt-2 py-2 bg-red-900/40 hover:bg-red-800/80 border border-red-500/50 text-red-400 font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-colors rounded shadow-[0_0_15px_rgba(239,68,68,0.2)] pointer-events-auto"
+                    >
+                        <AlertTriangle size={14} className="animate-pulse" />
+                        Enter War-Room
+                    </button>
+                )}
+
+                <footer className="hud-footer mt-2">
                     <Info size={10} />
                     <span>Click node to lock lineage target</span>
                 </footer>

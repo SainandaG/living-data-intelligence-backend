@@ -79,13 +79,10 @@ export const useVoiceRecognition = (onResult, options = {}) => {
             setTranscript('');
             try {
                 // Request microphone permission first
-                console.log('[Voice] Requesting microphone permission...');
                 await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log('[Voice] Microphone permission granted');
 
                 // Start recognition
                 recognitionRef.current.start();
-                console.log('[Voice] Speech recognition started');
             } catch (err) {
                 console.error('Failed to start recognition:', err);
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {

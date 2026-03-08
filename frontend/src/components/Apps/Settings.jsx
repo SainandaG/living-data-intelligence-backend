@@ -3,14 +3,21 @@ import { Settings as SettingsIcon, Shield, Wifi, Globe, Monitor, Volume2, Volume
 
 const Settings = () => {
     const [activeTab, setActiveTab] = useState('general');
-    const [settings, setSettings] = useState({
-        systemName: 'Living Data Intelligence',
-        language: 'English (US)',
-        darkMode: true,
-        soundEnabled: true,
-        autoRefresh: true,
-        refreshInterval: 30,
+    const [settings, setSettings] = useState(() => {
+        const saved = localStorage.getItem('system_settings');
+        return saved ? JSON.parse(saved) : {
+            systemName: 'Living Data Intelligence',
+            language: 'English (US)',
+            darkMode: true,
+            soundEnabled: true,
+            autoRefresh: true,
+            refreshInterval: 30,
+        };
     });
+
+    useEffect(() => {
+        localStorage.setItem('system_settings', JSON.stringify(settings));
+    }, [settings]);
 
     const tabs = [
         { id: 'general', label: 'General', icon: SettingsIcon },

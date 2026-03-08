@@ -12,12 +12,10 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
             try {
                 setLoading(true);
                 setError(null);
-                console.log(`[IntelligencePanel] Fetching analysis for ${connectionId}/${tableName}`);
                 const response = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
                 if (response.status === 404) throw new Error('Evolution service not loaded');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
-                console.log('[IntelligencePanel] Analysis data:', data);
                 setAnalysis(data);
             } catch (err) {
                 console.error('[IntelligencePanel] Analysis fetch error:', err);

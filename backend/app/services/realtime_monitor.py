@@ -159,7 +159,7 @@ class RealtimeMonitor:
                     if row.get('avg_temp'): self.last_battery_temp = round(float(row['avg_temp']), 1)
                     if row.get('avg_volt'): self.last_battery_volt = round(float(row['avg_volt']), 1)
                     if row.get('avg_curr'): self.last_battery_curr = round(float(row['avg_curr']), 1)
-                    print(f"✅ [WEZU] Batteries={active_batteries}, SoH={avg_soh}%, Temp={self.last_battery_temp}C")
+                    # print(f"✅ [WEZU] Batteries={active_batteries}, SoH={avg_soh}%, Temp={self.last_battery_temp}C")
             except Exception as e:
                 print(f"⚠️ [RealtimeMonitor] Battery query failed: {e}")
 
@@ -568,7 +568,7 @@ class RealtimeMonitor:
 
     async def _get_node_specific_metrics(self, connection_id: str, table_name: str) -> dict:
         """Fetch high-fidelity mathematical diagnostics for a specific table with resilience"""
-        print(f"DEBUG: Starting deep scan for node: {table_name}")
+        # print(f"DEBUG: Starting deep scan for node: {table_name}")
         try:
             # Initialize with safe fallbacks
             idx_count = 0
@@ -591,7 +591,7 @@ class RealtimeMonitor:
                     match = next((t.name for t in schema.tables if t.name.lower() == table_name.lower()), None)
                     if match:
                         actual_table_name = match
-                        print(f"DEBUG: Auto-casing table {table_name} -> {actual_table_name}")
+                        # print(f"DEBUG: Auto-casing table {table_name} -> {actual_table_name}")
             except: pass
 
             # Use quoted identifiers for SQL safety
@@ -630,7 +630,7 @@ class RealtimeMonitor:
                 cnt_res = await db_connector.query(connection_id, count_query)
                 row_count = int(cnt_res[0]['count']) if cnt_res else 0
                 projected_30d = row_count
-                print(f"DEBUG: Row count for {table_name}: {row_count}")
+                # print(f"DEBUG: Row count for {table_name}: {row_count}")
             except Exception as e:
                 print(f"DEBUG: Row count query fail: {e}")
             

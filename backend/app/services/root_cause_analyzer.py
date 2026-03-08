@@ -133,17 +133,35 @@ class RootCauseAnalyzer:
         return {"schema": "public"}
 
     def _generate_impact_summary(self, origin: str, impact_path: List[Dict]) -> str:
-        """Generate plain English impact summary"""
+        """Generate plain English impact summary with higher fidelity"""
         if not impact_path:
-            return f"Issues in {origin} are isolated and unlikely to affect other parts of the system directly."
+            return f"The current analysis indicates that {origin} is isolated. No direct downstream dependencies were detected in the immediate schema layer."
             
-        affected_names = [d['table'] for d in impact_path]
-        if len(affected_names) > 3:
-            affected_str = f"{', '.join(affected_names[:3])} and {len(affected_names)-3} others"
+        # Filter out self or redundant links
+        affected_names = [d['table'] for d in impact_path if d['table'] != origin]
+        
+        if not affected_names:
+            return f"Issues in {origin} primarily affect its own internal data integrity, with no high-probability cascading risks to external tables."
+
+        count = len(affected_names)
+        if count > 3:
+            affected_str = f"{', '.join(affected_names[:3])} and {count-3} other related tables"
         else:
             affected_str = ", ".join(affected_names)
             
-        return f"A failure in {origin} could cause a ripple effect across {len(impact_path)} other tables, most notably affecting {affected_str}."
+        reasons = [d['reason'] for d in impact_path if 'Latent' not in d['reason']][:2]
+        reason_str = f" via {', '.join(reasons)}" if reasons else " through internal data flows"
+
+        summary = f"A failure in {origin} triggers a critical risk path affecting {affected_str}{reason_str}. "
+        
+        # Add dynamic proactive advice
+        if count > 5:
+            summary += "Immediate isolation of the transaction layer is recommended to prevent system-wide propagation."
+        else:
+            summary += "Monitoring of downstream foreign key constraints is suggested."
+            
+        return summary
+
 
 # Global instance
 root_cause_analyzer = RootCauseAnalyzer()

@@ -7,7 +7,6 @@ export class UIActionHandler implements ActionHandler {
     }
 
     async handle(action: string, params: any): Promise<any> {
-        console.log(`[UIHandler] Executing ${action}`, params);
 
         switch (action) {
             case 'ui.show_schema':

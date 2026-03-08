@@ -123,3 +123,16 @@ async def get_column_intelligence(connection_id: str, table_name: str, column_na
         return {"status": "success", "intelligence": intelligence}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/drilldown/{connection_id}/impact-analysis/{table_name}")
+async def get_impact_analysis(connection_id: str, table_name: str):
+    """Analyze the impact of an issue in a specific table"""
+    try:
+        from app.services.root_cause_analyzer import root_cause_analyzer
+        from app.services.db_connector import db_connector
+        
+        result = await root_cause_analyzer.analyze_impact(db_connector, connection_id, table_name)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

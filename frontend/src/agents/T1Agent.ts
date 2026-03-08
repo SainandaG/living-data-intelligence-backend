@@ -22,17 +22,14 @@ export class T1Agent {
 
         if (FEATURE_FLAGS.ENABLE_AGENT_CLASSES) {
             EventBus.getInstance().on('AGENT_DISPATCH', (payload) => {
-                console.log("[T1] Received Dispatch Event:", payload);
                 this.executeAction(payload.action, payload.parameters);
             });
-            console.log("✅ T1Agent Class Initialized (Listening for events)");
         }
     }
 
     async executeAction(action: string, params: any) {
         if (!FEATURE_FLAGS.ENABLE_AGENT_CLASSES) return;
 
-        console.log(`[T1] Executing action: ${action}`, params);
 
         try {
             if (action.startsWith('graph.start_flow') || action.startsWith('graph.stop_flow')) {

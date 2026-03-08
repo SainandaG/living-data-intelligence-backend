@@ -16,25 +16,38 @@ async def websocket_events(websocket: WebSocket, connection_id: str):
     Enhanced WebSocket endpoint for real-time events.
     Each client connection is mapped to their database connection_id.
     """
-    # Register and accept connection
-    await connection_manager.connect(websocket, connection_id, ["broadcast", "metrics"])
+    # Create a unique client ID since multiple users can view the same db connection
+    client_id = f"{connection_id}_{uuid.uuid4()}"
+    
+    # Register and accept connection, subscribing to the db connection_id topic
+    await connection_manager.connect(websocket, client_id, ["broadcast", "metrics", connection_id])
     
     try:
         while True:
-            # Listen for client messages (like pongs or standard messages)
+            # Listen for client messages
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
             elif data == "pong":
-                # Heartbeat handled by manager internally, but we can update last_ping here
-                if connection_id in connection_manager.active_connections:
-                    connection_manager.active_connections[connection_id].last_ping = time.time()
+                # Heartbeat handled by manager internally, update last_ping
+                if client_id in connection_manager.active_connections:
+                    connection_manager.active_connections[client_id].last_ping = time.time()
+            else:
+                try:
+                    payload = json.loads(data)
+                    if payload.get("type") == "presence_update":
+                        # Attach backend timestamp and broadcast to everyone on this DB connection
+                        payload["server_time"] = time.time()
+                        # Broadcast to the topic (connection_id), but clients will ignore their own user_id
+                        await connection_manager.broadcast(payload, topic=connection_id)
+                except json.JSONDecodeError:
+                    pass
                     
     except WebSocketDisconnect:
-        connection_manager.disconnect(connection_id)
+        connection_manager.disconnect(client_id)
     except Exception as e:
-        print(f"WebSocket Error for {connection_id}: {e}")
-        connection_manager.disconnect(connection_id)
+        print(f"WebSocket Error for {client_id}: {e}")
+        connection_manager.disconnect(client_id)
 
 async def stream_metrics():
     """
@@ -46,7 +59,14 @@ async def stream_metrics():
     print("📡 Starting global metrics & evolution broadcast...")
     while True:
         try:
-            for conn_id in list(connection_manager.active_connections.keys()):
+            # Find unique database connection IDs that have active websockets
+            active_db_conns = set()
+            for client_id in connection_manager.active_connections.keys():
+                # Extract the DB connection ID from client_id (format: connection_id_uuid)
+                db_conn_id = client_id.split('_')[0]
+                active_db_conns.add(db_conn_id)
+                
+            for conn_id in active_db_conns:
                 try:
                     # 0. Safety Check: Is the database actually connected?
                     # If not, skip this session (the user likely needs to re-auth after a server restart)
@@ -106,7 +126,7 @@ async def stream_metrics():
                     except Exception as e:
                         pass  # Non-critical
 
-                    # 4. Send combined update
+                    # 4. Send combined update via broadcast to the connection topic
                     if data:
                         payload = {
                             "type": "metrics_update",
@@ -118,10 +138,10 @@ async def stream_metrics():
                             "table_counts": table_counts,
                             "timestamp": time.time()
                         }
-                        await connection_manager.send_personal(conn_id, payload)
+                        await connection_manager.broadcast(payload, topic=conn_id)
                         
                 except Exception as e:
-                    print(f"Error streaming for {conn_id}: {e}")
+                    print(f"Error streaming for DB conn {conn_id}: {e}")
         except Exception as e:
             print(f"Global streaming error: {e}")
             

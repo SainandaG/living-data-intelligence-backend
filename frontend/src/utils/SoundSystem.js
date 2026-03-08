@@ -16,7 +16,6 @@ class SoundSystem {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             this.ctx = new AudioContext();
-            console.log('[SoundSystem] Audio Context Initialized');
         } catch (e) {
             console.error('[SoundSystem] Audio Not Supported');
         }

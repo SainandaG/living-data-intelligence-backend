@@ -85,10 +85,10 @@ async def seed_database(connection_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/query/{connection_id}")
-async def debug_query(connection_id: str, sql: str):
-    """Execute a raw SQL query for debugging"""
-    try:
-        return await db_connector.query(connection_id, sql)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# @router.post("/query/{connection_id}")
+# async def debug_query(connection_id: str, sql: str):
+#     """Execute a raw SQL query for debugging"""
+#     try:
+#         return await db_connector.query(connection_id, sql)
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))

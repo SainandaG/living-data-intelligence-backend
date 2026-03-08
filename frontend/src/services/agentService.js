@@ -1,9 +1,6 @@
-/**
- * Agent Service
- * Handles API communication with the backend T0/T1 agent system.
- */
+import apiClient from '../utils/apiClient';
 
-const API_BASE = '/api/agent';
+const API_BASE = '/agent'; // apiClient handles /api prefix
 
 export const agentService = {
     /**
@@ -15,18 +12,11 @@ export const agentService = {
      */
     async processIntent(text, uiContext = {}, context = []) {
         try {
-            const response = await fetch(`${API_BASE}/intent`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, ui_context: uiContext, context })
+            return await apiClient.post(`${API_BASE}/intent`, {
+                text,
+                ui_context: uiContext,
+                context
             });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to process intent');
-            }
-
-            return await response.json();
         } catch (error) {
             console.error('AgentService.processIntent error:', error);
             throw error;
@@ -42,18 +32,11 @@ export const agentService = {
      */
     async executeAction(commandId, action, parameters = {}) {
         try {
-            const response = await fetch(`${API_BASE}/execute`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ command_id: commandId, action, parameters })
+            return await apiClient.post(`${API_BASE}/execute`, {
+                command_id: commandId,
+                action,
+                parameters
             });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to execute action');
-            }
-
-            return await response.json();
         } catch (error) {
             console.error('AgentService.executeAction error:', error);
             throw error;
@@ -66,9 +49,7 @@ export const agentService = {
      */
     async getAgentState() {
         try {
-            const response = await fetch(`${API_BASE}/state`);
-            if (!response.ok) throw new Error('Failed to fetch agent state');
-            return await response.json();
+            return await apiClient.get(`${API_BASE}/state`);
         } catch (error) {
             console.error('AgentService.getAgentState error:', error);
             throw error;
@@ -82,9 +63,7 @@ export const agentService = {
      */
     async getCommandLogs(limit = 10) {
         try {
-            const response = await fetch(`${API_BASE}/logs?limit=${limit}`);
-            if (!response.ok) throw new Error('Failed to fetch command logs');
-            return await response.json();
+            return await apiClient.get(`${API_BASE}/logs?limit=${limit}`);
         } catch (error) {
             console.error('AgentService.getCommandLogs error:', error);
             throw error;
@@ -97,9 +76,7 @@ export const agentService = {
      */
     async getAvailableCommands() {
         try {
-            const response = await fetch(`${API_BASE}/commands`);
-            if (!response.ok) throw new Error('Failed to fetch available commands');
-            return await response.json();
+            return await apiClient.get(`${API_BASE}/commands`);
         } catch (error) {
             console.error('AgentService.getAvailableCommands error:', error);
             throw error;
@@ -112,9 +89,7 @@ export const agentService = {
      */
     async resetAgents() {
         try {
-            const response = await fetch(`${API_BASE}/reset`, { method: 'POST' });
-            if (!response.ok) throw new Error('Failed to reset agents');
-            return await response.json();
+            return await apiClient.post(`${API_BASE}/reset`);
         } catch (error) {
             console.error('AgentService.resetAgents error:', error);
             throw error;

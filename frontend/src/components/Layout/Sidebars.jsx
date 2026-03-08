@@ -159,7 +159,7 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
             </div>
 
             {/* 2. SECURITY MATRIX (Always show if relevant) */}
-            {(showSecurity || true) && ( // Force show for now based on user feedback "metrics are hidden"
+            {(showSecurity || (liveStats?.health?.score && liveStats.health.score < 100)) && (
                 <CollapsiblePanel title="SECURITY MATRIX" defaultOpen={showSecurity}>
                     <div className="grid grid-cols-2 gap-2">
                         <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
@@ -250,7 +250,7 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
             </CollapsiblePanel>
 
             {/* 5. ROI INTENSITY (Show if Energy Data Exists) */}
-            {(showEnergy || true) && ( // Force open as well for visibility per request
+            {(showEnergy || (liveStats?.activeBatteries > 0)) && (
                 <CollapsiblePanel title="WEZU ROI INTENSITY" defaultOpen={showEnergy}>
                     <div className="space-y-2 text-xs">
                         <div className="flex justify-between items-center">
@@ -265,8 +265,8 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
                         <div className="flex justify-between items-center">
                             <span className="text-slate-400">Fleet Status</span>
                             <span className={`font-bold ${(liveStats.networkHealth || 0) >= 90 ? 'text-green-400' :
-                                    (liveStats.networkHealth || 0) >= 75 ? 'text-yellow-400' :
-                                        'text-red-400'
+                                (liveStats.networkHealth || 0) >= 75 ? 'text-yellow-400' :
+                                    'text-red-400'
                                 }`}>
                                 {(liveStats.networkHealth || 0) >= 90 ? '✅ Optimal' :
                                     (liveStats.networkHealth || 0) >= 75 ? '⚠️ Monitor' :

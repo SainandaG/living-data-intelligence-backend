@@ -110,20 +110,33 @@ async def global_exception_handler(request, exc):
     import traceback
     print(f"🔥 GLOBAL ERROR: {exc}")
     traceback.print_exc()
+    
+    # [SECURITY] Sanitize error responses for production
+    # Only return the detail if it's safe or generic
+    error_detail = "Internal Server Error"
+    if os.getenv("DEBUG", "false").lower() == "true":
+        error_detail = str(exc)
+        
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "type": type(exc).__name__}
+        content={"detail": error_detail, "type": type(exc).__name__}
     )
 
 # CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+cors_origins_raw = os.getenv("CORS_ORIGINS", "[]")
+try:
+    import json
+    allowed_origins = json.loads(cors_origins_raw)
+except Exception:
+    allowed_origins = [
         "http://localhost:5173",
         "http://localhost:5174",
-        "http://localhost:3000",
-        "*"
-    ],
+        "http://localhost:3000"
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -212,6 +225,8 @@ registry.register_optional("app.api.vitals")
 registry.register_optional("app.api.intelligence", prefix="/api/intelligence", tags=["intelligence"])
 registry.register_optional("app.api.ontology", prefix="/api/ontology", tags=["ontology"])
 registry.register_optional("app.api.node_xray", prefix="/api", tags=["node-xray"])
+registry.register_optional("app.api.simulation", prefix="/api", tags=["simulation"])
+registry.register_optional("app.api.seeder_api", prefix="/api", tags=["seeder"])
 
 
 # ============================================================================
