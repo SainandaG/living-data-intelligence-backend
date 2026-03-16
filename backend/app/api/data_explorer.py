@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from app.services.db_connector import db_connector
 from typing import List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -16,7 +19,8 @@ async def get_sample_data(table_name: str, column_name: str, connection_id: str 
             connection_id = connections[0]['id']
 
         # Construct query to get top 200 records
-        sql = f"SELECT * FROM {table_name} LIMIT 200"
+        safe_table = db_connector.validate_identifier(table_name)
+        sql = f"SELECT * FROM {safe_table} LIMIT 200"
         
         # Execute query
         data = await db_connector.query(connection_id, sql)
@@ -29,8 +33,8 @@ async def get_sample_data(table_name: str, column_name: str, connection_id: str 
             "count": len(data)
         }
     except Exception as e:
-        print(f"Error fetching sample data: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Sample data fetch failed for {table_name}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch sample data")
 
 
 @router.get("/data/distinct/{table_name}/{column_name}")
@@ -45,7 +49,9 @@ async def get_distinct_values(table_name: str, column_name: str, connection_id: 
 
         # Construct query to get top 100 distinct values
         # We use a subquery to avoid performance issues on huge tables
-        sql = f"SELECT DISTINCT {column_name} FROM {table_name} WHERE {column_name} IS NOT NULL LIMIT 100"
+        safe_table = db_connector.validate_identifier(table_name)
+        safe_col = db_connector.validate_identifier(column_name)
+        sql = f"SELECT DISTINCT {safe_col} FROM {safe_table} WHERE {safe_col} IS NOT NULL LIMIT 100"
         
         # Execute query
         data = await db_connector.query(connection_id, sql)
@@ -61,6 +67,6 @@ async def get_distinct_values(table_name: str, column_name: str, connection_id: 
             "count": len(values)
         }
     except Exception as e:
-        print(f"Error fetching distinct values: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Distinct values fetch failed for {table_name}.{column_name}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch distinct values")
 

@@ -7,6 +7,9 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from app.services.temporal_analyzer import temporal_analyzer
 from app.services.evolution_engine import evolution_engine
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/evolution", tags=["Evolution"])
 
@@ -17,7 +20,8 @@ async def analyze_evolution(connection_id: str):
         data = await temporal_analyzer.analyze_evolution(connection_id)
         return data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Evolution analysis failed: {str(e)}")
+        logger.error(f"Evolution analysis failed for {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Evolution analysis failed")
 
 @router.get("/timeline/{connection_id}")
 async def get_timeline(connection_id: str):
@@ -28,12 +32,11 @@ async def get_timeline(connection_id: str):
             result = await temporal_analyzer.analyze_evolution(connection_id)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=f"Connection stale or not found: {str(e)}. Please reconnect.")
+        logger.warning(f"Connection stale or not found for timeline: {str(e)}")
+        raise HTTPException(status_code=404, detail="Database connection stale or not found. Please reconnect.")
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(error_trace)
-        raise HTTPException(status_code=500, detail=f"Timeline analysis failed: {str(e)}\n{error_trace}")
+        logger.error(f"Timeline fetch failed for {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Timeline analysis failed")
 
 @router.get("/snapshot/{connection_id}")
 async def get_snapshot(
@@ -47,13 +50,11 @@ async def get_snapshot(
         return snapshot
     except ValueError as e:
         error_msg = f"Invalid timestamp or connection: {str(e)}"
-        print(f"[Evolution API] {error_msg}")
+        logger.warning(f"[Evolution API] {error_msg}")
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"[Evolution API] Snapshot generation failed:\n{error_trace}")
-        raise HTTPException(status_code=500, detail=f"Snapshot generation failed: {str(e)}")
+        logger.error(f"Snapshot generation failed for {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Snapshot generation failed")
 
 @router.get("/playback/{connection_id}")
 async def get_playback_keyframes(
@@ -69,7 +70,8 @@ async def get_playback_keyframes(
             "count": len(keyframes)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Playback fetch failed for {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Playback generation failed")
 
 @router.get("/analysis/table/{connection_id}/{table_name}")
 async def get_table_analysis(connection_id: str, table_name: str):
@@ -78,9 +80,8 @@ async def get_table_analysis(connection_id: str, table_name: str):
     try:
         return await analysis_engine.get_table_intelligence(connection_id, table_name)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Table analysis failed for {table_name}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Table analysis failed")
 
 @router.get("/analysis/insight/{connection_id}/{table_name}")
 async def get_ai_insight(connection_id: str, table_name: str):
@@ -112,9 +113,7 @@ async def get_ai_insight(connection_id: str, table_name: str):
             "insight": insight
         }
     except Exception as e:
-        print(f"Insight Generation Failed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Insight generation failed for {table_name}: {str(e)}", exc_info=True)
         # Fallback response so UI doesn't break
         return {
             "table_name": table_name,

@@ -6,6 +6,9 @@ Connects to backend/explainability/path_tracer.py
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import the orphaned explainability engine
 try:
@@ -16,7 +19,7 @@ try:
     EXPLAINABILITY_AVAILABLE = True
 except ImportError:
     EXPLAINABILITY_AVAILABLE = False
-    print("⚠️ Warning: PathTracer not available")
+    logger.warning("⚠️ Warning: PathTracer not available")
 
 from ..config.feature_flags import USE_ADVANCED_EXPLAINABILITY
 
@@ -40,9 +43,9 @@ _tracer = None
 if EXPLAINABILITY_AVAILABLE and USE_ADVANCED_EXPLAINABILITY:
     try:
         _tracer = PathTracer()
-        print("✅ PathTracer initialized successfully")
+        logger.info("✅ PathTracer initialized successfully")
     except Exception as e:
-        print(f"⚠️ PathTracer initialization failed: {e}")
+        logger.warning(f"⚠️ PathTracer initialization failed: {e}")
 
 @router.post("/explain", response_model=ExplainResponse)
 async def explain_decision(request: ExplainRequest):
@@ -86,7 +89,8 @@ async def explain_decision(request: ExplainRequest):
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Explanation failed: {str(e)}")
+        logger.error(f"Explanation failed for {request.action_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Decision explanation failed")
 
 @router.get("/status")
 async def explainability_status():
@@ -106,7 +110,8 @@ async def get_node_justification(connection_id: str, table_name: str):
     try:
         return await xai_service.get_node_justification(connection_id, table_name)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Explainability operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal explainability service error")
 
 @router.post("/trace")
 async def get_reasoning_trace(request: Dict[str, Any]):
@@ -123,4 +128,5 @@ async def get_reasoning_trace(request: Dict[str, Any]):
         explanation = await xai_service.explain_agent_action(action, parameters)
         return {"action": action, "explanation": explanation}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Node justification failure: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal explainability service error")

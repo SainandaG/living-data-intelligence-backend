@@ -25,9 +25,9 @@ export default function NavigationBar({
     ];
 
     return (
-        <div className="flex items-center gap-6 h-full">
+        <div className="flex items-center gap-4 h-full min-w-0">
             {/* Primary Nav Tabs */}
-            <nav className="flex items-center gap-6">
+            <nav className="flex items-center gap-4 min-w-0">
                 {navItems.map((item) => {
                     const isActive = currentView === item.id;
                     return (

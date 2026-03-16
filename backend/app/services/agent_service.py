@@ -1,3 +1,4 @@
+import logging
 """
 Agentic AI Service
 ------------------
@@ -9,6 +10,7 @@ import random
 import math
 from datetime import datetime
 from typing import Dict, List
+logger = logging.getLogger(__name__)
 
 class AgentService:
     def __init__(self):
@@ -22,16 +24,14 @@ class AgentService:
         self.is_running = True
         try:
             self._tasks.append(asyncio.create_task(self._exploration_worker()))
-            print("🕵️ Agentic AI: Autonomous Explorer started.")
+            logger.info("🕵️ Agentic AI: Autonomous Explorer started.")
         except Exception as e:
-            print(f"❌ CRITICAL: Failed to start Agentic AI loop: {e}")
-
+            logger.error(f"❌ CRITICAL: Failed to start Agentic AI loop: {e}")
     async def stop(self):
         self.is_running = False
         for t in self._tasks:
             t.cancel()
-        print("🕵️ Agentic AI: Explorer stopped.")
-
+        logger.info("🕵️ Agentic AI: Explorer stopped.")
     async def _exploration_worker(self):
         """Main loop for the autonomous agent - Uses real schema data"""
         from app.services.neural_core import neural_core
@@ -93,7 +93,7 @@ class AgentService:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Agent Worker Error: {e}")
+                logger.error(f"Agent Worker Error: {e}")
                 await asyncio.sleep(5)
 
     async def analyze_new_connection(self, schema_data: Dict, connection_id: str = None):
@@ -102,10 +102,9 @@ class AgentService:
         Called immediately after connection success.
         """
         from app.services.neural_core import neural_core
-        print(f"🕵️ Agentic AI: Performing initial schema deep-scan for {connection_id}...")
-        
+        logger.info(f"🕵️ Agentic AI: Performing initial schema deep-scan for {connection_id}...")
         # Seed the Neural Core with context and the real connection ID
-        neural_core.update_schema_context(schema_data, connection_id=connection_id)
+        await neural_core.update_schema_context(schema_data, connection_id=connection_id)
         
         tables = schema_data.get('tables', [])
         for table in tables:
@@ -119,8 +118,7 @@ class AgentService:
         
         # Trigger an initial retraining cycle
         await neural_core.trigger_retraining(connection_id=connection_id)
-        print(f"🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
-
+        logger.info(f"🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
     async def get_gravity_suggestions(self, schema_data: Dict) -> List[Dict]:
         """
         Suggest columns that would impact the 'gravity' of the flow data.

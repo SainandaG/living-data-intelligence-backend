@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import apiClient from '../../utils/apiClient';
 import { Send, Bot, User, Loader } from 'lucide-react';
 import { useWindowManager } from '../../context/WindowManagerContext';
 
@@ -26,15 +27,11 @@ const AnalystChat = () => {
         setIsTyping(true);
 
         try {
-            const response = await fetch('/api/ai/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: userMsg.text, connection_id: connectionId })
+            const data = await apiClient.post('/ai/chat', { 
+                query: userMsg.text, 
+                connection_id: connectionId 
             });
 
-            if (!response.ok) throw new Error('Neural Link disrupted');
-
-            const data = await response.json();
             const botMsg = { id: Date.now() + 1, type: 'bot', text: data.response };
             setMessages(prev => [...prev, botMsg]);
 

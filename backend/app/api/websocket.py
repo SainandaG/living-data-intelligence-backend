@@ -1,53 +1,168 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from ..services.connection_manager import connection_manager
+"""
+WebSocket Protocol for Living Data Intelligence Platform
+
+SERVER → CLIENT (JSON):
+  {"type": "ping", "timestamp": int} - Heartbeat
+  {"type": "connected", "connection_id": str, "client_count": int} - Connection ack
+  {"type": "metrics_update", "data": MetricsPayload, ...} - Real-time statistics
+  {"type": "db_reconnecting", "message": str} - DB wake-up notification
+  {"type": "error", "message": str, "code": str} - Protocol or DB errors
+
+CLIENT → SERVER (JSON/Text):
+  {"type": "pong"} - Heartbeat response
+  "ping" - Legacy health check (deprecated)
+  {"type": "presence_update", "user_id": str, "cursor": {x, y}} - Real-time presence
+"""
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from ..services.realtime_monitor import RealtimeMonitor
+from app.services.auth import verify_token
 import asyncio
 import json
 import uuid
 import time
-import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 monitor = RealtimeMonitor()
 
+# Module-level registry: Key = connection_id, Value = list of WebSockets
+active_connections: dict[str, list[WebSocket]] = {}
+
+def get_total_client_count():
+    return sum(len(sockets) for sockets in active_connections.values())
+
+async def safe_send(ws: WebSocket, payload: dict) -> bool:
+    """Send JSON message with timeout; returns False if connection is broken"""
+    try:
+        await asyncio.wait_for(ws.send_json(payload), timeout=5.0)
+        return True
+    except Exception as e:
+        logger.debug(f"safe_send failed: {e}")
+        return False
+
 @router.websocket("/{connection_id}")
-async def websocket_events(websocket: WebSocket, connection_id: str):
+async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: str = Query(None)):
     """
-    Enhanced WebSocket endpoint for real-time events.
-    Each client connection is mapped to their database connection_id.
+    Production-grade WebSocket endpoint with heartbeat, registry tracking,
+    and multi-tab support.
     """
-    # Create a unique client ID since multiple users can view the same db connection
-    client_id = f"{connection_id}_{uuid.uuid4()}"
+    # Auth check disabled for development unblocking
+    # if not token or not verify_token(token):
+    #     logger.warning(f"WebSocket auth failed for {connection_id}")
+    #     await websocket.close(code=1008)
+    #     return
+        
+    await websocket.accept()
     
-    # Register and accept connection, subscribing to the db connection_id topic
-    await connection_manager.connect(websocket, client_id, ["broadcast", "metrics", connection_id])
+    # 1. Register connection
+    if connection_id not in active_connections:
+        active_connections[connection_id] = []
+    active_connections[connection_id].append(websocket)
+    
+    total_clients = get_total_client_count()
+    logger.info(f"🔌 WS connect: {connection_id} | total clients: {total_clients}")
+    
+    # 2. Send Greeting
+    await safe_send(websocket, {
+        "type": "connected",
+        "connection_id": connection_id,
+        "client_count": len(active_connections[connection_id])
+    })
     
     try:
         while True:
-            # Listen for client messages
+            try:
+                # 25s ping interval, 10s pong response window
+                # Wait for message or timeout after 25s to send ping
+                try:
+                    data = await asyncio.wait_for(websocket.receive_text(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    # Send Heartbeat Ping
+                    ping_payload = {"type": "ping", "timestamp": int(time.time() * 1000)}
+                    if await safe_send(websocket, ping_payload):
+                        # Wait 10s for Pong
+                        try:
+                            pong_data = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+                            if pong_data == "ping": # Legacy support
+                                continue
+                            
+                            payload = json.loads(pong_data)
+                            if payload.get("type") == "pong":
+                                continue
+                            else:
+                                # Unexpected message instead of pong, process it?
+                                data = pong_data
+                        except asyncio.TimeoutError:
+                            logger.warning(f"💔 Heartbeat timeout: {connection_id}")
+                            break
+                    else:
+                        break
+                
+                # Process incoming data (if not already handled by pong logic)
+                if data == "ping":
+                    await websocket.send_text("pong")
+                elif data == "pong":
+                    continue
+                else:
+                    try:
+                        payload = json.loads(data)
+                        if payload.get("type") == "pong":
+                            continue
+                        elif payload.get("type") == "presence_update":
+                            payload["server_time"] = time.time()
+                            # Relay to other clients on the same DB connection
+                            sockets = active_connections.get(connection_id, [])
+                            for ws in sockets:
+                                if ws != websocket:
+                                    asyncio.create_task(safe_send(ws, payload))
+                    except json.JSONDecodeError:
+                        pass
+                        
+            except WebSocketDisconnect:
+                break
+    finally:
+        # 3. Cleanup logic
+        if connection_id in active_connections:
+            if websocket in active_connections[connection_id]:
+                active_connections[connection_id].remove(websocket)
+            if not active_connections[connection_id]:
+                del active_connections[connection_id]
+        
+        total_remaining = get_total_client_count()
+        logger.info(f"❌ WS disconnect: {connection_id} | total clients: {total_remaining}")
+        try:
+            await websocket.close()
+        except:
+            pass
+
+@router.websocket("/logs/{session_id}")
+async def websocket_logs_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time generation logs.
+    Subscribes to the specific session topic in connection_manager.
+    """
+    from app.services.connection_manager import connection_manager
+    ws_id = f"logs_{session_id}_{uuid.uuid4().hex[:6]}"
+    
+    try:
+        # Join the specific session topic
+        topic = f"generation_logs_{session_id}"
+        await connection_manager.connect(websocket, ws_id, initial_topics=[topic])
+        
+        # Keep connection alive and handle incoming (pings)
+        while True:
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
-            elif data == "pong":
-                # Heartbeat handled by manager internally, update last_ping
-                if client_id in connection_manager.active_connections:
-                    connection_manager.active_connections[client_id].last_ping = time.time()
-            else:
-                try:
-                    payload = json.loads(data)
-                    if payload.get("type") == "presence_update":
-                        # Attach backend timestamp and broadcast to everyone on this DB connection
-                        payload["server_time"] = time.time()
-                        # Broadcast to the topic (connection_id), but clients will ignore their own user_id
-                        await connection_manager.broadcast(payload, topic=connection_id)
-                except json.JSONDecodeError:
-                    pass
-                    
     except WebSocketDisconnect:
-        connection_manager.disconnect(client_id)
+        logger.info(f"❌ Log WS disconnected: {ws_id}")
     except Exception as e:
-        print(f"WebSocket Error for {client_id}: {e}")
-        connection_manager.disconnect(client_id)
+        logger.error(f"Error in Log WebSocket {ws_id}: {e}")
+    finally:
+        connection_manager.disconnect(ws_id)
 
 async def stream_metrics():
     """
@@ -56,17 +171,17 @@ async def stream_metrics():
     from app.services.graph_generator import graph_generator
     from app.services.living_graph_engine import living_graph_engine
     
-    print("📡 Starting global metrics & evolution broadcast...")
+    logger.info("Starting global metrics & evolution broadcast...")
+    # Track consecutive failures per database connection to avoid UI flickering
+    consecutive_failures = {}
+
     while True:
         try:
-            # Find unique database connection IDs that have active websockets
-            active_db_conns = set()
-            for client_id in connection_manager.active_connections.keys():
-                # Extract the DB connection ID from client_id (format: connection_id_uuid)
-                db_conn_id = client_id.split('_')[0]
-                active_db_conns.add(db_conn_id)
-                
-            for conn_id in active_db_conns:
+            # Iterate over connection IDs that have active WebSocket clients
+            for conn_id in list(active_connections.keys()):
+                sockets = active_connections.get(conn_id, [])
+                if not sockets:
+                    continue
                 try:
                     # 0. Safety Check: Is the database actually connected?
                     # If not, skip this session (the user likely needs to re-auth after a server restart)
@@ -75,7 +190,32 @@ async def stream_metrics():
                         continue
 
                     # 1. Get real metrics
-                    data = await monitor.get_realtime_data(conn_id)
+                    try:
+                        data = await monitor.get_realtime_data(conn_id)
+                        # Reset failure count on success
+                        consecutive_failures[conn_id] = 0
+                    except Exception as e:
+                        # Log internally but skip this iteration
+                        consecutive_failures[conn_id] = consecutive_failures.get(conn_id, 0) + 1
+                        print(f"⏳ DB metric collection failed for {conn_id} (Attempt {consecutive_failures[conn_id]}/3): {e}")
+                        
+                        # Only notify client if we've failed 3 times in a row
+                        if consecutive_failures[conn_id] >= 3:
+                            payload = {
+                                "type": "db_reconnecting",
+                                "message": "Database is waking up...",
+                                "timestamp": time.time()
+                            }
+                            stale_sockets = []
+                            for ws in sockets:
+                                if not await safe_send(ws, payload):
+                                    stale_sockets.append(ws)
+                            
+                            for ws in stale_sockets:
+                                if ws in sockets:
+                                    sockets.remove(ws)
+                                    logger.info(f"🗑️ Removed stale WS connection during reconnect broadcast for {conn_id}")
+                        continue
                     
                     # 2. Get Graph Evolution (Size/Health of nodes)
                     # We fetch current graph to know who to evolve
@@ -138,12 +278,31 @@ async def stream_metrics():
                             "table_counts": table_counts,
                             "timestamp": time.time()
                         }
-                        await connection_manager.broadcast(payload, topic=conn_id)
+                        
+                        # PARALLEL BROADCAST: Parallelize and handle stale connections
+                        results = await asyncio.gather(
+                            *[safe_send(ws, payload) for ws in sockets], 
+                            return_exceptions=True
+                        )
+                        
+                        stale_sockets = [
+                            sockets[i] for i, success in enumerate(results) 
+                            if success is False or isinstance(success, Exception)
+                        ]
+                        
+                        for ws in stale_sockets:
+                            if ws in sockets:
+                                sockets.remove(ws)
+                                logger.info(f"🗑️ Removed stale WS connection during metrics broadcast for {conn_id}")
+                        
+                        # Cleanup empty keys if necessary (heartbeat also handles this)
+                        if not active_connections.get(conn_id) and conn_id in active_connections:
+                            del active_connections[conn_id]
                         
                 except Exception as e:
-                    print(f"Error streaming for DB conn {conn_id}: {e}")
+                    logger.error(f"Error streaming for DB conn {conn_id}: {e}")
         except Exception as e:
-            print(f"Global streaming error: {e}")
+            logger.error(f"Global streaming error: {e}")
             
         await asyncio.sleep(2.0)
 

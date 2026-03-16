@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from app.services.vitals_service import vitals_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/vitals", tags=["vitals"])
 
@@ -11,4 +14,5 @@ async def get_vitals():
     try:
         return await vitals_service.get_system_vitals()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Vitals collection failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to collect system vitals")

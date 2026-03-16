@@ -1,6 +1,32 @@
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
+
+class ErrorResponse(BaseModel):
+    error: str
+    code: str
+
+class StatusResponse(BaseModel):
+    success: bool
+    message: str
+
+class ConnectionRequest(BaseModel):
+    db_type: Literal["postgresql", "mysql", "mongodb", "neon", "neon_db"]
+    host: str = Field(..., min_length=3, max_length=253)
+    port: int = Field(..., ge=1, le=65535)
+    database: str = Field(..., min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_\-]+$')
+    username: str = Field(..., min_length=1, max_length=128)
+    password: str = Field(..., min_length=1, max_length=256)
+    
+    @validator('host')
+    def no_injection_in_host(cls, v):
+        if any(c in v for c in [';', "'", '"', '--', '/*']):
+            raise ValueError('Invalid host')
+        return v
+
+class AIQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    connection_id: str = Field(..., pattern=r'^[a-zA-Z0-9_\-]+$')
 
 class DatabaseConfig(BaseModel):
     db_type: str

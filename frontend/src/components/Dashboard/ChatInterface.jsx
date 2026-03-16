@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import apiClient from '../../utils/apiClient';
 import { MessageSquare, Send, X, Bot, User, Sparkles, Loader, Terminal } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -48,25 +49,12 @@ export default function ChatInterface({ connectionId, isOpen, onClose }) {
                 content: m.content
             }));
 
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    connection_id: connectionId,
-                    message: userMessage,
-                    history: history
-                }),
+            const data = await apiClient.post('/chat', {
+                connection_id: connectionId,
+                message: userMessage,
+                history: history
             });
 
-            if (response.status === 404) {
-                setMessages(prev => [...prev, { role: 'assistant', content: "Chat service is not available. The backend chat module may not be loaded." }]);
-                return;
-            }
-            if (!response.ok) throw new Error('Failed to get response');
-
-            const data = await response.json();
             setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
         } catch (error) {
             console.error('Chat error:', error);

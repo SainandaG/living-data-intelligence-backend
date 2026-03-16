@@ -1,9 +1,11 @@
+import logging
 # -*- coding: utf-8 -*-
 """
 Drill-Down Service - Enables detailed exploration of individual records
 """
 from typing import Dict, List, Any
 from app.services.db_connector import db_connector
+logger = logging.getLogger(__name__)
 
 class DrillDownService:
     """Service for drilling down into specific table records"""
@@ -52,7 +54,7 @@ class DrillDownService:
                     'count': len(records)
                 }
         except Exception as e:
-            print(f"Error getting table sample for {table_name}: {str(e)}")
+            logger.info(f"Error getting table sample for {table_name}: {str(e)}")
             return {
                 'table': table_name,
                 'records': [],
@@ -99,7 +101,7 @@ class DrillDownService:
                     'record': record
                 }
         except Exception as e:
-            print(f"Error getting record: {str(e)}")
+            logger.info(f"Error getting record: {str(e)}")
             return {
                 'table': table_name,
                 'record': None,
@@ -135,7 +137,7 @@ class DrillDownService:
                     'count': len(results)
                 }
         except Exception as e:
-            print(f"Error getting related records: {str(e)}")
+            logger.info(f"Error getting related records: {str(e)}")
             return {
                 'source_table': table_name,
                 'related_table': relationship.get('referenced_table'),
@@ -189,7 +191,7 @@ class DrillDownService:
                     'count': len(records)
                 }
         except Exception as e:
-            print(f"Error searching table: {str(e)}")
+            logger.info(f"Error searching table: {str(e)}")
             return {
                 'table': table_name,
                 'records': [],
@@ -260,7 +262,7 @@ class DrillDownService:
                 "links": links
             }
         except Exception as e:
-            print(f"Error in 3D clustering: {e}")
+            logger.info(f"Error in 3D clustering: {e}")
             import traceback
             traceback.print_exc()
             raise

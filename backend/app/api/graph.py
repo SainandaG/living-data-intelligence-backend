@@ -1,15 +1,19 @@
 from fastapi import APIRouter, HTTPException
 from app.services.graph_generator import graph_generator
+from app.models.schemas import Graph, ErrorResponse, StatusResponse
 from typing import Dict, List, Any
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-@router.get("/graph/{connection_id}")
+@router.get("/graph/{connection_id}", responses={500: {"model": ErrorResponse}})
 async def get_graph(connection_id: str):
     """Generate 3D graph from schema with Neural Core Intelligence"""
     try:
-        print(f"🎨 Generating graph for connection: {connection_id}")
+        logger.info(f"🎨 Generating graph for connection: {connection_id}")
         
         # Get cluster assignments BEFORE generating graph
         from app.services.cluster_store import cluster_store
@@ -24,7 +28,7 @@ async def get_graph(connection_id: str):
         from app.services.realtime_monitor import realtime_monitor
         
         # 1. Feed the Schema for Active Scanning (Include Edges for Topology)
-        neural_core.update_schema_context(
+        await neural_core.update_schema_context(
             {'tables': graph.get('nodes', [])}, 
             connection_id=connection_id,
             edges=graph.get('edges', [])
@@ -116,7 +120,7 @@ async def get_graph(connection_id: str):
                     # Pass the enriched node data to get GNN-backed importance
                     node['importance_score'] = graph_neural_core.predict_importance(node.get('id'), node.get('type', 'table'), node)
                 except Exception as gnn_e:
-                    print(f"⚠️ GNN Inference skipped for {node.get('name')}: {gnn_e}")
+                    logger.warning(f"⚠️ GNN Inference skipped for {node.get('name')}: {gnn_e}")
 
                 # --- UNIFIED MASTER SYNC (Specification 1.0) ---
                 from app.services.graph_intelligence import graph_intelligence
@@ -156,7 +160,7 @@ async def get_graph(connection_id: str):
 
             except Exception as inner_e:
                 t_name = node.get('name', 'Unknown')
-                print(f"⚠️ Authenticated Enrichment Failed for {t_name}: {inner_e}")
+                logger.warning(f"⚠️ Authenticated Enrichment Failed for {t_name}: {inner_e}")
                 
                 # EMERGENCY REDIRECT: Use Authenticated Engine even in fallback
                 from app.services.graph_intelligence import graph_intelligence
@@ -208,31 +212,28 @@ async def get_graph(connection_id: str):
         return graph
         
     except Exception as e:
-        import traceback
         error_msg = str(e)
+        logger.error(f"Error generating graph for {connection_id}: {error_msg}", exc_info=True)
         
         # Check if it's a "connection not found" error
         if "not found" in error_msg.lower() or "connection" in error_msg.lower():
-            # Handle missing connection gracefully with a 404
-            raise HTTPException(status_code=404, detail=f"Connection {connection_id} not found. Please re-connect.")
+            raise HTTPException(status_code=404, detail="Connection not found. Please re-connect.")
             
-        stack_trace = traceback.format_exc()
-        print(f"⚠️ Error generating graph: {error_msg}")
-        
-        # Log to file for debugging
-        try:
-            with open("backend_error.log", "a") as f:
-                import datetime
-                f.write(f"[{datetime.datetime.now()}] {connection_id}: {error_msg}\n")
-                f.write(f"Stack Trace:\n{stack_trace}\n")
-                f.write("-" * 50 + "\n")
-        except:
-            pass
-            
-        # Re-raise error to show real status
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Graph generation failed: {error_msg}"
+        )
 
-@router.get("/graph/neural-metrics/{connection_id}")
+@router.get("/graph/logs/{session_id}")
+async def get_generation_logs(session_id: str):
+    """Retrieve history of process logs for a generation session"""
+    from app.services.generation_log_service import generation_log_service
+    return {
+        "session_id": session_id,
+        "logs": generation_log_service.get_logs(session_id)
+    }
+
+@router.get("/graph/neural-metrics/{connection_id}", response_model=Dict[str, Any], responses={500: {"model": ErrorResponse}})
 async def get_neural_metrics(connection_id: str):
     """Get neural core metrics only (distinct from /api/metrics which returns realtime_monitor data)."""
     try:
@@ -240,21 +241,23 @@ async def get_neural_metrics(connection_id: str):
         metrics = await neural_core.get_core_metrics(connection_id)
         return metrics
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Graph operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal graph service error")
 
-@router.post("/recalculate-gravity")
+@router.post("/recalculate-gravity", response_model=StatusResponse, responses={500: {"model": ErrorResponse}})
 async def recalculate_gravity(payload: dict):
     """Manually trigger neural core recalculation"""
     try:
         from app.services.neural_core import neural_core
         conn_id = payload.get("connection_id")
-        print(f"🔄 Manual Recalculation Triggered for {conn_id}")
+        logger.info(f"🔄 Manual Recalculation Triggered for {conn_id}")
         await neural_core.process_signal("manual_recalc", 1.0, connection_id=conn_id)
         return {"status": "triggered", "message": "Neural Core recalculation started"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Graph operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal graph service error")
 
-@router.get("/graph/cluster-metadata/{connection_id}")
+@router.get("/graph/cluster-metadata/{connection_id}", response_model=Dict[str, Any], responses={500: {"model": ErrorResponse}})
 async def get_cluster_metadata(connection_id: str):
     """
     Get cluster metadata for 3D Tables visualization (tier3 lens)
@@ -291,8 +294,7 @@ async def get_cluster_metadata(connection_id: str):
         }
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Cluster metadata failure for {connection_id}: {str(e)}", exc_info=True)
         
         # Return graceful fallback
         return {
@@ -301,6 +303,6 @@ async def get_cluster_metadata(connection_id: str):
             "total_tables": 0,
             "total_clusters": 0,
             "clusters": [],
-            "error": str(e)
+            "error": "Failed to retrieve cluster metadata"
         }
 

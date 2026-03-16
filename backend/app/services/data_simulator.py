@@ -32,7 +32,7 @@ class DataSimulator:
         if self.running:
             return
         self.running = True
-        print("⚡ [DataSimulator] Started — updates every 2 minutes on real Neon tables.")
+        logger.info("⚡ [DataSimulator] Started — updates every 2 minutes on real Neon tables.")
         logger.info("⚡ DataSimulator started. Interval: %ds", SIMULATION_INTERVAL_SECONDS)
         self.task = asyncio.create_task(self._simulation_loop())
 
@@ -54,7 +54,7 @@ class DataSimulator:
         while self.running:
             self._cycle += 1
             logger.info("🔄 [DataSimulator] Cycle #%d", self._cycle)
-            print(f"🔄 [DataSimulator] Cycle #{self._cycle} — updating WEZU tables…")
+            logger.info(f"🔄 [DataSimulator] Cycle #{self._cycle} — updating WEZU tables…")
             # Tables updated every 2 minutes:
             #   batteries       → UPDATE temperature, voltage, current_a, soh_percentage
             #   telemetics_data → INSERT every battery (100%)

@@ -37,11 +37,11 @@ export default function WarRoomHUD({ targetNode, activePeers = {}, connectionId,
 
     return (
         <motion.div
-            initial={{ x: -400, opacity: 0 }}
+            initial={{ x: 400, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -400, opacity: 0 }}
+            exit={{ x: 400, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="absolute top-20 left-4 w-96 flex flex-col gap-4 z-50 pointer-events-auto"
+            className="fixed top-20 right-4 w-96 flex flex-col gap-4 z-[6000] pointer-events-auto"
         >
             {/* Header: Flashing Red Alert */}
             <div className="bg-red-950/80 border border-red-500 rounded-lg p-4 shadow-[0_0_30px_rgba(239,68,68,0.3)] backdrop-blur-md relative overflow-hidden">

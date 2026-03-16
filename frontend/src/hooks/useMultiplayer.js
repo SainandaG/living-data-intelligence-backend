@@ -1,4 +1,35 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+// Simple throttle implementation to avoid external dependencies
+const throttle = (func, limit) => {
+    let inThrottle;
+    let lastFunc;
+    let timeout;
+    
+    const throttled = (...args) => {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            timeout = setTimeout(() => {
+                inThrottle = false;
+                if (lastFunc) {
+                    lastFunc();
+                    lastFunc = null;
+                }
+            }, limit);
+        } else {
+            lastFunc = () => func.apply(this, args);
+        }
+    };
+
+    throttled.cancel = () => {
+        clearTimeout(timeout);
+        inThrottle = false;
+        lastFunc = null;
+    };
+
+    return throttled;
+};
 
 // Generates a random color for the persona
 const generateColor = () => {
@@ -7,8 +38,7 @@ const generateColor = () => {
 };
 
 // Generates a stable random name
-const generateName = () => {
-    const adjs = ['Quantum', 'Lunar', 'Cosmic', 'Nebula', 'Stellar', 'Astral', 'Nexus', 'Cyber', 'Neon', 'Echo'];
+const generateName = () => { adjs = ['Quantum', 'Lunar', 'Cosmic', 'Nebula', 'Stellar', 'Astral', 'Nexus', 'Cyber', 'Neon', 'Echo'];
     const nouns = ['Panda', 'Fox', 'Wolf', 'Owl', 'Hawk', 'Tiger', 'Bear', 'Lynx', 'Viper', 'Raven'];
     return `${adjs[Math.floor(Math.random() * adjs.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]}`;
 };
@@ -34,6 +64,41 @@ export const useMultiplayer = (sendMessage, isConnected, appState) => {
     });
 
     const [activePeers, setActivePeers] = useState({});
+    const cursorRef = useRef({ x: 0, y: 0 });
+
+    // 1. Throttled Cursor Update (20fps / 50ms)
+    const throttledSendCursor = useCallback(
+        throttle((cursor) => {
+            if (!isConnected) return;
+            sendMessage({
+                type: 'presence_update',
+                user_id: persona.id,
+                name: persona.name,
+                color: persona.color,
+                cursor: cursor,
+                selected_node: appState.selectedNodeId,
+                lens: appState.currentLens,
+                timestamp: Date.now()
+            });
+        }, 50),
+        [isConnected, sendMessage, persona, appState]
+    );
+
+    // 2. Track Mouse Movement
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            const x = e.clientX / window.innerWidth;
+            const y = e.clientY / window.innerHeight;
+            cursorRef.current = { x, y };
+            throttledSendCursor({ x, y });
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            throttledSendCursor.cancel();
+        };
+    }, [throttledSendCursor]);
 
     // Process incoming presence data
     const handlePresenceMessage = useCallback((data) => {
@@ -48,6 +113,7 @@ export const useMultiplayer = (sendMessage, isConnected, appState) => {
                 name: data.name,
                 color: data.color,
                 camera: data.camera,
+                cursor: data.cursor, // Store remote cursor
                 selected_node: data.selected_node,
                 lens: data.lens,
                 last_seen: Date.now()
@@ -55,7 +121,7 @@ export const useMultiplayer = (sendMessage, isConnected, appState) => {
         }));
     }, [persona.id]);
 
-    // Send presence heartbeat continually
+    // Send presence heartbeat continually (Low frequency for generic state)
     useEffect(() => {
         if (!isConnected) return;
 
@@ -70,12 +136,13 @@ export const useMultiplayer = (sendMessage, isConnected, appState) => {
                 user_id: persona.id,
                 name: persona.name,
                 color: persona.color,
+                cursor: cursorRef.current, // Include last known cursor
                 camera: cameraState,
                 selected_node: appState.selectedNodeId,
                 lens: appState.currentLens,
                 timestamp: Date.now()
             });
-        }, 1000); // 1-second heartbeat
+        }, 2000); // Increased heartbeat interval since cursor updates handle real-time sync
 
         return () => clearInterval(intervalId);
     }, [isConnected, sendMessage, persona, appState]);

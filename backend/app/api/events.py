@@ -7,6 +7,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import the orphaned event processor
 try:
@@ -17,7 +20,7 @@ try:
     EVENTS_AVAILABLE = True
 except ImportError:
     EVENTS_AVAILABLE = False
-    print("⚠️ Warning: TxEventProcessor not available")
+    logger.warning("⚠️ Warning: TxEventProcessor not available")
 
 from ..config.feature_flags import USE_ADVANCED_EVENT_PROCESSING
 
@@ -44,9 +47,9 @@ _processor = None
 if EVENTS_AVAILABLE and USE_ADVANCED_EVENT_PROCESSING:
     try:
         _processor = TxEventProcessor()
-        print("✅ TxEventProcessor initialized successfully")
+        logger.info("✅ TxEventProcessor initialized successfully")
     except Exception as e:
-        print(f"⚠️ TxEventProcessor initialization failed: {e}")
+        logger.warning(f"⚠️ TxEventProcessor initialization failed: {e}")
 
 @router.post("/process", response_model=EventProcessResponse)
 async def process_event(request: EventProcessRequest):
@@ -102,7 +105,8 @@ async def process_event(request: EventProcessRequest):
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Event processing failed: {str(e)}")
+        logger.error(f"Event processing failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Transaction event processing failed")
 
 @router.get("/status")
 async def events_status():

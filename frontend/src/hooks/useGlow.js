@@ -16,7 +16,8 @@ export const useGlowManager = () => {
 
                 const LERP_FACTOR = 0.08;
                 let targetOpacity = child.userData.originalOpacity;
-                let baseEmissive = Math.min(3.0, (child.userData.originalEmissive + nodeGlow * 0.4));
+                // [BOOST] Increase base emissive to ensure nodes "bloom" effectively
+                let baseEmissive = child.userData.originalEmissive + (nodeGlow * 0.8);
                 let targetEmissive = baseEmissive;
 
                 // Handle Hover/Active states

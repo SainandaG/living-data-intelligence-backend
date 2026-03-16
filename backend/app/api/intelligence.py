@@ -33,19 +33,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# #region agent log
-def _debug_log(message: str, data: dict):
-    import json
-    import os
-    try:
-        logpath = r"c:\Users\karth\living-data-intelligence-backend\.cursor\debug.log"
-        os.makedirs(os.path.dirname(logpath), exist_ok=True)
-        with open(logpath, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "intelligence.py", "message": message, "data": data}) + "\n")
-    except Exception:
-        pass
-_debug_log("intelligence_router_loaded", {"hypothesisId": "H0"})
-# #endregion
 
 
 @router.get("/deep-status/{connection_id}/{table_name}")
@@ -81,8 +68,8 @@ async def get_deep_status(connection_id: str, table_name: str):
         }
         
     except Exception as e:
-        logger.error(f"Error getting deep status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 async def _hydrate_nodes(connection_id: str, nodes: List[Dict]) -> List[Dict]:
@@ -158,7 +145,6 @@ async def get_health_overview(connection_id: str):
     Dashboard 1: System Health Overview
     Returns: health_score, state, explanation, visual_config
     """
-    _debug_log("health_overview_hit", {"connection_id": connection_id, "hypothesisId": "H0"})
     try:
         from app.services.realtime_monitor import realtime_monitor
         
@@ -188,11 +174,10 @@ async def get_health_overview(connection_id: str):
                 'glow_intensity': 0.5 if health_data['state'] == 'healthy' else 0.8 if health_data['state'] == 'stressed' else 1.0
             }
         }
-        _debug_log("System Health OK", {"connection_id": connection_id, "score": health_data["score"], "hypothesisId": "H1"})
         return out
     except Exception as e:
-        logger.error(f"Error getting health overview: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/data-analysis/{connection_id}/{table_name}")
@@ -216,8 +201,8 @@ async def get_table_data_analysis(connection_id: str, table_name: str):
         return analysis
         
     except Exception as e:
-        logger.error(f"Error analyzing table {table_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/data-quality/{connection_id}/{table_name}")
@@ -269,8 +254,8 @@ async def get_data_quality_report(connection_id: str, table_name: str):
         }
         
     except Exception as e:
-        logger.error(f"Error getting quality report: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/bulk-analysis/{connection_id}")
@@ -285,8 +270,8 @@ async def get_bulk_analysis(connection_id: str):
             raise HTTPException(status_code=400, detail=report.get("message"))
         return report
     except Exception as e:
-        logger.error(f"Error generating bulk analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 
@@ -322,8 +307,8 @@ async def get_business_insights(connection_id: str, table_name: str):
         return insights
         
     except Exception as e:
-        logger.error(f"Error getting business insights: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/patterns/{connection_id}/{table_name}")
@@ -344,8 +329,8 @@ async def get_pattern_analysis(connection_id: str, table_name: str):
         return analysis
         
     except Exception as e:
-        logger.error(f"Error analyzing patterns for {table_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/correlations/{connection_id}/{table_name}")
@@ -374,8 +359,8 @@ async def get_data_correlations(connection_id: str, table_name: str):
         }
         
     except Exception as e:
-        logger.error(f"Error finding correlations: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/anomalies/{connection_id}")
@@ -414,11 +399,10 @@ async def get_current_anomalies(connection_id: str):
             'count': len(formatted_anomalies),
             'has_critical': any(a['severity'] == 'High' for a in formatted_anomalies)
         }
-        _debug_log("Anomalies OK", {"connection_id": connection_id, "count": len(formatted_anomalies), "hypothesisId": "H3"})
         return out
     except Exception as e:
-        logger.error(f"Error getting anomalies: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/predictions/{connection_id}/{table_name}")
@@ -439,8 +423,8 @@ async def get_predictions(connection_id: str, table_name: str):
         return predictions
         
     except Exception as e:
-        logger.error(f"Error calculating predictions for {table_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/root-cause/{connection_id}/{table_name}")
@@ -461,8 +445,8 @@ async def get_root_cause_analysis(connection_id: str, table_name: str):
         return impact
         
     except Exception as e:
-        logger.error(f"Error analyzing root cause for {table_name}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 def _default_table_for_connection(connection_id: str) -> str:
@@ -527,8 +511,8 @@ async def get_recommendations(connection_id: str, table_name: str):
         }
         
     except Exception as e:
-        logger.error(f"Error generating recommendations: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/hub/{connection_id}")
@@ -657,12 +641,12 @@ async def get_intelligence_hub(connection_id: str):
         }
         
     except Exception as e:
-        logger.error(f"Error getting intelligence hub: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
         
     except Exception as e:
-        logger.error(f"Error getting intelligence hub: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/health/history/{connection_id}")
@@ -682,11 +666,10 @@ async def get_health_history(connection_id: str):
                 {'time': h['timestamp'], 'score': h['score']} for h in history
             ]
         }
-        _debug_log("Health history OK", {"connection_id": connection_id, "history_len": len(history), "hypothesisId": "H2"})
         return out
     except Exception as e:
-        logger.error(f"Error getting health history: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal intelligence service error")
 
 
 @router.get("/latent/projection")

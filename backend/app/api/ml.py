@@ -6,6 +6,9 @@ Connects to backend/ml/graph_neural_core.py
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import the GNN that exists but is orphaned
 try:
@@ -16,7 +19,7 @@ try:
     GNN_AVAILABLE = True
 except ImportError:
     GNN_AVAILABLE = False
-    print("⚠️ Warning: GraphNeuralCore not available")
+    logger.warning("⚠️ Warning: GraphNeuralCore not available")
 
 from ..config.feature_flags import USE_GNN_INFERENCE
 
@@ -41,9 +44,9 @@ _gnn = None
 if GNN_AVAILABLE and USE_GNN_INFERENCE:
     try:
         _gnn = GraphNeuralCore()
-        print("✅ GNN initialized successfully")
+        logger.info("✅ GNN initialized successfully")
     except Exception as e:
-        print(f"⚠️ GNN initialization failed: {e}")
+        logger.warning(f"⚠️ GNN initialization failed: {e}")
 
 @router.post("/gnn/predict", response_model=NodePredictionResponse)
 async def predict_node_importance(request: NodePredictionRequest):
@@ -96,7 +99,7 @@ async def predict_node_importance(request: NodePredictionRequest):
                         "edges": target_table.foreign_keys if target_table.foreign_keys else [],
                         "columns": len(target_table.columns) if target_table.columns else 0
                     }
-                    print(f"🧠 GNN: Injected real metadata for {request.node_id} (Rows: {node_data['record_count']})")
+                    logger.info(f"🧠 GNN: Injected real metadata for {request.node_id} (Rows: {node_data['record_count']})")
 
         # 2. Call GNN with (optional) Real Data
         importance = _gnn.predict_importance(request.node_id, request.node_type, node_data=node_data)
@@ -111,7 +114,8 @@ async def predict_node_importance(request: NodePredictionRequest):
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GNN prediction failed: {str(e)}")
+        logger.error(f"GNN prediction failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="GNN inference error")
 
 @router.post("/gnn/predict/batch")
 async def predict_batch_importance(request: BatchPredictionRequest):
@@ -142,7 +146,8 @@ async def predict_batch_importance(request: BatchPredictionRequest):
         return {"predictions": results}
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Batch GNN prediction failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="GNN batch inference error")
 
 @router.get("/gnn/status")
 async def gnn_status():

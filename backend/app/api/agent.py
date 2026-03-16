@@ -94,7 +94,8 @@ async def process_intent(request: IntentRequest):
         return IntentResponse(**result)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/execute", response_model=ExecuteResponse)
@@ -115,7 +116,8 @@ async def execute_action(request: ExecuteRequest):
         return ExecuteResponse(**result)
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/state", response_model=StateResponse)
@@ -131,10 +133,8 @@ async def get_agent_state():
         return StateResponse(**state)
         
     except Exception as e:
-        logger.error(f"Error fetching state: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to fetch agent state: {str(e)}")
+        logger.error(f"Agent state fetch failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch agent state")
 
 
 @router.get("/logs", response_model=CommandHistory)
@@ -153,10 +153,8 @@ async def get_command_logs(limit: int = 10):
         )
         
     except Exception as e:
-        logger.error(f"Error fetching logs: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to fetch command logs: {str(e)}")
+        logger.error(f"Command logs fetch failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch command logs")
 
 
 @router.get("/commands")
@@ -176,7 +174,8 @@ async def get_available_commands():
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/statistics")
@@ -193,7 +192,8 @@ async def get_agent_statistics():
         return stats
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/context/clear")
@@ -210,7 +210,8 @@ async def clear_context():
         return {"success": True, "message": "Context cleared"}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/reset")
@@ -230,7 +231,8 @@ async def reset_agents():
         return {"success": True, "message": "Agents reset to IDLE"}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/command/{command_id}")
@@ -256,7 +258,8 @@ async def get_command_details(command_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/config")
@@ -279,4 +282,5 @@ async def get_system_config():
             "active_connection_id": active_id
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Agent API error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")

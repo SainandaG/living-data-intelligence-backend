@@ -4,6 +4,9 @@ from typing import List, Dict, Optional
 from app.services.agent_analyst import agent_analyst
 from app.services.rl_optimizer import rl_optimizer
 from app.services.graph_optimizer_nx import graph_optimizer_nx
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,9 +28,8 @@ async def ai_chat(request: ChatRequest):
         result = await chat_service.generate_response(request.query, request.connection_id)
         return {"response": result["response"]}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"AI Chat failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="AI service error")
 
 
 @router.get("/gravity-suggestions/{connection_id}")
@@ -41,7 +43,8 @@ async def get_gravity_suggestions(connection_id: str):
         suggestions = await agent_service.get_gravity_suggestions(schema_dict)
         return {"suggestions": suggestions}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Gravity suggestions failure for {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve AI gravity suggestions")
 
 @router.post("/optimize")
 async def optimize_system(request: OptimizationRequest):
@@ -86,20 +89,11 @@ async def optimize_system(request: OptimizationRequest):
             "cluster_count": len(set(clusters.values())) if clusters else 0
         }
     except Exception as e:
-        # Log but don't fail the toggle
-        print(f"Optimization Error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"System optimization failed: {e}", exc_info=True)
         return {
             "status": "error", 
             "mode": "STANDARD",
-            "error": str(e)
+            "error": "Internal optimization failure"
         }
     finally:
-        # DBG: Log to file
-        try:
-            with open("cluster_debug.log", "a") as f:
-                import datetime
-                timestamp = datetime.datetime.now().isoformat()
-                f.write(f"[{timestamp}] OPTIMIZE: ID={request.connection_id} Method={method_used} Clusters={len(clusters)}\n")
-        except: pass
+        pass

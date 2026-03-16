@@ -1,3 +1,4 @@
+import logging
 """
 Command Registry Service
 Manages voice command definitions and intent-to-action mappings.
@@ -7,6 +8,7 @@ import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import re
+logger = logging.getLogger(__name__)
 
 
 class CommandRegistry:
@@ -44,11 +46,10 @@ class CommandRegistry:
                     break
             
             if not config_file:
-                print(f"❌ Commands config NOT found in: {[str(p) for p in possible_paths]}")
+                logger.info(f"❌ Commands config NOT found in: {[str(p) for p in possible_paths]}")
                 raise FileNotFoundError(f"Commands configuration not found")
             
-            print(f"✅ Loading commands from: {config_file}")
-            
+            logger.info(f"✅ Loading commands from: {config_file}")
             with open(config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 self.commands = data.get('commands', [])
@@ -57,10 +58,9 @@ class CommandRegistry:
             for cmd in self.commands:
                 self.intent_map[cmd['intent']] = cmd
                 
-            print(f"Loaded {len(self.commands)} commands from registry")
-            
+            logger.info(f"Loaded {len(self.commands)} commands from registry")
         except Exception as e:
-            print(f"Error loading command registry: {e}")
+            logger.info(f"Error loading command registry: {e}")
             self.commands = []
             self.intent_map = {}
     
@@ -198,11 +198,11 @@ class CommandRegistry:
             self.commands.append(command)
             self.intent_map[command['intent']] = command
             
-            print(f"✅ Registered new command: {command['id']}")
+            logger.info(f"✅ Registered new command: {command['id']}")
             return True
             
         except Exception as e:
-            print(f"❌ Error registering command: {e}")
+            logger.info(f"❌ Error registering command: {e}")
             return False
     
     def reload(self) -> None:

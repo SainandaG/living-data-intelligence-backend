@@ -1,3 +1,4 @@
+import logging
 """
 Graph Generator - Creates 3D graph structure from database schema
 Enhanced with AI (Neural Core & RL) for intelligent layout and link prediction.
@@ -7,6 +8,7 @@ import random
 from typing import Dict, List
 from app.services.neural_core import neural_core
 from app.services.rl_optimizer import rl_optimizer
+logger = logging.getLogger(__name__)
 
 class GraphGenerator:
     """Generate 3D graph from database schema with advanced visualization"""
@@ -74,23 +76,28 @@ class GraphGenerator:
     async def generate_graph(self, connection_id: str, cluster_assignments: Dict[str, str] = None, clustering_method: str = None) -> dict:
         """Generate 3D graph with Semantic Force Layout properties and cluster-aware positioning"""
         from app.services.schema_analyzer import schema_analyzer
+        from app.services.generation_log_service import generation_log_service
         
-        print(f"🎨 Generating graph for connection: {connection_id}")
+        await generation_log_service.log_step(connection_id, "🎨 Initiating Neural Graph Core generation", progress=5)
+        
         if cluster_assignments:
-            print(f"📍 Using cluster-based positioning ({clustering_method} mode)")
-        
+            await generation_log_service.log_step(connection_id, f"📍 Applying {clustering_method} cluster layout", progress=10)
+            
         # 1. Get Base Schema
+        await generation_log_service.log_step(connection_id, "🔍 Extracting schema and table metadata", progress=20)
         schema_obj = await schema_analyzer.analyze_schema(connection_id)
         schema = schema_obj.model_dump() if hasattr(schema_obj, 'model_dump') else schema_obj
         
         tables = schema.get('tables', [])
         if not tables:
+            await generation_log_service.log_step(connection_id, "❌ No tables found in database", level="error", progress=100)
             return {'nodes': [], 'edges': []}
             
         nodes = []
         edges = []
         
         # 2. Add the Neural Core Hub (Dynamic size based on database)
+        await generation_log_service.log_step(connection_id, "🧠 Synthesizing Neural Core central hub", progress=30)
         core_metrics = await neural_core.get_core_metrics(connection_id)
         num_tables = len(tables)
         # Scale core size: 70 for small DBs, 100 for large DBs (prominent central hub)
@@ -128,9 +135,9 @@ class GraphGenerator:
                     'z': (i % 3 - 1) * 100  # Spread vertically across 3 levels
                 }
             
-            print(f"📍 Positioned {num_clusters} clusters in 3D space")
-
+            logger.info(f"📍 Positioned {num_clusters} clusters in 3D space")
         # 4. Process Tables with CLUSTER-AWARE or STATISTICAL LOGIC
+        await generation_log_service.log_step(connection_id, f"📍 Placing {num_tables} nodes in latency space", progress=50)
         table_map = {t['name']: t for t in tables}
         
         for i, table in enumerate(tables):
@@ -265,6 +272,7 @@ class GraphGenerator:
             
         # Execute all in parallel
         # This reduces 120 sequential awaits to 1 concurrent block
+        await generation_log_service.log_step(connection_id, "🔗 AI Link Prediction: Deep Relationship Discovery", progress=80)
         all_predictions = await asyncio.gather(*prediction_tasks, return_exceptions=True)
         
         for i, predictions in enumerate(all_predictions):
@@ -398,6 +406,7 @@ class GraphGenerator:
             # Update visual size based on NEW vitality/gravity if needed
             # (Optional: we can keep the size logic from Pass 1 or update it here)
 
+        await generation_log_service.log_step(connection_id, "✅ Neural Graph Core generation complete", level="success", progress=100)
         return {
             'nodes': nodes, 
             'edges': edges

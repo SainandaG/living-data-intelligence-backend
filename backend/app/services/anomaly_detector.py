@@ -7,7 +7,10 @@ from typing import Dict, List, Any, Tuple
 import statistics
 import json
 import asyncio
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class AnomalyDetector:
     """Reality-Driven Anomaly Detection with Persistent Memory"""
@@ -27,7 +30,7 @@ class AnomalyDetector:
             res = await db_connector.query(connection_id, sql, (connection_id,))
             if res:
                 self.baseline_metrics[connection_id] = json.loads(res[0]['metrics_json'])
-                print(f"AnomalyDetector: Hydrated memory for {connection_id}")
+                logger.info(f"AnomalyDetector: Hydrated memory for {connection_id}")
         except:
             # Table might not exist yet
             self.baseline_metrics[connection_id] = {}
@@ -130,7 +133,7 @@ class AnomalyDetector:
                 
             await db_connector.query(connection_id, sql, (connection_id, data))
         except Exception as e:
-            print(f"AnomalyDetector: Memory persistence fail: {e}")
+            logger.error(f"AnomalyDetector: Memory persistence fail: {e}")
 
     def detect_cascading_failures(self, connection_id: str, current_anomalies: List[Dict]) -> List[Dict]:
         return [] # Simplified for Refactor

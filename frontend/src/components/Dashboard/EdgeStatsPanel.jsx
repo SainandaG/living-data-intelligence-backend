@@ -1,8 +1,8 @@
 import React from 'react';
-import { TrendingUp, Database, Brain, CheckCircle } from 'lucide-react';
+import { TrendingUp, Database, Brain, CheckCircle, Pin, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function EdgeStatsPanel({ edge, position, visible, variant = 'floating' }) {
+export default function EdgeStatsPanel({ edge, position, visible, variant = 'floating', isPinned, onPin, onClose }) {
     if (!visible || !edge) return null;
 
     const edgeData = edge.data || {};
@@ -48,14 +48,32 @@ export default function EdgeStatsPanel({ edge, position, visible, variant = 'flo
     return (
         <AnimatePresence>
             <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                transition={{ duration: 0.2 }}
-                className="fixed z-50 pointer-events-none"
-                style={{ left: position?.x || '50%', top: position?.y || '50%', transform: 'translate(-50%, -120%)' }}
+                initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+                className="fixed z-[5000] pointer-events-auto"
+                style={{ top: '100px', left: '92px' }}
             >
-                <div className="bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-white/30 rounded-xl p-4 shadow-2xl min-w-[320px] max-w-[400px]">
+                <div className="bg-[var(--bg-elevated)]/95 backdrop-blur-xl border border-white/30 rounded-xl p-4 shadow-2xl min-w-[320px] max-w-[400px] relative">
+                    {/* Header Controls */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                        <button 
+                            onClick={() => onPin && onPin()}
+                            className={`p-1 rounded-md transition-colors ${isPinned ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-white/10 text-white/40'}`}
+                            title={isPinned ? "Unpin Relationship" : "Pin Relationship"}
+                        >
+                            <Pin size={14} className={isPinned ? 'fill-cyan-400' : ''} />
+                        </button>
+                        <button 
+                            onClick={() => onClose && onClose()}
+                            className="p-1 hover:bg-white/10 text-white/40 hover:text-white rounded-md transition-colors"
+                            title="Close Panel"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+
                     {/* Header */}
                     <div className="flex items-center justify-between mb-3 pb-3 border-b border-white/10">
                         <div className="flex items-center gap-2">

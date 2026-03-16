@@ -1,4 +1,5 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react';
+import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
+import apiClient from '../../utils/apiClient';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Stars, Float, Text, ContactShadows, Line } from '@react-three/drei';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -280,13 +281,7 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
         const fetchData = async () => {
             if (!connectionId) return;
             try {
-                const res = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
-                if (res.status === 404) {
-                    setMetrics(null);
-                    setProofs({});
-                    return;
-                }
-                const data = await res.json();
+                const data = await apiClient.get(`/evolution/analysis/table/${connectionId}/${tableName}`);
                 if (data.metrics) {
                     setMetrics(data.metrics);
                     setProofs(data.proofs);
@@ -339,12 +334,7 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
         setIsInsightLoading(true);
         try {
             soundSystem.play('scanPulse');
-            const res = await fetch(`/api/evolution/analysis/insight/${connectionId}/${tableName}`);
-            if (res.status === 404) {
-                setAiInsight("Evolution service not available.");
-                return;
-            }
-            const data = await res.json();
+            const data = await apiClient.get(`/evolution/analysis/insight/${connectionId}/${tableName}`);
             if (data.insight) {
                 setAiInsight(data.insight);
             }
@@ -361,15 +351,11 @@ export default function NodeFormationSimulation({ connectionId, tableName, flowD
         setIsNeuralLoading(true);
         try {
             soundSystem.play('scanPulse');
-            const res = await fetch('/api/ml/gnn/predict', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ node_id: tableName, node_type: 'table' })
+            const data = await apiClient.post('/ml/gnn/predict', { 
+                node_id: tableName, 
+                node_type: 'table' 
             });
 
-            if (!res.ok) throw new Error("GNN Offline");
-
-            const data = await res.json();
             setNeuralMetrics(data);
             soundSystem.play('formationAmbient'); // Confirmation sound
         } catch (e) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import apiClient from '../../utils/apiClient';
 import { Activity, Cpu, Database, HardDrive, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -11,15 +12,8 @@ export default function HealthDashboard() {
     useEffect(() => {
         const fetchVitals = async () => {
             try {
-                const response = await fetch('/api/vitals/');
-                if (response.status === 404) {
-                    setServiceUnavailable(true);
-                    return;
-                }
-                if (response.ok) {
-                    const data = await response.json();
-                    setVitals(data);
-                }
+                const data = await apiClient.get('/vitals/');
+                setVitals(data);
             } catch (error) {
                 console.error('Failed to fetch vitals:', error);
             } finally {

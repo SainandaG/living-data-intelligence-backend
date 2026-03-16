@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException
 from app.services.drill_down import drill_down_service
 from app.services.gravity_engine import gravity_engine
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -54,7 +57,8 @@ async def get_clustered_records(connection_id: str, table_name: str, column: str
         result = await drill_down_service.get_clustered_records(connection_id, table_name, column)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drilldown operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal drill-down service error")
 
 @router.post("/gravity/calculate")
 async def calculate_gravity(request: GravityRequest):
@@ -68,9 +72,8 @@ async def calculate_gravity(request: GravityRequest):
         )
         return {"status": "success", "results": results}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Gravity calculation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gravity calculation failed")
 @router.get("/drilldown/{connection_id}/semantic-discovery/{table_name}")
 async def get_semantic_discovery(connection_id: str, table_name: str):
     """Get predicted semantic relationships for a table"""
@@ -87,7 +90,8 @@ async def get_semantic_discovery(connection_id: str, table_name: str):
         
         return {"status": "success", "predictions": predictions}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drilldown operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal drill-down service error")
 @router.get("/drilldown/{connection_id}/column-intelligence/{table_name}/{column_name}")
 async def get_column_intelligence(connection_id: str, table_name: str, column_name: str):
     """Get granular intelligence for a specific column"""
@@ -122,7 +126,8 @@ async def get_column_intelligence(connection_id: str, table_name: str, column_na
         intelligence = await analysis_engine.get_table_intelligence(connection_id, table_name, known_row_count=known_rows)
         return {"status": "success", "intelligence": intelligence}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drilldown operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal drill-down service error")
 
 @router.get("/drilldown/{connection_id}/impact-analysis/{table_name}")
 async def get_impact_analysis(connection_id: str, table_name: str):
@@ -134,5 +139,6 @@ async def get_impact_analysis(connection_id: str, table_name: str):
         result = await root_cause_analyzer.analyze_impact(db_connector, connection_id, table_name)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drilldown operation failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal drill-down service error")
 

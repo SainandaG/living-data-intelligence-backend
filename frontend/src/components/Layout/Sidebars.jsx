@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { Database, Zap, Brain, Activity, ArrowRight, Settings, Play, RefreshCw, BarChart2, Terminal as TerminalIcon, Share2 } from 'lucide-react';
+import { Database, Zap, Brain, Activity, ArrowRight, Settings, Play, RefreshCw, BarChart2, Terminal as TerminalIcon, Share2, Bot } from 'lucide-react';
 import CollapsiblePanel from '../UI/CollapsiblePanel';
+import { cn } from '../../utils/cn';
 
 // Helper for Icon Button with Tooltip
-const IconButton = ({ icon: Icon, label, onClick, active, color = "text-slate-400" }) => (
+const IconButton = React.memo(({ icon: Icon, label, onClick, active, color = "text-slate-400" }) => (
     <div className="relative group flex items-center justify-center">
         <button
             onClick={onClick}
-            className={`
-                w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200
-                ${active ? 'bg-[var(--primary)]/20 text-[var(--primary)] border border-[var(--primary)]/30' : `hover:bg-white/5 hover:text-white ${color}`}
-            `}
+            className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-200",
+                active ? 'bg-[var(--primary)]/20 text-[var(--primary)] border border-[var(--primary)]/30' : `hover:bg-white/5 hover:text-white ${color}`
+            )}
         >
             <Icon size={20} />
         </button>
@@ -19,10 +20,30 @@ const IconButton = ({ icon: Icon, label, onClick, active, color = "text-slate-40
             {label}
         </div>
     </div>
-);
+));
 
-const LeftSidebar = ({ actions, activeLens }) => {
+const LeftSidebar = React.memo(({ actions, activeLens }) => {
     const [showIntelMenu, setShowIntelMenu] = useState(false);
+    const [isAgentHubOpen, setIsAgentHubOpen] = useState(false);
+
+    React.useEffect(() => {
+        const handleToggle = (e) => {
+            if (e.detail && typeof e.detail.open === 'boolean') {
+                setIsAgentHubOpen(e.detail.open);
+            } else {
+                setIsAgentHubOpen(prev => !prev);
+            }
+        };
+        window.addEventListener('toggle-agent-hub', handleToggle);
+        return () => window.removeEventListener('toggle-agent-hub', handleToggle);
+    }, []);
+
+    // Global state sync for exclusivity with graph HUDs
+    React.useEffect(() => {
+        window.dispatchEvent(new CustomEvent('sidebar-panel-active', { 
+            detail: { active: showIntelMenu || isAgentHubOpen } 
+        }));
+    }, [showIntelMenu, isAgentHubOpen]);
 
     return (
         <>
@@ -46,12 +67,19 @@ const LeftSidebar = ({ actions, activeLens }) => {
                     label="Intelligence Core"
                     active={showIntelMenu}
                     color="text-[var(--secondary)]"
-                    onClick={() => setShowIntelMenu(!showIntelMenu)}
+                    onClick={() => {
+                        const newState = !showIntelMenu;
+                        setShowIntelMenu(newState);
+                        // If opening Intel Menu, explicitly close Agent Hub
+                        if (newState) {
+                            window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
+                        }
+                    }}
                 />
 
                 {/* Popover Menu for Intelligence Controls */}
                 {showIntelMenu && (
-                    <div className="absolute left-full top-0 ml-4 w-64 glass-panel p-4 rounded-xl z-[100] flex flex-col gap-4 animate-in fade-in slide-in-from-left-4">
+                    <div className="absolute left-full top-0 ml-4 w-64 glass-panel p-4 rounded-xl z-[6000] flex flex-col gap-4 animate-in fade-in slide-in-from-left-4">
                         <div className="flex justify-between items-center border-b border-white/10 pb-2">
                             <h4 className="text-xs font-bold text-[var(--secondary)] uppercase tracking-widest">
                                 Neural Config
@@ -66,13 +94,19 @@ const LeftSidebar = ({ actions, activeLens }) => {
                             <div className="flex bg-white/5 rounded-lg p-1 border border-white/10">
                                 <button
                                     onClick={() => actions.clusteringMethod !== 'heuristic' && actions.toggleClusteringMethod()}
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded ${actions.clusteringMethod === 'heuristic' ? 'bg-[var(--primary)] text-black' : 'text-slate-400 hover:text-white'}`}
+                                    className={cn(
+                                        "flex-1 py-1.5 text-[10px] font-bold rounded",
+                                        actions.clusteringMethod === 'heuristic' ? 'bg-[var(--primary)] text-black' : 'text-slate-400 hover:text-white'
+                                    )}
                                 >
                                     Heuristic
                                 </button>
                                 <button
                                     onClick={() => actions.clusteringMethod !== 'networkx' && actions.toggleClusteringMethod()}
-                                    className={`flex-1 py-1.5 text-[10px] font-bold rounded ${actions.clusteringMethod === 'networkx' ? 'bg-[var(--secondary)] text-white' : 'text-slate-400 hover:text-white'}`}
+                                    className={cn(
+                                        "flex-1 py-1.5 text-[10px] font-bold rounded",
+                                        actions.clusteringMethod === 'networkx' ? 'bg-[var(--secondary)] text-white' : 'text-slate-400 hover:text-white'
+                                    )}
                                 >
                                     NetworkX
                                 </button>
@@ -81,10 +115,10 @@ const LeftSidebar = ({ actions, activeLens }) => {
 
                         <button
                             onClick={actions.toggleRL}
-                            className={`
-                                w-full py-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-2
-                                ${actions.rlActive ? 'bg-[var(--primary)]/20 text-[var(--primary)] border-[var(--primary)]/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}
-                            `}
+                            className={cn(
+                                "w-full py-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-2",
+                                actions.rlActive ? 'bg-[var(--primary)]/20 text-[var(--primary)] border-[var(--primary)]/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                            )}
                         >
                             <Zap size={14} />
                             {actions.rlActive ? 'Optimizer: ON' : 'Enable Optimizer'}
@@ -107,6 +141,21 @@ const LeftSidebar = ({ actions, activeLens }) => {
                 onClick={() => { }}
             />
 
+            <IconButton
+                icon={Bot}
+                label="Neural Agent HUB"
+                onClick={() => {
+                    const newState = !isAgentHubOpen;
+                    window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: newState } }));
+                    // If opening Agent Hub, explicitly close Intel Menu
+                    if (newState) {
+                        setShowIntelMenu(false);
+                    }
+                }}
+                color="text-indigo-400"
+                active={isAgentHubOpen}
+            />
+
             <div className="my-2 w-8 h-px bg-white/10"></div>
 
             <IconButton
@@ -117,7 +166,7 @@ const LeftSidebar = ({ actions, activeLens }) => {
             />
         </>
     );
-};
+});
 
 const formatNumber = (num) => {
     if (!num) return '0';
@@ -127,7 +176,7 @@ const formatNumber = (num) => {
     return num.toLocaleString();
 };
 
-const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liveStats, activeLens }) => {
+const RightSidebar = React.memo(({ selectedNode, impactedNodes = [], flows, mlInsights, liveStats, activeLens }) => {
     // Relaxed Conditions: Show if Lens is active OR if data is interesting
     const hasEnergyData = liveStats?.activeBatteries > 0;
     const hasSecurityRisks = liveStats?.anomalies?.length > 0 || (liveStats?.health?.score || 100) < 90;
@@ -264,10 +313,12 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
                         </div>
                         <div className="flex justify-between items-center">
                             <span className="text-slate-400">Fleet Status</span>
-                            <span className={`font-bold ${(liveStats.networkHealth || 0) >= 90 ? 'text-green-400' :
+                            <span className={cn(
+                                "font-bold",
+                                (liveStats.networkHealth || 0) >= 90 ? 'text-green-400' :
                                 (liveStats.networkHealth || 0) >= 75 ? 'text-yellow-400' :
-                                    'text-red-400'
-                                }`}>
+                                'text-red-400'
+                            )}>
                                 {(liveStats.networkHealth || 0) >= 90 ? '✅ Optimal' :
                                     (liveStats.networkHealth || 0) >= 75 ? '⚠️ Monitor' :
                                         '🚨 Critical'}
@@ -287,7 +338,10 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
                     {flows && flows.length > 0 ? (
                         flows.map((flow, i) => (
                             <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-right-2">
-                                <div className={`mt-0.5 ${flow.severity === 'high' ? 'text-red-400' : 'text-[var(--primary)]'}`}>
+                                <div className={cn(
+                                    "mt-0.5",
+                                    flow.severity === 'high' ? 'text-red-400' : 'text-[var(--primary)]'
+                                )}>
                                     <Activity size={12} />
                                 </div>
                                 <div className="flex-1">
@@ -316,29 +370,29 @@ const RightSidebar = ({ selectedNode, impactedNodes = [], flows, mlInsights, liv
             )}
         </div>
     );
-};
+});
 
 // Helper Component for Metrics
-const MetricCard = ({ label, value, icon, color }) => (
+const MetricCard = React.memo(({ label, value, icon, color }) => (
     <div className="bg-white/5 border border-white/10 rounded-lg p-2 flex flex-col items-center justify-center hover:bg-white/10 transition-colors">
         <div className="text-lg mb-1">{icon}</div>
-        <div className={`text-sm font-bold ${color}`}>{value}</div>
+        <div className={cn("text-sm font-bold", color)}>{value}</div>
         <div className="text-[9px] text-slate-400 uppercase tracking-wide text-center">{label}</div>
     </div>
-);
+));
 
 // Helper for Health Bars
-const HealthBar = ({ label, value, percent, color }) => (
+const HealthBar = React.memo(({ label, value, percent, color }) => (
     <div>
         <div className="flex justify-between text-[10px] mb-1">
             <span className="text-slate-400 uppercase tracking-wider">{label}</span>
             <span className="text-white font-mono font-bold">{value}</span>
         </div>
         <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
-            <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${percent}%` }}></div>
+            <div className={cn("h-full transition-all duration-500", color)} style={{ width: `${percent}%` }}></div>
         </div>
     </div>
-);
+));
 
 
 export { LeftSidebar, RightSidebar };

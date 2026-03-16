@@ -1,9 +1,11 @@
+import logging
 # -*- coding: utf-8 -*-
 import os
 import json
 from google import genai
 from app.models.schemas import Schema, Table
 from typing import List, Dict, Any
+logger = logging.getLogger(__name__)
 
 class AIClassifier:
     """AI-powered table classification using Google's Gemini"""
@@ -16,19 +18,17 @@ class AIClassifier:
                 self.model_id = 'gemini-2.0-flash'
                 self.has_ai = True
             except Exception as e:
-                print(f"⚠️ AI Classifier: Initialization failed: {e}")
+                logger.error(f"⚠️ AI Classifier: Initialization failed: {e}")
                 self.has_ai = False
         else:
             self.has_ai = False
-            print("⚠️ AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
-
+            logger.info("⚠️ AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
     async def classify_tables(self, schema: Schema) -> Schema:
         """Classify tables as fact/dimension and identify business entities"""
         if not self.has_ai:
             return self._heuristic_classify(schema)
             
-        print("🧠 AI Classification: Analyzing schema with Gemini...")
-        
+        logger.info("🧠 AI Classification: Analyzing schema with Gemini...")
         try:
             # Prepare prompt
             table_info = []
@@ -74,14 +74,14 @@ class AIClassifier:
 
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
-                print("🧪 AI Classification: Quota exceeded. Using heuristic fallback.")
+                logger.info("🧪 AI Classification: Quota exceeded. Using heuristic fallback.")
             else:
-                print(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
+                logger.error(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
             return self._heuristic_classify(schema)
 
     def _heuristic_classify(self, schema: Schema) -> Schema:
         """Fallback heuristic classification"""
-        print("🧪 AI Classification: Using heuristic fallback...")
+        logger.info("🧪 AI Classification: Using heuristic fallback...")
         for table in schema.tables:
             # We assume 'table' is an object here if it comes from schema.tables (Pydantic)
             # The original classify_tables had logic to handle dicts, but _heuristic_classify

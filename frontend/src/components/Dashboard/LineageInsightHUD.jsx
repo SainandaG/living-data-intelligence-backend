@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Share2, Info, ArrowRight, Zap, AlertTriangle, Activity, GitBranch, BarChart3, Database } from 'lucide-react';
+import { Shield, Share2, Info, ArrowRight, Zap, AlertTriangle, Activity, GitBranch, BarChart3, Database, Pin, X } from 'lucide-react';
 import './LineageInsightHUD.css';
 
-const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [], graphData = {}, perspective = 'analyst', onEnterWarRoom }) => {
+const LineageInsightHUD = ({ hoveredNode, selectedNode, pinnedNodeId, onPin, onClose, multiSelectedNodes = [], graphData = {}, perspective = 'analyst', onEnterWarRoom, visible = true }) => {
     // Logic: Always show if hovered, otherwise fall back to selected.
     const activeNode = hoveredNode || selectedNode;
 
@@ -69,20 +69,38 @@ const LineageInsightHUD = ({ hoveredNode, selectedNode, multiSelectedNodes = [],
         });
     }, [activeNode, multiSelectedNodes]);
 
-    if (!activeNode) return null;
+    if (!activeNode || !visible) return null;
 
     const isBusiness = perspective === 'business';
 
     return (
         <AnimatePresence>
             <motion.div
-                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                initial={{ opacity: 0, x: -20, scale: 0.95 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                exit={{ opacity: 0, x: -20, scale: 0.95 }}
                 transition={{ type: 'spring', damping: 20, stiffness: 300 }}
                 className={`lineage-insight-hud shadow-2xl ${isBusiness ? 'perspective-business' : 'perspective-analyst'}`}
-                style={{ top: '100px', right: '20px' }}
+                style={{ top: '100px', left: '92px', pointerEvents: 'auto' }}
             >
+                {/* Header Controls */}
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                    <button 
+                        onClick={() => onPin && onPin(activeNode.id)}
+                        className={`p-1 rounded-md transition-colors ${pinnedNodeId === activeNode.id ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-white/10 text-white/40'}`}
+                        title={pinnedNodeId === activeNode.id ? "Unpin Node" : "Pin Node"}
+                    >
+                        <Pin size={14} className={pinnedNodeId === activeNode.id ? 'fill-cyan-400' : ''} />
+                    </button>
+                    <button 
+                        onClick={() => onClose && onClose()}
+                        className="p-1 hover:bg-white/10 text-white/40 hover:text-white rounded-md transition-colors"
+                        title="Close Panel"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+
                 {/* Header */}
                 <header className="hud-header">
                     <div className="hud-title-area">

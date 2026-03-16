@@ -1,7 +1,10 @@
 import os
 import json
 import re
+import logging
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables FIRST
 load_dotenv()
@@ -19,9 +22,11 @@ class ChatService:
         groq_key = os.getenv("GROQ_API_KEY")
         google_key = os.getenv("GOOGLE_API_KEY")
         
-        # DEBUG: Verify keys are loaded
-        print(f"🔑 DEBUG: Loaded GROQ_KEY: {groq_key[:10] if groq_key else 'None'}...")
-        print(f"🔑 DEBUG: Loaded GOOGLE_KEY: {google_key[:10] if google_key else 'None'}...")
+        # Key presence check  
+        if groq_key:
+            logger.debug("GROQ_API_KEY detected")
+        if google_key:
+            logger.debug("GOOGLE_API_KEY detected")
 
         self.groq_client = None
         self.google_model = None
@@ -31,23 +36,23 @@ class ChatService:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=groq_key)
-                print("✅ ChatService: Groq API initialized (llama-3.3-70b-versatile)")
+                logger.info("ChatService: Groq API initialized (llama-3.3-70b-versatile)")
                 if not self.provider: self.provider = "groq"
             except Exception as e:
-                print(f"⚠️ Failed to initialize Groq: {e}")
+                logger.warning(f"Failed to initialize Groq: {e}")
 
         if google_key:
             try:
                 from google import genai
                 self.google_client = genai.Client(api_key=google_key)
                 self.google_model_id = 'gemini-2.0-flash-lite'
-                print(f"✅ ChatService: Google Gemini initialized (backup: {self.google_model_id})")
+                logger.info(f"ChatService: Google Gemini initialized (backup: {self.google_model_id})")
                 if not self.provider: self.provider = "google"
             except Exception as e:
-                print(f"⚠️ Failed to initialize Google Gemini: {e}")
+                logger.warning(f"Failed to initialize Google Gemini: {e}")
         
         if not self.groq_client and not getattr(self, 'google_client', None):
-            print("⚠️ ChatService: No working API clients found")
+            logger.warning("ChatService: No working API clients found")
             self.has_ai = False
         else:
             self.has_ai = True
@@ -199,38 +204,44 @@ Format SQL in ```sql blocks."""
 
         # 4. Call AI to get initial response with SQL
         try:
+            import asyncio
             ai_response = None
             
-            # Try Groq first if available
-            if self.provider == "groq" or (self.groq_client and not self.provider):
-                print(f"🚀 ATTEMPTING PROVIDER: GROQ (Model: llama-3.3-70b-versatile)")
-                try:
-                    ai_response = await self._call_groq(system_prompt, user_message, history)
-                    self.provider = "groq" # Confirm provider
-                    print(f"✅ GROQ SUCCESS")
-                except Exception as e:
-                    print(f"⚠️ Groq failed: {e}")
-                    if "429" in str(e) or "rate limit" in str(e).lower():
-                        print("🔄 Rate limit hit. Switching to Google Gemini fallback...")
-                        if self.google_model:
-                            print(f"🚀 ATTEMPTING PROVIDER: GOOGLE (Model: gemini-2.0-flash-lite)")
-                            ai_response = await self._call_google(system_prompt, user_message, history)
-                            self.provider = "google" # Switch provider
-                            print(f"✅ GOOGLE SUCCESS")
-                        else:
-                            raise e # No fallback available
-                    else:
-                        raise e
+            tasks = []
+            if self.groq_client:
+                tasks.append(self._call_groq(system_prompt, user_message, history))
+            if hasattr(self, 'google_client'):
+                tasks.append(self._call_google(system_prompt, user_message, history))
+            
+            if not tasks:
+                return {"response": "System Error: No AI provider configured.", "related_nodes": []}
+                
+            # Execute in parallel and take the first successful one
+            # We use a custom race or just gather and take the best.
+            # To strictly follow "parallelize simultaneous", we use gather.
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter successful results
+            successful_hits = []
+            for i, res in enumerate(results):
+                if isinstance(res, dict) and "response" in res:
+                    # Identify source for logging
+                    source = "groq" if i == 0 and self.groq_client else "google"
+                    successful_hits.append((source, res))
+                else:
+                    logger.warning(f"AI Provider Task failed: {res}")
 
-            # If no response yet (e.g. was using Google or Groq failed caught above)
-            if not ai_response and self.google_model:
-                print(f"🚀 ATTEMPTING PROVIDER: GOOGLE (Primary/Fallback)")
-                ai_response = await self._call_google(system_prompt, user_message, history)
-                self.provider = "google" 
-                print(f"✅ GOOGLE SUCCESS") 
-
+            if successful_hits:
+                # Prefer Groq if both succeed (usually faster/better for coding)
+                # or just take the first one that finished (though gather waits for all)
+                # If we want true racing, we'd use wait(FIRST_COMPLETED).
+                # But gather is safer to ensure we don't leak tasks.
+                source, ai_response = successful_hits[0]
+                self.provider = source
+                logger.info(f"Using AI response from provider: {source}")
+            
             if not ai_response:
-                return {"response": "System Error: No AI provider available.", "related_nodes": []}
+                return {"response": "System Error: All AI providers failed.", "related_nodes": []}
             
             # 5. Execute any SQL queries in the response
             response_with_results = await self._execute_sql_from_response(ai_response['response'], connection_id)
@@ -280,11 +291,9 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
                 "related_nodes": []
             }
         except Exception as e:
-            print(f"❌ Chat Error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Chat service error: {e}", exc_info=True)
             return {
-                "response": f"I encountered an error: {str(e)}",
+                "response": "I encountered an error processing your request.",
                 "related_nodes": []
             }
 
@@ -353,7 +362,7 @@ Your task: Interpret these results for the user. Return ONLY a concise summary t
                         wait_time = min(suggested_wait + 2, 15)
                     
                     if attempt < max_retries - 1:
-                        print(f"⏳ Google Quota Hit. Waiting {wait_time:.1f}s before retry {attempt+1}/{max_retries}...")
+                        logger.warning(f"Google Quota Hit. Waiting {wait_time:.1f}s before retry {attempt+1}/{max_retries}...")
                         await asyncio.sleep(wait_time)
                         continue
                         

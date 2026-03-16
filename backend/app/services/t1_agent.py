@@ -5,6 +5,9 @@ Executes platform actions triggered by T0 Agent.
 from typing import Dict, Any, Optional
 import time
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.services.agent_state_manager import get_agent_state_manager, T1State
 from app.services.handlers.graph_action_handler import GraphActionHandler
@@ -51,7 +54,7 @@ class T1Agent:
             'analytics.optimize': self._handle_apply_clustering,
         }
         
-        print("✅ T1 Agent initialized")
+        logger.info("T1 Agent initialized")
         
         # Initialize modular handlers if enabled
         if USE_MODULAR_HANDLERS:
@@ -122,7 +125,7 @@ class T1Agent:
                     else:
                         result = raw_result # Fallback if direct return
                 except Exception as modular_error:
-                    print(f"⚠️ Modular Handler Failed for {action}: {modular_error}. Falling back to Legacy.")
+                    logger.warning(f"Modular Handler Failed for {action}: {modular_error}. Falling back to Legacy.")
                     # Fallback will happen below
                     result = None
 
@@ -175,7 +178,7 @@ class T1Agent:
             # Back to IDLE
             self.state_manager.update_t1_state(T1State.IDLE)
             
-            print(f"❌ T1 Agent execution error: {e}")
+            logger.error(f"T1 Agent execution error: {e}")
             
             return {
                 'success': False,
@@ -359,7 +362,7 @@ class T1Agent:
             handler: Async function to handle the action
         """
         self.action_handlers[action] = handler
-        print(f"✅ Registered action handler: {action}")
+        logger.info(f"Registered action handler: {action}")
     
     def get_available_actions(self) -> list[str]:
         """

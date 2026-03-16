@@ -1,3 +1,4 @@
+import logging
 """
 Agent State Manager
 Manages state for T0 and T1 agents, command history, and audit logging.
@@ -7,6 +8,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import json
+logger = logging.getLogger(__name__)
 
 
 class T0State(str, Enum):
@@ -80,7 +82,7 @@ class AgentStateManager:
         """
         old_state = self.t0_state
         self.t0_state = new_state
-        print(f"T0: {old_state} → {new_state}")
+        logger.info(f"T0: {old_state} → {new_state}")
         self._notify_state_change('t0', old_state, new_state)
     
     def update_t1_state(self, new_state: T1State) -> None:
@@ -92,7 +94,7 @@ class AgentStateManager:
         """
         old_state = self.t1_state
         self.t1_state = new_state
-        print(f"T1: {old_state} → {new_state}")
+        logger.info(f"T1: {old_state} → {new_state}")
         self._notify_state_change('t1', old_state, new_state)
     
     def start_command(
@@ -152,7 +154,7 @@ class AgentStateManager:
             error: Error message if failed
         """
         if not self.current_command or self.current_command.id != command_id:
-            print(f"⚠️ Command {command_id} not found or already completed")
+            logger.info(f"⚠️ Command {command_id} not found or already completed")
             return
         
         self.current_command.success = success
@@ -182,8 +184,7 @@ class AgentStateManager:
                 try:
                     current_cmd_data = self.current_command.to_dict()
                 except Exception as e:
-                    print(f"⚠️ Error serializing current command: {e}")
-            
+                    logger.info(f"⚠️ Error serializing current command: {e}")
             return {
                 't0_state': self.t0_state.value if hasattr(self.t0_state, 'value') else str(self.t0_state),
                 't1_state': self.t1_state.value if hasattr(self.t1_state, 'value') else str(self.t1_state),
@@ -192,7 +193,7 @@ class AgentStateManager:
                 'success_rate': self._calculate_success_rate()
             }
         except Exception as e:
-            print(f"❌ Critical error in get_current_state: {e}")
+            logger.info(f"❌ Critical error in get_current_state: {e}")
             # Minimum viable state fallback
             return {
                 't0_state': 'error',
@@ -263,8 +264,7 @@ class AgentStateManager:
                     'timestamp': datetime.utcnow().isoformat()
                 })
             except Exception as e:
-                print(f"⚠️ State change listener error: {e}")
-    
+                logger.error(f"⚠️ State change listener error: {e}")
     def reset(self) -> None:
         """Reset agent states to IDLE."""
         self.update_t0_state(T0State.IDLE)
@@ -314,13 +314,14 @@ class AgentStateManager:
             'methods_breakdown': methods
         }
     
-    def export_history(self, filepath: str) -> None:
+    async def export_history(self, filepath: str) -> None:
         """
-        Export command history to JSON file.
+        Export command history to JSON file asynchronously.
         
         Args:
             filepath: Path to save the JSON file
         """
+        import aiofiles
         data = {
             'exported_at': datetime.utcnow().isoformat(),
             'total_commands': len(self.command_history),
@@ -328,12 +329,10 @@ class AgentStateManager:
             'history': [cmd.to_dict() for cmd in self.command_history]
         }
         
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
+            await f.write(json.dumps(data, indent=2))
         
-        print(f"✅ Exported {len(self.command_history)} commands to {filepath}")
-
-
+        logger.info(f"✅ Exported {len(self.command_history)} commands to {filepath}")
 # Global instance
 _state_manager_instance: Optional[AgentStateManager] = None
 

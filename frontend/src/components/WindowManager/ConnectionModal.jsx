@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Database, Server, Key, User, Save, Link, AlertCircle } from 'lucide-react';
 import { useWindowManager } from '../../context/WindowManagerContext';
+import apiClient from '../../utils/apiClient';
 
 const ConnectionModal = ({ onClose }) => {
     const { setConnectionId } = useWindowManager();
@@ -51,44 +52,16 @@ const ConnectionModal = ({ onClose }) => {
                 username: config.username.trim(),
                 port: parseInt(config.port, 10)
             };
-            const response = await fetch('/api/connect', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+            const response = await apiClient.post('/connect', payload, {
                 signal: controller.signal
             });
 
+            // Note: apiClient returns response.data directly due to interceptor
+            setConnectionId(response.connection_id);
+            onClose();
+
             clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                let errorMessage = 'Connection failed';
-                try {
-                    const errData = await response.json();
-                    console.error('Connection error response (JSON):', errData);
-                    // Handle both simple string details and structured objects
-                    if (errData.detail) {
-                        if (typeof errData.detail === 'object') {
-                            errorMessage = errData.detail.error || errData.detail.message || JSON.stringify(errData.detail);
-                        } else {
-                            errorMessage = errData.detail;
-                        }
-                    }
-                } catch (jsonErr) {
-                    console.warn('Could not parse error response as JSON, trying text...');
-                    try {
-                        const textErr = await response.text();
-                        console.error('Connection error response (Text):', textErr);
-                        errorMessage = textErr || `Server returned ${response.status}: ${response.statusText}`;
-                    } catch (textErr) {
-                        errorMessage = `Server error ${response.status}`;
-                    }
-                }
-                throw new Error(errorMessage);
-            }
-
-            const data = await response.json();
-            setConnectionId(data.connection_id);
-            onClose();
         } catch (err) {
             // Check if it was aborted by our timeout or something else
             if (err.name === 'AbortError') {

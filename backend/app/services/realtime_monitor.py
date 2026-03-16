@@ -4,6 +4,9 @@ from app.services.neural_core import neural_core
 from datetime import datetime
 from typing import Dict, Any, List
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RealtimeMonitor:
     """Monitor database for real-time updates with intelligence"""
@@ -46,12 +49,17 @@ class RealtimeMonitor:
             
             # Ensure Memory Hydration (Lazy)
             if connection_id not in anomaly_detector.baseline_metrics:
+                from app.services.generation_log_service import generation_log_service
+                await generation_log_service.log_step(connection_id, "🧠 Hydrating anomaly sensor memory baseline", progress=40)
                 await anomaly_detector.hydrate_memory(db_connector, connection_id)
             
             ai_stats = await neural_core.get_core_metrics()
             
             # 3. Real anomaly detection based on those metrics
             anomalies = await anomaly_detector.detect_anomalies(connection_id, db_metrics)
+            if anomalies:
+                from app.services.generation_log_service import generation_log_service
+                await generation_log_service.log_step(connection_id, f"⚠️ Detected {len(anomalies)} anomalies in data stream", level="warning")
             
             # 4. Real health analysis (Global)
             health_status = await self._analyze_graph_health(connection_id, db_metrics)
@@ -79,7 +87,7 @@ class RealtimeMonitor:
             return data
             
         except Exception as e:
-            print(f"Error getting realtime data: {str(e)}")
+            logger.error(f"Error getting realtime data: {str(e)}")
             return {
                 'type': 'error',
                 'message': str(e),
@@ -161,14 +169,14 @@ class RealtimeMonitor:
                     if row.get('avg_curr'): self.last_battery_curr = round(float(row['avg_curr']), 1)
                     # print(f"✅ [WEZU] Batteries={active_batteries}, SoH={avg_soh}%, Temp={self.last_battery_temp}C")
             except Exception as e:
-                print(f"⚠️ [RealtimeMonitor] Battery query failed: {e}")
+                logger.warning(f"[RealtimeMonitor] Battery query failed: {e}")
 
             try:
                 stat_res = await db_connector.query(connection_id, "SELECT COUNT(*) as count FROM stations")
                 if stat_res:
                     online_stations = int(stat_res[0].get('count') or 0)
             except Exception as e:
-                print(f"⚠️ [RealtimeMonitor] Station query failed: {e}")
+                logger.warning(f"[RealtimeMonitor] Station query failed: {e}")
 
             try:
                 # Count batteries with critically low SoH as alerts
@@ -178,7 +186,7 @@ class RealtimeMonitor:
                 if alerts_res:
                     critical_energy_alerts = int(alerts_res[0].get('count') or 0)
             except Exception as e:
-                print(f"⚠️ [RealtimeMonitor] Alert query failed: {e}")
+                logger.warning(f"[RealtimeMonitor] Alert query failed: {e}")
             # ---- END WEZU METRICS ----
 
 
@@ -303,7 +311,7 @@ class RealtimeMonitor:
             }
         except Exception as e:
             # Fallback if query fails (e.g. connection lost) to prevent crash
-            print(f"Metric Fetch Error: {e}")
+            logger.error(f"Metric Fetch Error: {e}")
             return { 
                 'transaction_rate': 0, 
                 'total_transactions': self.last_total_rows, 
@@ -328,6 +336,7 @@ class RealtimeMonitor:
 
     def _q(self, db_type: str, name: str) -> str:
         """SQL Identifier quoting helper"""
+        db_connector.validate_identifier(name)
         is_pg = any(t in db_type.lower() for t in ['postgresql', 'postgres', 'neon', 'neon_db'])
         return f'"{name}"' if is_pg else f'`{name}`'
 
@@ -432,7 +441,7 @@ class RealtimeMonitor:
                     issues.append(f"Orphaned Nodes: {len(orphans)} tables disconnected from schema.")
 
         except Exception as e:
-            print(f"Deep Analysis Exception: {e}")
+            logger.error(f"Deep Analysis Exception: {e}")
 
         except Exception as e:
             # print(f"Data Quality Integration Warning: {e}")
@@ -465,10 +474,11 @@ class RealtimeMonitor:
             try:
                 import json
                 import os
+                import aiofiles
                 _logpath = r"c:\Users\karth\living-data-intelligence-backend\.cursor\debug.log"
                 os.makedirs(os.path.dirname(_logpath), exist_ok=True)
-                with open(_logpath, "a", encoding="utf-8") as _f:
-                    _f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "realtime_monitor.py", "message": "Health snapshot recorded", "data": {"connection_id": connection_id, "score": health_score, "hypothesisId": "H4"}}) + "\n")
+                async with aiofiles.open(_logpath, "a", encoding="utf-8") as _f:
+                    await _f.write(json.dumps({"timestamp": datetime.now().isoformat(), "location": "realtime_monitor.py", "message": "Health snapshot recorded", "data": {"connection_id": connection_id, "score": health_score, "hypothesisId": "H4"}}) + "\n")
             except Exception:
                 pass
             # #endregion
@@ -532,7 +542,7 @@ class RealtimeMonitor:
                     }
                     results['batteries'] = res_avg
             except Exception as e: 
-                print(f"Monitor: Batteries scan warning: {e}")
+                logger.warning(f"Monitor: Batteries scan warning: {e}")
 
             # 2. Stations Detail (Total Swaps, Capacity)
             try:
@@ -558,18 +568,20 @@ class RealtimeMonitor:
                         'swap_frequency_variance': 0.0 # Removed random variance for "Real Data Only"
                     }
             except Exception as e:
-                print(f"Monitor: Stations scan warning: {e}")
+                logger.warning(f"Monitor: Stations scan warning: {e}")
             
             self.wezu_cache[connection_id] = results
             return results
         except Exception as e:
-            print(f"Error fetching WEZU node data: {e}")
+            logger.error(f"Error fetching WEZU node data: {e}")
             return {}
 
     async def _get_node_specific_metrics(self, connection_id: str, table_name: str) -> dict:
         """Fetch high-fidelity mathematical diagnostics for a specific table with resilience"""
         # print(f"DEBUG: Starting deep scan for node: {table_name}")
         try:
+            db_connector.validate_identifier(table_name)
+            
             # Initialize with safe fallbacks
             idx_count = 0
             row_count = 0
@@ -622,7 +634,7 @@ class RealtimeMonitor:
                     # In MySQL, SHOW INDEX returns one row per column in index
                     idx_count = len(set(r['Key_name'] for r in idx_res)) if idx_res else 0
             except Exception as e:
-                print(f"DEBUG: Index query fail: {e}")
+                logger.debug(f"Index query fail: {e}")
             
             # 2. Precise Row Count
             try:
@@ -632,7 +644,7 @@ class RealtimeMonitor:
                 projected_30d = row_count
                 # print(f"DEBUG: Row count for {table_name}: {row_count}")
             except Exception as e:
-                print(f"DEBUG: Row count query fail: {e}")
+                logger.debug(f"Row count query fail: {e}")
             
             # 3. Deep Business Math: Aggregates & Structural Insights
             try:
@@ -679,7 +691,7 @@ class RealtimeMonitor:
                         })
 
             except Exception as e:
-                print(f"DEBUG: Math Aggregate Fail for {table_name}: {e}")
+                logger.debug(f"Math aggregate fail for {table_name}: {e}")
                 # Fallbck to structural info
                 story_metrics.append({'label': 'Status', 'value': 'Active', 'insight': 'Table is online.'})
  
@@ -714,7 +726,7 @@ class RealtimeMonitor:
                             growth_rate = round(((today - yesterday) / yesterday) * 100, 2)
                             projected_30d = int(row_count * (1 + (growth_rate/100 * 30)))
             except Exception as e:
-                print(f"DEBUG: Growth calc fail: {e}")
+                logger.debug(f"Growth calc fail: {e}")
  
             # 5. Sample Rows for Proof
             try:
@@ -726,7 +738,7 @@ class RealtimeMonitor:
                 if sample_res:
                     samples = [{k: truncate_val(v) for k, v in row.items()} for row in sample_res]
             except Exception as e:
-                print(f"DEBUG: Sample fetch fail: {e}")
+                logger.debug(f"Sample fetch fail: {e}")
  
             # 6. Integrity Score
             score = 100
@@ -744,7 +756,7 @@ class RealtimeMonitor:
                 'samples': samples
             }
         except Exception as e:
-            print(f"CRITICAL Node Diagnostic Fail: {e}")
+            logger.error(f"CRITICAL Node Diagnostic Fail: {e}")
             return {
                 'table_name': table_name,
                 'score': 0,

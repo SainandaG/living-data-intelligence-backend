@@ -1,6 +1,18 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Database, Activity, TrendingUp, Layers } from 'lucide-react';
+import { cn } from '../../utils/cn';
+
+// --- STABLE VARIANTS ---
+const panelVariants = {
+    initial: { x: 50, opacity: 0 },
+    animate: { x: 0, opacity: 1 }
+};
+
+const milestoneVariants = {
+    initial: { y: 20, opacity: 0 },
+    animate: { y: 0, opacity: 1 }
+};
 
 const EvolutionOverlay = ({ snapshot }) => {
     if (!snapshot) return null;
@@ -11,8 +23,9 @@ const EvolutionOverlay = ({ snapshot }) => {
     return (
         <div className="fixed top-24 right-6 w-64 z-40 space-y-4">
             <motion.div
-                initial={{ x: 50, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
+                variants={panelVariants}
+                initial="initial"
+                animate="animate"
                 className="bg-slate-900/60 backdrop-blur-md border border-white/5 rounded-xl p-4 shadow-xl"
             >
                 <div className="flex items-center gap-2 mb-4 text-indigo-400">
@@ -55,8 +68,9 @@ const EvolutionOverlay = ({ snapshot }) => {
             {snapshot.milestones && snapshot.milestones.length > 0 && (
                 <motion.div
                     key={snapshot.milestones[snapshot.milestones.length - 1].date}
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
+                    variants={milestoneVariants}
+                    initial="initial"
+                    animate="animate"
                     className="bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-3"
                 >
                     <div className="flex items-start gap-3">
@@ -89,4 +103,4 @@ const StatItem = ({ icon, label, value, sub, color = "text-white" }) => (
     </div>
 );
 
-export default EvolutionOverlay;
+export default React.memo(EvolutionOverlay);

@@ -75,12 +75,15 @@ class NeuralCore:
         self.model_state = "ready"
         logger.info("Neural Core: Visual Intelligence Engine Ready.")
 
-    def update_schema_context(self, schema: Dict, connection_id: str, edges: List[Dict] = None):
+    async def update_schema_context(self, schema: Dict, connection_id: str, edges: List[Dict] = None):
         """
         Receive the latest schema/graph snapshot to analyze.
         Updated to support both full Schema objects and raw Graph nodes+edges.
         """
         if not connection_id: return
+        
+        from app.services.generation_log_service import generation_log_service
+        await generation_log_service.log_step(connection_id, "📡 Neural Core: Signal received - Updating schema context", progress=10)
         
         # [PHASE 3] Cooldown Check (5 seconds)
         # Hot-fix for attribute persistence during reload
@@ -90,7 +93,6 @@ class NeuralCore:
         current_time = time.time()
         last_time = self.last_analysis_time.get(connection_id, 0)
         if current_time - last_time < 5.0:
-            # print(f"⏳ Neural Core: Skipping analysis for {connection_id} (Cooldown active)")
             return 
             
         self.last_analysis_time[connection_id] = current_time
@@ -100,6 +102,7 @@ class NeuralCore:
             
         # Initialize connection-specific metrics if not present
         if connection_id not in self.analyzed_tables:
+            await generation_log_service.log_step(connection_id, "🆕 Initializing intelligence buffers for new session", progress=15)
             self.analyzed_tables[connection_id] = set()
             self.gravity_stores[connection_id] = {}
             self.hub_scores[connection_id] = {}
@@ -107,6 +110,7 @@ class NeuralCore:
             self.signal_counts[connection_id] = 0
             self.scan_cursors[connection_id] = 0
         else:
+            await generation_log_service.log_step(connection_id, "🔄 Context Refresh: Re-scanning table complexity", progress=20)
             self.analyzed_tables[connection_id].clear()
             self.patterns_learned[connection_id] = 0
             self.signal_counts[connection_id] = 0
@@ -297,12 +301,14 @@ class NeuralCore:
 
     async def save_snapshot(self, connection_id: str):
         """Persist the current neural state to the database"""
+        from app.services.generation_log_service import generation_log_service
         current_snapshot = self.snapshots.get(connection_id)
         if not current_snapshot: 
             logger.warning("Neural Core: No schema snapshot to save.")
             return
         
         from app.services.db_connector import db_connector
+        await generation_log_service.log_step(connection_id, "💾 Persisting Neural State to evolution.neural_snapshots", progress=90)
         logger.info(f"Neural Core: Initiating snapshot save for {connection_id}")
         
         # 1. Create table if not exists (Lazy Init - Dialect Aware)
@@ -410,7 +416,7 @@ class NeuralCore:
             if schema_obj:
                 # Convert to dict if model
                 schema_dict = schema_obj.dict() if hasattr(schema_obj, 'dict') else schema_obj.model_dump()
-                self.update_schema_context(schema_dict, connection_id) # Cache it
+                await self.update_schema_context(schema_dict, connection_id) # Cache it
                 return schema_dict
         except Exception as e:
             logger.error(f"Neural Core: Context recovery failed for {connection_id}: {e}")

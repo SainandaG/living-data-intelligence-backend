@@ -4,6 +4,11 @@ import { EventBus } from '../../agents/eventBus';
 import soundSystem from '../../utils/SoundSystem';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+    EffectComposer,
+    RenderPass,
+    UnrealBloomPass
+} from 'three-stdlib';
 import { useGlowManager } from '../../hooks/useGlow';
 import { useCameraManager } from '../../hooks/useCamera';
 import * as d3 from 'd3';
@@ -402,7 +407,7 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
         transmission: layoutMode === 'latent' ? 0.0 : 0.95,
         thickness: 4.0,
         emissive: color,
-        emissiveIntensity: layoutMode === 'latent' ? 2.0 : 1.5,
+        emissiveIntensity: layoutMode === 'latent' ? 0.4 : 0.15,
         clearcoat: 1.0
     });
 
@@ -416,7 +421,7 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
         shellMat.metalness = 0.0;
         shellMat.clearcoat = 1.0;
         shellMat.ior = 2.4; // Diamond-like refraction
-        shellMat.emissiveIntensity = 4.0; // Radiant glow
+        shellMat.emissiveIntensity = 0.8; // Radiant glow
     }
 
     // --- SECURITY LENS: Bold Color Visibility ---
@@ -439,7 +444,7 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
             name.includes('battery') || name.includes('station') || name.includes('device');
 
         if (isAsset) {
-            shellMat.emissiveIntensity = 3.0; // Dynamic Boost
+            shellMat.emissiveIntensity = 0.8; // Dynamic Boost
             shellMat.opacity = 0.95;
             shellMat.transmission = 0.05;
         } else {
@@ -491,7 +496,7 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
     sphere.userData = {
         ...nodeData,
         isNode: true,
-        nodeGlow: nodeData.node_glow || 1.0,
+        nodeGlow: nodeData.node_glow || 0.2,
         isGlow: true
     };
 
@@ -581,68 +586,216 @@ function createParticle(type = 'normal', labelText = null) {
     return group;
 }
 
-// --- "Universe Nebula" Background to match Reference Images ---
-function createStarfield(scene) {
-    // DETERMINISTIC STARFIELD
-    const rng = new SeededRNG("universe-v1");
+// --- "Infinite Atmosphere" Shader-driven Skydome & Dust ---
+const InfiniteDustShader = {
+    uniforms: {
+        uTime: { value: 0 },
+        uCameraPos: { value: new THREE.Vector3() },
+        uBoundary: { value: 40000.0 }, // Size of the local wrapping volume
+        uTexture: { value: null },
+        uOpacity: { value: 0.8 },
+        uMinSize: { value: 1.5 } // Keep stars visible even at distance
+    },
+    vertexShader: `
+        uniform float uTime;
+        uniform vec3 uCameraPos;
+        uniform float uBoundary;
+        uniform float uMinSize;
+        varying float vOpacity;
+        
+        void main() {
+            vec3 pos = position;
+            vec3 halfBound = vec3(uBoundary * 0.5);
+            vec3 offsetPos = pos - uCameraPos;
+            
+            // Custom Modulo wrapping
+            vec3 wrappedPos = mod(offsetPos + halfBound, uBoundary) - halfBound;
+            vec3 finalPos = uCameraPos + wrappedPos;
+            
+            float dist = length(wrappedPos);
+            // Softer falloff for "infinite" feel
+            vOpacity = smoothstep(uBoundary * 0.5, uBoundary * 0.35, dist);
+            
+            vec4 mvPosition = modelViewMatrix * vec4(finalPos, 1.0);
+            // Enhanced size attenuation: Base size + distance based + constant minimum
+            gl_PointSize = uMinSize + (30.0 * (1000.0 / -mvPosition.z)); 
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D uTexture;
+        uniform float uOpacity;
+        varying float vOpacity;
+        
+        void main() {
+            vec4 tex = texture2D(uTexture, gl_PointCoord);
+            if (tex.a < 0.1) discard;
+            // Boost brightness for "Real Star" look
+            gl_FragColor = vec4(tex.rgb * 1.5, tex.a * uOpacity * vOpacity);
+        }
+    `
+};
 
-    const group = new THREE.Group();
-    /* 
-    // Layer 1: Distant Stars (White/Blue, crisp)
-    const starGeo = new THREE.BufferGeometry();
-    const starVertices = [];
-    for (let i = 0; i < 4000; i++) {
-        starVertices.push((rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000);
-    }
-    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
-    const stars = new THREE.Points(starGeo, starMat);
-    group.add(stars);
-    */
+const UniversalSkydomeShader = {
+    vertexShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vWorldPosition;
+        void main() {
+            vec3 viewDir = normalize(vWorldPosition);
+            float height = viewDir.y;
+            
+            // Deep Space Palette (Blacker Base)
+            vec3 deepSpace = vec3(0.0, 0.0, 0.001);
+            vec3 horizonBlue = vec3(0.001, 0.002, 0.005);
+            vec3 nebulaPurple = vec3(0.002, 0.001, 0.005);
+            
+            // Subtle Organic Gradient (Atmosphere simulation)
+            vec3 atmosphere = mix(deepSpace, horizonBlue, exp(-abs(height) * 4.0));
+            atmosphere = mix(atmosphere, nebulaPurple, max(0.0, sin(viewDir.x * 2.0 + viewDir.z * 3.0) * 0.1));
+            
+            gl_FragColor = vec4(atmosphere, 1.0);
+        }
+    `
+};
 
-    // RESTORED: Distant Stars with conditional visibility check
-    const starGeo = new THREE.BufferGeometry();
-    const starVertices = [];
-    for (let i = 0; i < 4000; i++) {
-        starVertices.push((rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000, (rng.next() - 0.5) * 8000);
-    }
-    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2, transparent: true, opacity: 0.8 });
-    const stars = new THREE.Points(starGeo, starMat);
-    group.add(stars);
-
-    // Layer 2: Nebula Dust (Blue/Purple, soft, large)
-    const dustGeo = new THREE.BufferGeometry();
-    const dustVertices = [];
-    const dustColors = [];
-    const colorA = new THREE.Color(0x4c1d95); // Deep Purple
-    const colorB = new THREE.Color(0x2563eb); // Royal Blue
-
-    for (let i = 0; i < 1500; i++) {
-        dustVertices.push((rng.next() - 0.5) * 5000, (rng.next() - 0.5) * 5000, (rng.next() - 0.5) * 5000);
-
-        // Mix colors - seeded random mix
-        const mixFactor = rng.next();
-        const mixedColor = colorA.clone().lerp(colorB, mixFactor);
-        dustColors.push(mixedColor.r, mixedColor.g, mixedColor.b);
-    }
-    dustGeo.setAttribute('position', new THREE.Float32BufferAttribute(dustVertices, 3));
-    dustGeo.setAttribute('color', new THREE.Float32BufferAttribute(dustColors, 3));
-
-    // Soft transparent particles for nebula effect
-    const dustMat = new THREE.PointsMaterial({
-        size: 15,
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.2,
-        blending: THREE.AdditiveBlending
+function createUniversalSkydome(scene) {
+    const geometry = new THREE.SphereGeometry(1.5e5, 32, 32);
+    const material = new THREE.ShaderMaterial({
+        vertexShader: UniversalSkydomeShader.vertexShader,
+        fragmentShader: UniversalSkydomeShader.fragmentShader,
+        side: THREE.BackSide,
+        depthWrite: false
     });
-    const dust = new THREE.Points(dustGeo, dustMat);
-    group.add(dust);
-
-    scene.add(group);
-    return group;
+    const skydome = new THREE.Mesh(geometry, material);
+    skydome.userData = { isBackground: true, isAtmos: true };
+    scene.add(skydome);
+    return skydome;
 }
+
+function createInfiniteDustLayer(scene) {
+    const count = 50000;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const rng = new SeededRNG("infinite-dust-v2"); // New seed for fresh distribution
+
+    const bound = 40000.0;
+    for (let i = 0; i < count; i++) {
+        positions[i * 3] = (rng.next() - 0.5) * bound;
+        positions[i * 3 + 1] = (rng.next() - 0.5) * bound;
+        positions[i * 3 + 2] = (rng.next() - 0.5) * bound;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = new THREE.ShaderMaterial({
+        uniforms: THREE.UniformsUtils.clone(InfiniteDustShader.uniforms),
+        vertexShader: InfiniteDustShader.vertexShader,
+        fragmentShader: InfiniteDustShader.fragmentShader,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+
+    const starTexture = createSoftSpriteTexture(64, 'star');
+    mat.uniforms.uTexture.value = starTexture;
+
+    const points = new THREE.Points(geometry, mat);
+    points.userData = { isInfiniteDust: true };
+    scene.add(points);
+    return points;
+}
+
+function createSoftSpriteTexture(size = 128, type = 'star') {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    const center = size / 2;
+    const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
+
+    if (type === 'nebula') {
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+        gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.15)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    } else {
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        gradient.addColorStop(0.2, 'rgba(255, 255, 255, 0.6)');
+        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.1)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    }
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+}
+
+function createStarfield(scene, nodes = []) {
+    // REMOVED IN FAVOR OF WRAPPING INFINITE DUST
+    return new THREE.Group();
+}
+
+// --- Neural Core Halo: Prevents "White Dot" look at distance ---
+function createNeuralCoreHalo(scene) {
+    const texture = createSoftSpriteTexture(512, 'nebula');
+    const mat = new THREE.SpriteMaterial({
+        map: texture,
+        color: 0x00d4ff, // Cyan but darker
+        transparent: true,
+        opacity: 0.15, // More subtle
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(4000, 4000, 1); // Slightly smaller halo
+    sprite.position.set(0, 0, 0);
+    sprite.userData = { isHalo: true };
+
+    // Pulse animation logic will be added via userData
+    scene.add(sprite);
+    return sprite;
+}
+
+// Helper to properly dispose of Three.js objects
+const disposeObject = (obj) => {
+    if (!obj) return;
+
+    // Recursive disposal for children (e.g. labels, shells)
+    if (obj.children) {
+        [...obj.children].forEach(child => disposeObject(child));
+    }
+
+    if (obj.geometry) obj.geometry.dispose();
+
+    if (obj.material) {
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        materials.forEach(m => {
+            // Standard maps
+            if (m.map) m.map.dispose();
+            if (m.emissiveMap) m.emissiveMap.dispose();
+            if (m.roughnessMap) m.roughnessMap.dispose();
+            if (m.metalnessMap) m.metalnessMap.dispose();
+            if (m.normalMap) m.normalMap.dispose();
+            if (m.alphaMap) m.alphaMap.dispose();
+            if (m.aoMap) m.aoMap.dispose();
+            if (m.bumpMap) m.bumpMap.dispose();
+            if (m.displacementMap) m.displacementMap.dispose();
+            if (m.lightMap) m.lightMap.dispose();
+            if (m.envMap) m.envMap.dispose();
+
+            m.dispose();
+        });
+    }
+};
 
 const ThreeGraph = forwardRef(({
     data,
@@ -660,6 +813,9 @@ const ThreeGraph = forwardRef(({
     onNodesEnriched,
     multiSelectedNodes, // [NEW] Multi-select state
     showMultiConnections, // [NEW] Multi-select isolation toggle
+    snapshotData = null,
+    isSnapshotMode = false,
+    layoutMode: layoutModeProp = 'galaxy', // Renamed to avoid collision with internal state
 }, ref) => {
     const containerRef = useRef(null);
     const mountRef = useRef(null);
@@ -667,6 +823,7 @@ const ThreeGraph = forwardRef(({
     const cameraRef = useRef(null);
     const animationRef = useRef(null);
     const cameraAnimRef = useRef(null);
+    const composerRef = useRef(null);
     const nodesRef = useRef([]);
     const particlesRef = useRef([]);
     const groupsRef = useRef([]); // Track grouped meshes (like Voxel Clusters) for cleanup
@@ -770,6 +927,20 @@ const ThreeGraph = forwardRef(({
         multiSelectedNodesRef.current = multiSelectedNodes || [];
         showMultiConnectionsRef.current = showMultiConnections;
     }, [multiSelectedNodes, showMultiConnections]);
+
+    // [FIX] Sync external layoutModeProp with internal layoutMode state
+    useEffect(() => {
+        if (layoutModeProp && layoutModeProp !== layoutMode) {
+            console.log(`[ThreeGraph] layoutMode Sync:Prop -> ${layoutModeProp}`);
+            setLayoutMode(layoutModeProp);
+            layoutModeRef.current = layoutModeProp;
+        }
+    }, [layoutModeProp]);
+    //useEffect(() => {
+    //    if (sceneRef.current?.fog) {
+    //        sceneRef.current.fog.density = layoutMode === 'latent' ? 0.00005 : 0.0008;
+    //    }
+    //}, [layoutMode]);
 
     // ─────────────────────────────────────────────
     // MOUNT / UNMOUNT LATENT SPACE (ISOLATED)
@@ -1025,8 +1196,34 @@ const ThreeGraph = forwardRef(({
         return match || null;
     }, []);
 
-    const handleZoom = useCallback(({ target, instruction }) => {
-        if (!target) return { success: false, error: "No target specified" };
+    const handleZoom = useCallback(({ target, instruction, factor }) => {
+        // Handle generic zoom in/out (no target)
+        if (instruction === 'zoom_in') {
+            if (cameraRef.current && controlsRef.current) {
+                const f = factor || 0.8;
+                const dir = new THREE.Vector3().subVectors(controlsRef.current.target, cameraRef.current.position).normalize();
+                const currentDist = cameraRef.current.position.distanceTo(controlsRef.current.target);
+                const newDist = Math.max(50, Math.min(2000, currentDist * f));
+                cameraRef.current.position.copy(controlsRef.current.target).sub(dir.multiplyScalar(newDist));
+                controlsRef.current.update();
+                return { success: true, message: `Zoomed in` };
+            }
+            return { success: false, error: "Camera not ready" };
+        }
+        if (instruction === 'zoom_out') {
+            if (cameraRef.current && controlsRef.current) {
+                const f = factor || 1.25;
+                const dir = new THREE.Vector3().subVectors(controlsRef.current.target, cameraRef.current.position).normalize();
+                const currentDist = cameraRef.current.position.distanceTo(controlsRef.current.target);
+                const newDist = Math.max(50, Math.min(2000, currentDist * f));
+                cameraRef.current.position.copy(controlsRef.current.target).sub(dir.multiplyScalar(newDist));
+                controlsRef.current.update();
+                return { success: true, message: `Zoomed out` };
+            }
+            return { success: false, error: "Camera not ready" };
+        }
+
+        if (!target) return { success: false, error: "No target specified for focus" };
         console.log(`[ThreeGraph] Zoom Action: "${target}"`);
 
         const normalizedTarget = target.toLowerCase().trim();
@@ -1079,9 +1276,19 @@ const ThreeGraph = forwardRef(({
         // Support multiple variations of "reset" for voice robustness
         if (instruction === 'reset_view' || instruction === 'reset' || instruction === 'reset_camera' || instruction === 'view_reset') {
             resetCamera();
+            if (controlsRef.current) controlsRef.current.reset();
             return { success: true, message: "View reset" };
         }
         return { success: false, error: "Unknown camera instruction" };
+    }, []);
+
+    const handleLensSwitch = useCallback(({ lens }) => {
+        if (!lens) return { success: false, error: "No lens specified" };
+        console.log(`[ThreeGraph] Lens Switch Action: "${lens}"`);
+        setCurrentLens(lens);
+        currentLensRef.current = lens;
+        if (lens === 'tier3') soundSystem.play('uiClick');
+        return { success: true, message: `Switched to ${lens} lens` };
     }, []);
 
     const handleFlow = useCallback(({ instruction, target, table_name, nodes }) => {
@@ -1189,11 +1396,30 @@ const ThreeGraph = forwardRef(({
         return { success: false, error: `Could not find lineage origin: ${target}` };
     }, [findNodeByTarget, cameraFocus]);
 
+    const handleEdges = useCallback(({ instruction }) => {
+        console.log(`[ThreeGraph] Edges Instruction: "${instruction}"`);
+        if (instruction === 'show_all') {
+            if (edgesRef.current) {
+                edgesRef.current.forEach(line => line.visible = true);
+            }
+            return { success: true, message: "Showing connections" };
+        }
+        if (instruction === 'hide_all') {
+            if (edgesRef.current) {
+                edgesRef.current.forEach(line => line.visible = false);
+            }
+            return { success: true, message: "Hiding connections" };
+        }
+        return { success: false, error: "Unknown edges instruction" };
+    }, []);
+
     useRegisterCommand('graph_zoom', handleZoom);
     useRegisterCommand('graph_highlight', handleHighlight);
     useRegisterCommand('graph_camera', handleCamera);
     useRegisterCommand('graph_flow', handleFlow);
     useRegisterCommand('graph_trace_lineage', handleTraceLineage);
+    useRegisterCommand('graph_lens', handleLensSwitch);
+    useRegisterCommand('graph_edges', handleEdges);
 
     // Imperative API for Voice Agent & UI Control
     useImperativeHandle(ref, () => ({
@@ -1238,32 +1464,30 @@ const ThreeGraph = forwardRef(({
         },
         setEvolutionSnapshot: (snapshot) => {
             if (!snapshot || !nodesRef.current) return;
-            // console.log(`[ThreeGraph] 🎞️ Applying Evolution Snapshot...`);
+            console.log(`[ThreeGraph] 🎞️ Applying Evolution Snapshot...`);
 
-            const snapshotTables = new Map(snapshot.tables.map(t => [t.name, t]));
+            const snapshotTables = new Map(snapshot.tables.map(t => [t.id || t.name, t]));
 
             nodesRef.current.forEach(node => {
                 const snap = snapshotTables.get(node.id) || snapshotTables.get(node.name);
+                if (snap) {
+                    if (snap.x !== undefined && snap.y !== undefined) {
+                        node.targetX = snap.x;
+                        node.targetY = snap.y;
+                        node.targetZ = snap.z || 0;
+                        node._needsTransition = true;
+                    }
 
-                if (node.mesh) {
-                    if (snap) {
+                    if (node.mesh) {
                         node.mesh.visible = true;
-
-                        // TIME INTELLIGENCE: Size based on records added
-                        // Base size 0.5 + some relative scale from growth
-                        const sizeBonus = snap.relative_size * 2.0;
+                        const sizeBonus = snap.relative_size * 2.0 || 0;
                         const targetScale = 0.5 + sizeBonus;
-
                         node.mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
 
-                        // TIME INTELLIGENCE: Age-based Brightness
-                        // New records (tables) are bright, old ones go dim
                         if (node.mesh.material && node.mesh.material.emissiveIntensity !== undefined) {
                             const baseGlow = snap.node_glow || 1.0;
                             const ageGlow = snap.age_factor !== undefined ? snap.age_factor : 1.0;
                             node.mesh.material.emissiveIntensity = baseGlow * ageGlow;
-
-                            // Adjust opacity/color for "Dim" effect
                             if (ageGlow < 0.5) {
                                 node.mesh.material.opacity = 0.3 + (ageGlow * 0.7);
                                 node.mesh.material.transparent = true;
@@ -1276,13 +1500,28 @@ const ThreeGraph = forwardRef(({
                         if (snap.is_new && !node.was_born) {
                             node.was_born = true;
                             triggerBirthEffect(node.mesh);
-                            if (Math.random() > 0.7) soundSystem.play('scanPulse');
                         }
-                    } else {
-                        node.mesh.visible = false;
-                        node.mesh.scale.set(0.1, 0.1, 0.1);
-                        node.was_born = false;
                     }
+                } else if (node.mesh) {
+                    node.mesh.visible = false;
+                }
+            });
+        },
+        applySnapshot: (snapshot) => {
+            if (!snapshot || !nodesRef.current) return;
+            const newNodesMap = new Map((snapshot.nodes || []).map(n => [n.id, n]));
+
+            nodesRef.current.forEach(node => {
+                if (newNodesMap.has(node.id)) {
+                    const incoming = newNodesMap.get(node.id);
+                    node.targetX = incoming.x || incoming.pos?.[0] || 0;
+                    node.targetY = incoming.y || incoming.pos?.[1] || 0;
+                    node.targetZ = incoming.z || incoming.pos?.[2] || 0;
+                    node._needsTransition = true;
+                    if (node.mesh) node.mesh.visible = true;
+                } else if (node.mesh) {
+                    node._isRemoving = true;
+                    node._removeStartTime = Date.now();
                 }
             });
         },
@@ -1352,6 +1591,13 @@ const ThreeGraph = forwardRef(({
             layoutModeRef.current = mode;
             if (backgroundGroupRef.current) {
                 backgroundGroupRef.current.visible = (mode !== 'latent');
+            }
+            if (sceneRef.current) {
+                sceneRef.current.traverse(obj => {
+                    if (obj.userData?.isAtmos) obj.visible = (mode !== 'latent');
+                    if (obj.userData?.isInfiniteDust) obj.material.uniforms.uOpacity.value = (mode === 'latent') ? 0.05 : 0.8;
+                    if (obj.userData?.isHalo) obj.visible = (mode !== 'latent');
+                });
             }
         },
         setLayoutMode: (mode) => {
@@ -1493,15 +1739,27 @@ const ThreeGraph = forwardRef(({
 
         // Init Scene
         const scene = new THREE.Scene();
-        // REMOVED: Static background color
-        // scene.background = new THREE.Color(0x0e1012); 
-        // We will use CSS background for better gradient control
+
+        // [IMMERSIIVE UPGRADE] Add Exponential Fog to create depth and a sense of void
+        // Parameters: Hex Color, Density (Smaller = less fog)
+        //scene.fog = new THREE.FogExp2(0x000000, 0.0008);
 
         // Conditional Background Starfield
-        backgroundGroupRef.current = createStarfield(scene);
+        backgroundGroupRef.current = createStarfield(scene, nodesRef.current);
         if (backgroundGroupRef.current) {
             backgroundGroupRef.current.visible = (layoutModeRef.current !== 'latent');
         }
+
+        // [NEW] Universal Space Atmosphere (Nebula backdrop)
+        createUniversalSkydome(scene);
+
+        // [NEW] Camera-Locked Infinite Starfield (Constant wrapping "white dust")
+        const infiniteStars = createInfiniteDustLayer(scene);
+        animatedObjectsRef.current.push(infiniteStars);
+
+        // [NEW] Neural Core Halo
+        const halo = createNeuralCoreHalo(scene);
+        animatedObjectsRef.current.push(halo);
 
         // Init Camera
         // HYPER-LATENT FIX: Increase Far Plane to see full 30k+ space
@@ -1509,17 +1767,21 @@ const ThreeGraph = forwardRef(({
         camera.position.z = 1600; // Zoomed out for better overview
         cameraRef.current = camera;
 
+        // Static Vector3 for reuse in animate loop to prevent GC pressure
+        const lerpTargetPos = new THREE.Vector3();
+
         // Init Renderer
         // Init Renderer with Crash Safety
         let renderer;
         try {
             renderer = new THREE.WebGLRenderer({
-                antialias: true,
+                antialias: false, // Performance: Disabled by default for better FPS on large datasets
                 alpha: true, // Allow CSS background to show through
-                powerPreference: "high-performance"
+                powerPreference: "high-performance",
+                precision: "mediump" // Performance: Medium precision is usually enough for data viz
             });
             renderer.setSize(width, height);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio at 2
         } catch (e) {
             console.error('[ThreeGraph] WebGL Crashed/Blocked:', e);
             if (mountRef.current) {
@@ -1546,6 +1808,20 @@ const ThreeGraph = forwardRef(({
             canvasContainer.appendChild(renderer.domElement);
         }
         rendererRef.current = renderer;
+
+        // --- POST PROCESSING SETUP (Bloom) ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(width, height),
+            0.4,  // strength
+            0.3,  // radius
+            0.5  // threshold
+        );
+        composer.addPass(bloomPass);
+        composerRef.current = composer;
 
         // ============ WEBGL CONTEXT LOSS RECOVERY ============
         // Prevent crashes when GPU context is lost (e.g., driver issues, tab suspension)
@@ -1678,7 +1954,7 @@ const ThreeGraph = forwardRef(({
         scene.add(axesHelper);
 
         // Starfield (Universe Nebula)
-        createStarfield(scene);
+        // createStarfield(scene);
         sceneRef.current = scene;
 
         // Interaction Listeners
@@ -1898,11 +2174,20 @@ const ThreeGraph = forwardRef(({
 
             if (controlsRef.current) controlsRef.current.update();
 
+            // [NEW] Atmospheric Rotation (Slow & Cinematic)
+            if (backgroundGroupRef.current) {
+                backgroundGroupRef.current.rotation.y += 0.00003; // Even slower for infinite feel
+                backgroundGroupRef.current.rotation.z += 0.00001;
+            }
+
             // Smooth Factor (Lower = Smoother/Heavier like Spline)
             const LERP_FACTOR = 0.08;
 
             // 1. UPDATE CAMERA
             updateCamera(0.016);
+
+            // Helpers for lerp logic
+            const lerp = (current, target, speed) => current + (target - current) * speed;
 
             // 2. OPTIMIZED ANIMATION LOOP (No Scene Traversal)
             // Iterate only over objects that need animation (Shields, Glows)
@@ -1925,6 +2210,21 @@ const ThreeGraph = forwardRef(({
                     object.rotation.y += 0.02 * (timeValue / 100);
                     object.rotation.z -= 0.01 * (timeValue / 100);
                 }
+
+                // HALO PULSE
+                if (object.userData && object.userData.isHalo) {
+                    const pulse = 0.25 + Math.sin(time * 0.5) * 0.05;
+                    object.material.opacity = pulse;
+                    // Slightly oscillate scale for "breathing" effect
+                    const scale = 6000 + Math.sin(time * 0.3) * 200;
+                    object.scale.set(scale, scale, 1);
+                }
+
+                // CAMERA-LOCKED INFINITE DUST WRAPPING
+                if (object.userData && object.userData.isInfiniteDust && cameraRef.current) {
+                    object.material.uniforms.uTime.value = time;
+                    object.material.uniforms.uCameraPos.value.copy(cameraRef.current.position);
+                }
             });
 
             // ─────────────────────────────────────────────
@@ -1938,7 +2238,6 @@ const ThreeGraph = forwardRef(({
                 registry.forEach((nodeClone) => {
                     if (!nodeClone._needsTransition || nodeClone._targetX === null) return;
 
-                    const lerp = (current, target, speed) => current + (target - current) * speed;
                     nodeClone._latentX = lerp(nodeClone._latentX, nodeClone._targetX, LERP_SPEED);
                     nodeClone._latentY = lerp(nodeClone._latentY, nodeClone._targetY, LERP_SPEED);
                     nodeClone._latentZ = lerp(nodeClone._latentZ, nodeClone._targetZ, LERP_SPEED);
@@ -1968,6 +2267,34 @@ const ThreeGraph = forwardRef(({
                 });
             }
 
+            // --- SNAPSHOT & EVOLUTION LERP ENGINE ---
+            if (nodesRef.current) {
+                const SNAP_LERP_SPEED = 0.05;
+                nodesRef.current.forEach(node => {
+                    if (node._needsTransition && node.targetX !== undefined) {
+                        node.x = THREE.MathUtils.lerp(node.x || 0, node.targetX, SNAP_LERP_SPEED);
+                        node.y = THREE.MathUtils.lerp(node.y || 0, node.targetY, SNAP_LERP_SPEED);
+                        node.z = THREE.MathUtils.lerp(node.z || 0, node.targetZ, SNAP_LERP_SPEED);
+                        if (node.mesh) node.mesh.position.set(node.x, node.y, node.z);
+                        if (Math.abs((node.x || 0) - node.targetX) < 0.1) node._needsTransition = false;
+                    }
+
+                    if (node._isRemoving && node.mesh) {
+                        const elapsed = Date.now() - node._removeStartTime;
+                        const alpha = Math.max(0, 1 - (elapsed / 400));
+                        node.mesh.traverse(child => {
+                            if (child.material) {
+                                child.material.transparent = true;
+                                child.material.opacity = alpha;
+                            }
+                        });
+                        if (alpha <= 0) {
+                            node.mesh.visible = false;
+                            node._isRemoving = false;
+                        }
+                    }
+                });
+            }
 
             // 2. UPDATE EDGES (Opacity only, curve handled by D3 tick)
             edgesRef.current.forEach(edge => {
@@ -2066,6 +2393,7 @@ const ThreeGraph = forwardRef(({
                         p.progress += p.speed * (timeValue / 100);
                         if (p.progress >= 1) {
                             scene.remove(p.mesh);
+                            disposeObject(p.mesh); // FIX: Properly dispose particle geometry/material
                             particlesRef.current.splice(i, 1);
                         } else {
                             // Safe curve evaluation
@@ -2086,7 +2414,11 @@ const ThreeGraph = forwardRef(({
                 }
             }
 
-            renderer.render(scene, camera);
+            if (composerRef.current) {
+                composerRef.current.render();
+            } else {
+                renderer.render(scene, camera);
+            }
         };
         animate();
 
@@ -2134,21 +2466,14 @@ const ThreeGraph = forwardRef(({
                 try { mountRef.current.removeChild(canvasContainer); } catch (e) { /* ignore */ }
             }
 
-            // DISPOSE RESOURCES to prevent Context Loss
             if (sceneRef.current) {
                 sceneRef.current.traverse((object) => {
-                    if (object.geometry) object.geometry.dispose();
-                    if (object.material) {
-                        if (Array.isArray(object.material)) {
-                            object.material.forEach(m => m.dispose());
-                        } else {
-                            object.material.dispose();
-                        }
-                    }
+                    disposeObject(object);
                 });
             }
 
             if (rendererRef.current) {
+                rendererRef.current.renderLists.dispose();
                 rendererRef.current.dispose();
             }
         };
@@ -2439,35 +2764,7 @@ const ThreeGraph = forwardRef(({
         console.log(`[ThreeGraph] 🔄 Structural Update. Rebuilding Universe...`, data.nodes?.length);
 
 
-        // Helper to properly dispose of Three.js objects
-        const disposeObject = (obj) => {
-            if (!obj) return;
 
-            // Recursive disposal for children (e.g. labels, shells)
-            if (obj.children) {
-                [...obj.children].forEach(child => disposeObject(child));
-            }
-
-            if (obj.geometry) obj.geometry.dispose();
-
-            if (obj.material) {
-                if (Array.isArray(obj.material)) {
-                    obj.material.forEach(m => {
-                        if (m.map) m.map.dispose();
-                        if (m.emissiveMap) m.emissiveMap.dispose();
-                        if (m.roughnessMap) m.roughnessMap.dispose();
-                        if (m.metalnessMap) m.metalnessMap.dispose();
-                        m.dispose();
-                    });
-                } else {
-                    if (obj.material.map) obj.material.map.dispose();
-                    if (obj.material.emissiveMap) obj.material.emissiveMap.dispose();
-                    if (obj.material.roughnessMap) obj.material.roughnessMap.dispose();
-                    if (obj.material.metalnessMap) obj.material.metalnessMap.dispose();
-                    obj.material.dispose();
-                }
-            }
-        };
 
         // A. CLEANUP PREVIOUS CONTENT (AGGRESSIVE)
         console.log("[ThreeGraph] 🧹 Disposing previous scene resources...");
@@ -2839,66 +3136,57 @@ const ThreeGraph = forwardRef(({
 
             // 4. LATENT SPACE VISUALS (Manifold + Axes)
             if (layoutMode === 'latent') {
+                if (sceneRef.current?.fog) sceneRef.current.fog.density = 0.00005;
                 console.log('[ThreeGraph] 🏔️ Rendering Latent Manifold...');
 
-                // Remove old manifold/axes if they exist
                 if (manifoldRef.current) {
                     scene.remove(manifoldRef.current);
-                    disposeObject(manifoldRef.current); // FIX: Dispose resources
+                    disposeObject(manifoldRef.current);
                     manifoldRef.current = null;
                 }
                 if (axesRef.current) {
                     scene.remove(axesRef.current);
-                    disposeObject(axesRef.current); // FIX: Dispose resources
+                    disposeObject(axesRef.current);
                     axesRef.current = null;
                 }
 
-                // Create new manifold terrain
-                // PASSED IN NODES INSTEAD OF STATIC MANIFOLD DATA
                 const manifold = createLatentManifold(layoutNodes);
                 if (manifold) {
                     scene.add(manifold);
                     manifoldRef.current = manifold;
                 }
 
-                // Create axes and grid walls
                 const axes = create3DAxes('latent');
                 scene.add(axes);
                 axesRef.current = axes;
 
-                // ADDED: Flow Arrows (SAI Branch Feature)
                 const flows = createFlowArrows(data.latent_manifold);
                 flows.userData = { isFlow: true };
                 scene.add(flows);
-                axesRef.current.add(flows); // Group cleanup
+                axesRef.current.add(flows);
 
-                // CAMERA TRANSITION: Pull back to see the massive manifold
                 if (cameraRef.current && controlsRef.current) {
-                    // Animate camera to a high vantage point matching Majestic Mountains scale
                     const targetPos = new THREE.Vector3(40000, 20000, 40000);
                     const lookAt = new THREE.Vector3(0, 0, 0);
-
-                    // Use GSAP-like interpolation manually or via controls
-                    // For now, snap + smooth damp, or use our camera manager
                     cameraFocus(targetPos, lookAt, 1.5);
                 }
 
             } else {
-                // Clean up manifold/axes when switching back to galaxy mode
+                if (sceneRef.current?.fog) sceneRef.current.fog.density = 0.0002;
+
                 if (manifoldRef.current) {
                     scene.remove(manifoldRef.current);
-                    disposeObject(manifoldRef.current); // FIX: Dispose resources
+                    disposeObject(manifoldRef.current);
                     manifoldRef.current = null;
                 }
                 if (axesRef.current) {
                     scene.remove(axesRef.current);
-                    disposeObject(axesRef.current); // FIX: Dispose resources
+                    disposeObject(axesRef.current);
                     axesRef.current = null;
                 }
 
-                // CAMERA RESTORE: Back to Galaxy Scale
                 if (layoutMode === 'galaxy' && cameraRef.current) {
-                    const targetPos = new THREE.Vector3(0, 200, 1000); // Standard Galaxy View
+                    const targetPos = new THREE.Vector3(0, 200, 1000);
                     const lookAt = new THREE.Vector3(0, 0, 0);
                     cameraFocus(targetPos, lookAt, 1.5);
                 }
@@ -2940,73 +3228,77 @@ const ThreeGraph = forwardRef(({
             // Strong axial pull for latent to hold the cloud macro-structure against link collapse
             .force("x", forceX(d => d.targetX || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
             .force("y", forceY(d => d.targetY || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
-            .force("z", forceZ(d => d.targetZ || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8))
-            .on("tick", () => {
-                const currentScene = sceneRef.current;
-                if (!currentScene) return;
+            .force("z", forceZ(d => d.targetZ || 0).strength(layoutMode === 'latent' ? 0.9 : 0.8));
 
-                // [FIX] Map for fast lookup of D3 nodes by ID
-                const nodeMap = new Map();
-                nodesRef.current.forEach(n => nodeMap.set(n.id, n));
+        // [FIX] Define persistent vectors outside the tick for performance, but inside the component/init function
+        const lerpTargetPos = new THREE.Vector3();
+        const nodeMap = new Map();
 
-                nodesRef.current.forEach((d) => {
-                    // [FIX] Layout Logic
-                    if (isNaN(d.x) || isNaN(d.y) || isNaN(d.z)) {
-                        d.x = d.targetX || 0;
-                        d.y = d.targetY || 0;
-                        d.z = d.targetZ || 0;
+        simulation.on("tick", () => {
+            const currentScene = sceneRef.current;
+            if (!currentScene) return;
+
+            nodesRef.current.forEach(n => nodeMap.set(n.id, n));
+
+            nodesRef.current.forEach((d) => {
+                // [FIX] Layout Logic
+                if (isNaN(d.x) || isNaN(d.y) || isNaN(d.z)) {
+                    d.x = d.targetX || 0;
+                    d.y = d.targetY || 0;
+                    d.z = d.targetZ || 0;
+                }
+
+                // TIER 3 (VOXEL) FIX: Do not move voxels with D3 physics!
+                if (d.isVoxel || currentLens === 'tier3') return;
+
+                // If it's the very first tick and alpha is high, bypass lerp for instant positioning
+                if (d.mesh) {
+                    if (simulation.alpha() > 0.95) {
+                        d.mesh.position.set(d.x, d.y, d.z);
+                    } else {
+                        lerpTargetPos.set(d.x, d.y, d.z);
+                        d.mesh.position.lerp(lerpTargetPos, 0.1);
                     }
+                }
 
-                    // TIER 3 (VOXEL) FIX: Do not move voxels with D3 physics!
-                    if (d.isVoxel || currentLens === 'tier3') return;
-
-                    // If it's the very first tick and alpha is high, bypass lerp for instant positioning
-                    if (d.mesh) {
-                        if (simulation.alpha() > 0.95) {
-                            d.mesh.position.set(d.x, d.y, d.z);
-                        } else {
-                            d.mesh.position.lerp(new THREE.Vector3(d.x, d.y, d.z), 0.1);
-                        }
-                    }
-
-                    // 3. UPDATE TEXT LABELS
-                    if (d.labelSprite && !d.mesh) {
-                        const size = d.size || 5;
-                        d.labelSprite.position.set(d.x, d.y + size + 10, d.z);
-                    }
-                });
-
-                // [FIX] 4. UPDATE EDGES (Visual Curves)
-                if (edgesRef.current) {
-                    edgesRef.current.forEach(edge => {
-                        const sId = edge.userData.sourceId;
-                        const tId = edge.userData.targetId;
-
-                        const source = nodeMap.get(sId);
-                        const target = nodeMap.get(tId);
-
-                        // Ensure we have D3 nodes and the curve object
-                        if (source && target && edge.geometry && edge.userData.curve) {
-                            const start = new THREE.Vector3(source.x, source.y, source.z);
-                            const end = new THREE.Vector3(target.x, target.y, target.z);
-
-                            // Calculate mid-point with curve (simple quadratic bezier)
-                            const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                            mid.y += (start.distanceTo(end) * 0.2);
-
-                            // Update Curve Control Points
-                            edge.userData.curve.v0.copy(start);
-                            edge.userData.curve.v1.copy(mid);
-                            edge.userData.curve.v2.copy(end);
-
-                            // Update Geometry from Curve
-                            const points = edge.userData.curve.getPoints(50);
-                            edge.geometry.setFromPoints(points);
-                            edge.geometry.attributes.position.needsUpdate = true;
-                        }
-                    });
+                // 3. UPDATE TEXT LABELS
+                if (d.labelSprite && !d.mesh) {
+                    const size = d.size || 5;
+                    d.labelSprite.position.set(d.x, d.y + size + 10, d.z);
                 }
             });
+
+            // [FIX] 4. UPDATE EDGES (Visual Curves)
+            if (edgesRef.current) {
+                edgesRef.current.forEach(edge => {
+                    const sId = edge.userData.sourceId;
+                    const tId = edge.userData.targetId;
+
+                    const source = nodeMap.get(sId);
+                    const target = nodeMap.get(tId);
+
+                    // Ensure we have D3 nodes and the curve object
+                    if (source && target && edge.geometry && edge.userData.curve) {
+                        const start = new THREE.Vector3(source.x, source.y, source.z);
+                        const end = new THREE.Vector3(target.x, target.y, target.z);
+
+                        // Calculate mid-point with curve (simple quadratic bezier)
+                        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                        mid.y += (start.distanceTo(end) * 0.2);
+
+                        // Update Curve Control Points
+                        edge.userData.curve.v0.copy(start);
+                        edge.userData.curve.v1.copy(mid);
+                        edge.userData.curve.v2.copy(end);
+
+                        // Update Geometry from Curve
+                        const points = edge.userData.curve.getPoints(50);
+                        edge.geometry.setFromPoints(points);
+                        edge.geometry.attributes.position.needsUpdate = true;
+                    }
+                });
+            }
+        });
 
         simulationRef.current = simulation;
 
@@ -3098,7 +3390,7 @@ const ThreeGraph = forwardRef(({
                     if (originalColor) mesh.material.color.copy(glowColor);
                     if (hasEmissive) {
                         mesh.material.emissive.copy(glowColor);
-                        mesh.material.emissiveIntensity = 5.0;
+                        mesh.material.emissiveIntensity = 1.5;
                     }
 
                     // Shell glow
@@ -3108,7 +3400,7 @@ const ThreeGraph = forwardRef(({
                         if (shell.material.color) shell.material.color.copy(glowColor);
                         if (shellHasEmissive) {
                             shell.material.emissive.copy(glowColor);
-                            shell.material.emissiveIntensity = 8.0;
+                            shell.material.emissiveIntensity = 2.0;
                         }
                     }
 
@@ -3173,7 +3465,21 @@ const ThreeGraph = forwardRef(({
         <div ref={containerRef} className={className || "absolute inset-0 z-0"} style={containerStyle}>
             {/* DEBUG HUD - REMOVE BEFORE PRODUCTION */}
             {/* TOPOLOGY VIEW (Always Mounted) */}
-            <div ref={mountRef} className="absolute inset-0 z-0" />
+            {/* Snapshot Mode Marker */}
+            {isSnapshotMode && (
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-6 py-3 bg-amber-500/20 backdrop-blur-md border border-amber-500/40 rounded-full flex items-center gap-3 animate-pulse pointer-events-none">
+                    <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                    <span className="text-amber-300 text-xs font-bold uppercase tracking-[0.2em]">
+                        Viewing Snapshot Analysis — Live Data Paused
+                    </span>
+                </div>
+            )}
+
+            <div
+                ref={mountRef}
+                className={`absolute inset-0 z-0 transition-opacity duration-700 ${isSnapshotMode ? 'opacity-80' : 'opacity-100'}`}
+                style={{ willChange: 'transform' }}
+            />
 
             {/* [BUSINESS LENS] Floating Impact Labels removed per user request */}
 

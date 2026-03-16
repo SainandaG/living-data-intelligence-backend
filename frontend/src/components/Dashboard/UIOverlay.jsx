@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { useWindowManager } from '../../context/WindowManagerContext';
+import { cn } from '../../utils/cn';
+import { GenerationLogPanel } from './GenerationLogPanel';
 
-export const Header = ({ onConnect }) => {
+export const Header = React.memo(({ onConnect }) => {
     const { openWindow, connectionId } = useWindowManager();
     const [seeding, setSeeding] = useState(false);
 
@@ -35,7 +37,7 @@ export const Header = ({ onConnect }) => {
             <div className="btn-container">
                 {connectionId && (
                     <button
-                        className={`modern-btn ${seeding ? 'opacity-50 cursor-wait' : 'btn-gradient'}`}
+                        className={cn("modern-btn", seeding ? 'opacity-50 cursor-wait' : 'btn-gradient')}
                         onClick={handleSeed}
                         disabled={seeding}
                         style={{ marginRight: '10px', background: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)' }}
@@ -49,9 +51,9 @@ export const Header = ({ onConnect }) => {
             </div>
         </div>
     );
-};
+});
 
-export const StatsDashboard = ({ stats }) => {
+export const StatsDashboard = React.memo(({ stats }) => {
     const [collapsed, setCollapsed] = useState({
         live: false,
         metrics: false,
@@ -66,7 +68,7 @@ export const StatsDashboard = ({ stats }) => {
     return (
         <div className="stats-dashboard">
             {/* Hero Stat */}
-            <div className={`glass-card hero-stat ${collapsed.live ? 'collapsed' : ''}`}>
+            <div className={cn("glass-card hero-stat", collapsed.live && 'collapsed')}>
                 <div className="section-header" onClick={() => toggle('live')}>
                     <div className="stat-badge">
                         <div className="pulse-indicator"></div>
@@ -86,7 +88,7 @@ export const StatsDashboard = ({ stats }) => {
             </div>
 
             {/* Metrics Grid */}
-            <div className={`glass-card metrics-grid-container ${collapsed.metrics ? 'collapsed' : ''}`}>
+            <div className={cn("glass-card metrics-grid-container", collapsed.metrics && 'collapsed')}>
                 <div className="section-header" onClick={() => toggle('metrics')} style={{ padding: '10px 0' }}>
                     <div className="stat-badge" style={{ marginBottom: 0 }}>METRICS & ALERTS</div>
                     <span className="toggle-icon">{collapsed.metrics ? '+' : '−'}</span>
@@ -113,7 +115,7 @@ export const StatsDashboard = ({ stats }) => {
             </div>
 
             {/* Health Card */}
-            <div className={`glass-card health-card ${collapsed.health ? 'collapsed' : ''}`}>
+            <div className={cn("glass-card health-card", collapsed.health && 'collapsed')}>
                 <div className="section-header" onClick={() => toggle('health')} style={{ paddingBottom: '10px' }}>
                     <div className="health-title" style={{ margin: 0 }}>System Health</div>
                     <span className="toggle-icon">{collapsed.health ? '+' : '−'}</span>
@@ -132,7 +134,7 @@ export const StatsDashboard = ({ stats }) => {
 
             {/* NEW: ROI Intensity Section (Proposal Compliance) */}
             {stats.activeBatteries > 0 && (
-                <div className={`glass-card roi-card ${collapsed.roi ? 'collapsed' : ''}`}>
+                <div className={cn("glass-card roi-card", collapsed.roi && 'collapsed')}>
                     <div className="section-header" onClick={() => toggle('roi')} style={{ paddingBottom: '10px' }}>
                         <div className="health-title" style={{ margin: 0, color: '#00ff88' }}>WEZU ROI Intensity</div>
                         <span className="toggle-icon">{collapsed.roi ? '+' : '−'}</span>
@@ -157,43 +159,43 @@ export const StatsDashboard = ({ stats }) => {
             )}
         </div>
     );
-};
+});
 
-const MetricItem = ({ name, icon, value, change, trend }) => (
+const MetricItem = React.memo(({ name, icon, value, change, trend }) => (
     <div className="metric-item">
         <div className="metric-header">
             <span className="metric-name">{name}</span>
             <span className="metric-icon">{icon}</span>
         </div>
         <div className="metric-value">{value}</div>
-        <div className={`metric-change ${trend}`}>
+        <div className={cn("metric-change", trend)}>
             <span>{trend === 'positive' ? '↗️' : '→'}</span> {change}
         </div>
     </div>
-);
+));
 
-const HealthItem = ({ name, value, percent, color }) => (
+const HealthItem = React.memo(({ name, value, percent, color }) => (
     <div className="health-item">
         <div className="health-header">
             <span className="health-name">{name}</span>
             <span className="health-value" style={{ color: color === 'yellow' ? '#fbbf24' : '#22d3ee' }}>{value}</span>
         </div>
         <div className="progress-track">
-            <div className={`progress-fill ${color}`} style={{ width: `${percent}%` }}></div>
+            <div className={cn("progress-fill", color)} style={{ width: `${percent}%` }}></div>
         </div>
     </div>
-);
+));
 
-export const Legend = () => null;
+export const Legend = React.memo(() => null);
 
-const LegendItem = ({ color, label }) => (
+const LegendItem = React.memo(({ color, label }) => (
     <div className="legend-item">
         <div className="legend-dot" style={{ background: color, boxShadow: `0 0 10px ${color}66` }}></div>
         <span className="legend-label">{label}</span>
     </div>
-);
+));
 
-export const NodeDetails = ({ node, onClose, onDrillDown }) => {
+export const NodeDetails = React.memo(({ node, onClose, onDrillDown }) => {
     if (!node) return null;
     return (
         <div className="node-details glass-card visible">
@@ -232,9 +234,9 @@ export const NodeDetails = ({ node, onClose, onDrillDown }) => {
             </div>
         </div>
     );
-};
+});
 
-export const CirclePackOverlay = ({ node, visible, onClose, onColumnClick }) => {
+export const CirclePackOverlay = React.memo(({ node, visible, onClose, onColumnClick }) => {
     const containerRef = useRef(null);
 
     // Helper: Convert flat node schema (columns, pks, fks) to hierarchy for D3
@@ -448,7 +450,7 @@ export const CirclePackOverlay = ({ node, visible, onClose, onColumnClick }) => 
     if (!visible || !node) return null;
 
     return (
-        <div className={`circle-pack-overlay ${visible ? 'visible' : ''}`}>
+        <div className={cn("circle-pack-overlay", visible && 'visible')}>
             <div className="circle-pack-header glass-card">
                 <div className="flex justify-between items-start">
                     <div>
@@ -484,4 +486,4 @@ export const CirclePackOverlay = ({ node, visible, onClose, onColumnClick }) => 
             <button className="circle-pack-close" onClick={onClose}>×</button>
         </div>
     );
-};
+});

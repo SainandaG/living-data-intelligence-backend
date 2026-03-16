@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Terminal, Activity, History, ChevronRight, Check, X } from 'lucide-react';
+import { Bot, Terminal, Activity, History, Check, X } from 'lucide-react';
 import { agentService } from '../../services/agentService';
 import soundSystem from '../../utils/SoundSystem';
+import { cn } from '../../utils/cn';
 
 const AgentStatusPanel = () => {
     const [state, setState] = useState({
@@ -12,6 +13,18 @@ const AgentStatusPanel = () => {
     });
     const [logs, setLogs] = useState([]);
     const [isOpen, setIsOpen] = useState(false);
+
+    useEffect(() => {
+        const handleToggle = (e) => {
+            if (e.detail && typeof e.detail.open === 'boolean') {
+                setIsOpen(e.detail.open);
+            } else {
+                setIsOpen(prev => !prev);
+            }
+        };
+        window.addEventListener('toggle-agent-hub', handleToggle);
+        return () => window.removeEventListener('toggle-agent-hub', handleToggle);
+    }, []);
 
     const fetchData = async () => {
         try {
@@ -53,22 +66,26 @@ const AgentStatusPanel = () => {
         }
     };
 
-    return (
-        <div className={`fixed left-4 top-24 z-40 transition-all duration-500 ${isOpen ? 'w-80' : 'w-12'}`}>
-            <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
-                {/* Header/Toggle */}
-                <button
-                    onClick={togglePanel}
-                    className="w-full p-3 flex items-center justify-between hover:bg-white/5 transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <Bot className={`w-5 h-5 text-indigo-400 ${state.t0_state !== 'idle' ? 'animate-pulse' : ''}`} />
-                        {isOpen && <span className="font-semibold text-slate-200">Neural Agent HUB</span>}
-                    </div>
-                    {isOpen ? <ChevronRight className="w-4 h-4 text-slate-500 rotate-180" /> : null}
-                </button>
+    if (!isOpen) return null;
 
-                {isOpen && (
+    return (
+        <div className={cn(
+            "fixed left-[92px] bottom-20 z-[6000] transition-all duration-500",
+            "w-80"
+        )}>
+            <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+                {/* Header (No longer a button) */}
+                <div className="w-full p-3 flex items-center justify-between border-b border-white/10">
+                    <div className="flex items-center gap-3">
+                        <Bot className={cn(
+                            "w-5 h-5 text-indigo-400",
+                            state.t0_state !== 'idle' && "animate-pulse"
+                        )} />
+                        <span className="font-semibold text-slate-200">Neural Agent HUB</span>
+                    </div>
+                </div>
+
+                <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
                     <div className="p-4 flex flex-col gap-6 animate-in fade-in duration-300">
                         {/* State Grid */}
                         <div className="grid grid-cols-2 gap-3">
@@ -144,10 +161,10 @@ const AgentStatusPanel = () => {
                             </span>
                         </div>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );
 };
 
-export default AgentStatusPanel;
+export default React.memo(AgentStatusPanel);

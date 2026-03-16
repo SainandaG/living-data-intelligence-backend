@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback, Suspense, lazy } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Activity, Shield, Info, Settings as SettingsIcon, Zap } from 'lucide-react';
 import { WindowManagerProvider, useWindowManager } from './context/WindowManagerContext';
 import Window from './components/WindowManager/Window';
 import Taskbar from './components/WindowManager/Taskbar';
@@ -23,6 +24,7 @@ import { SidebarSkeleton, GraphOverlaySkeleton } from './components/Dashboard/Lo
 import EdgeStatsPanel from './components/Dashboard/EdgeStatsPanel';
 import LineageInsightHUD from './components/Dashboard/LineageInsightHUD';
 import WarRoomHUD from './components/Incident/WarRoomHUD';
+import { GenerationLogPanel } from './components/Dashboard/GenerationLogPanel';
 // Navigation
 
 import NavigationBar from './components/Layout/NavigationBar';
@@ -34,58 +36,139 @@ import { agentService } from './services/agentService';
 import TimelinePlayer from './components/Evolution/TimelinePlayer';
 import EvolutionOverlay from './components/Evolution/EvolutionOverlay';
 import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
+import TimeMachinePanel from './components/Panels/TimeMachinePanel';
 import { CommandRegistryProvider, useCommandRegistry, useRegisterCommand } from './context/CommandRegistryContext';
 import soundSystem from './utils/SoundSystem';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useMultiplayer } from './hooks/useMultiplayer';
-import apiClient from './utils/apiClient';
+import apiClient, { registerAsyncErrorHandler } from './utils/apiClient';
+import { useAsyncError } from './hooks/useAsyncError';
 import { decodeViewState, encodeViewState } from './utils/stateEncoder';
+import LoginPage from './components/Auth/LoginPage';
+import ErrorBoundary from './components/ErrorBoundary';
+import { cn } from './utils/cn';
+import RemoteCursors from './components/Multiplayer/RemoteCursors';
 
 
-// Simple Error Boundary for Debugging
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
-  }
+// --- ERROR FALLBACK COMPONENTS ---
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
+const AppCrashScreen = React.memo(() => (
+  <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-8 text-center">
+    <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mb-6 border border-rose-500/20">
+      <span className="material-symbols-outlined text-rose-500 text-4xl">terminal</span>
+    </div>
+    <h1 className="text-2xl font-bold text-white mb-2">Critical System Failure</h1>
+    <p className="text-gray-400 mb-8 max-w-md">
+      The application encountered a critical error and cannot continue.
+      Your session and data remain safe on the server.
+    </p>
+    <button
+      onClick={() => window.location.reload()}
+      className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-all shadow-lg shadow-blue-500/20"
+    >
+      Reload Intelligence System
+    </button>
+  </div>
+));
 
-  componentDidCatch(error, errorInfo) {
-    this.setState({ errorInfo });
-  }
+const ThreeGraphFallback = React.memo(({ reset }) => (
+  <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 backdrop-blur-md">
+    <div className="text-amber-500/80 mb-4 animate-pulse">
+      <span className="material-symbols-outlined text-6xl">videogame_asset_off</span>
+    </div>
+    <h3 className="text-lg font-bold text-white mb-2">3D Visualization Offline</h3>
+    <p className="text-gray-400 text-sm mb-6">The neural rendering engine has stalled.</p>
+    <button
+      onClick={reset}
+      className="px-6 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-500 border border-amber-500/30 rounded-lg text-xs font-bold uppercase transition-all"
+    >
+      Restart Engine
+    </button>
+  </div>
+));
 
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 20, color: 'red', position: 'fixed', top: 0, left: 0, zIndex: 999999, background: 'black', width: '100%', height: '100%' }}>
-          <h1>Component Error</h1>
-          <pre>{this.state.error && this.state.error.toString()}</pre>
-          <pre>{this.state.errorInfo && this.state.errorInfo.componentStack}</pre>
-          <button onClick={() => this.setState({ hasError: false })} style={{ padding: 10, marginTop: 20 }}>Dismiss</button>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+const PanelError = React.memo(({ name, reset }) => (
+  <div className="p-6 bg-black/40 border border-rose-500/20 rounded-xl m-4 backdrop-blur-xl">
+    <div className="flex items-center gap-3 text-rose-400 mb-2">
+      <span className="material-symbols-outlined">warning</span>
+      <h4 className="font-bold">{name} Error</h4>
+    </div>
+    <p className="text-xs text-gray-500 mb-4">This module failed to initialize properly.</p>
+    <button
+      onClick={reset}
+      className="text-[10px] text-rose-400 font-bold uppercase tracking-widest hover:text-rose-300 transition-colors"
+    >
+      Re-initialize
+    </button>
+  </div>
+));
 
 const App = () => {
   return (
-    <WindowManagerProvider>
-      <CommandRegistryProvider>
-        <ErrorBoundary>
+    <ErrorBoundary fallback={<AppCrashScreen />}>
+      <WindowManagerProvider>
+        <CommandRegistryProvider>
           <MainDashboard />
-        </ErrorBoundary>
-      </CommandRegistryProvider>
-    </WindowManagerProvider>
+        </CommandRegistryProvider>
+      </WindowManagerProvider>
+    </ErrorBoundary>
   );
 };
 
 const MainDashboard = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const throwAsyncError = useAsyncError();
+
+  // Initialize Auth
+  useEffect(() => {
+    // Only throw truly fatal errors to ErrorBoundary (e.g. forbidden access).
+    // Recoverable errors (network, 500, timeout) are handled by individual catch blocks.
+    registerAsyncErrorHandler((err) => {
+      const fatalCodes = ['FORBIDDEN'];
+      if (fatalCodes.includes(err?.code)) {
+        throwAsyncError(err);
+      } else {
+        console.warn('[App] Recoverable API error (not crashing):', err?.code, err?.message);
+      }
+    });
+    const token = localStorage.getItem('token');
+    if (token) {
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      setIsAuthenticated(true);
+    }
+    setIsCheckingAuth(false);
+  }, []);
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    delete apiClient.defaults.headers.common['Authorization'];
+    setIsAuthenticated(false);
+  }, []);
+
+  // Set up global 401 interceptor
+  useEffect(() => {
+    const interceptor = apiClient.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          console.warn('[App] Session expired or invalid. Logging out...');
+          handleLogout();
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      apiClient.interceptors.response.eject(interceptor);
+    };
+  }, [handleLogout]);
+
   const graphRef = React.useRef(null);
   const { openWindow, windows, connectionId, setConnectionId } = useWindowManager();
   const { executeCommand } = useCommandRegistry(); // Use Registry for execution
@@ -104,6 +187,7 @@ const MainDashboard = () => {
   const [showDrillDown, setShowDrillDown] = useState(false);
   const [showRecordGravity, setShowRecordGravity] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState(null);
+  const [threeGraphKey, setThreeGraphKey] = useState(0);
   const [graphData, setGraphData] = React.useState({ nodes: [], edges: [] });
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -140,6 +224,8 @@ const MainDashboard = () => {
   // Live per-table row counts — updated every 2s from WebSocket for node glow
   const [liveTableCounts, setLiveTableCounts] = useState({});
   const [currentSnapshot, setCurrentSnapshot] = useState(null);
+  const [timeMachineOpen, setTimeMachineOpen] = useState(false);
+  const [snapshotData, setSnapshotData] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([]);
   const [activeLens, setActiveLens] = useState(() => initialViewState?.currentLens || localStorage.getItem('activeLens') || 'ops'); // New Lens State
   const [activeLayoutMode, setActiveLayoutMode] = useState(() => localStorage.getItem('activeLayoutMode') || 'galaxy'); // SAI Layout Mode
@@ -164,12 +250,30 @@ const MainDashboard = () => {
   const [enrichedNodes, setEnrichedNodes] = useState(null);
   const [insightPerspective, setInsightPerspective] = useState('analyst'); // 'analyst' or 'business'
   const [pinnedNodes, setPinnedNodes] = useState(new Set()); // [NEW] Pin state persistence
+  const [pinnedNodeId, setPinnedNodeId] = useState(null); // [NEW] HUD Pin state
+  const [isSidebarPanelActive, setIsSidebarPanelActive] = useState(false); // [NEW] Track if Intelligence Hub or Agent Hub is open
   const [pinnedCols, setPinnedCols] = useState(new Set()); // [NEW] Pin state persistence
   const [columnAliases, setColumnAliases] = useState({}); // [NEW] Manual business term overrides
+  const [pinnedEdge, setPinnedEdge] = useState(null); // [NEW] Edge HUD Pin state
+  const [isHudMinimized, setIsHudMinimized] = useState(false); // [NEW] Global HUD visibility lock
 
   // --- WAR ROOM STATE ---
   const [isWarRoomActive, setIsWarRoomActive] = useState(false);
   const [warRoomTargetNode, setWarRoomTargetNode] = useState(null);
+
+  const resolvedGraphLayoutMode =
+    (viewMode === 'globalLatent' || viewMode === 'latent')
+      ? 'latent'
+      : activeLayoutMode;
+
+  // Global Sidebar Panel Sync
+  useEffect(() => {
+    const handleSidebarState = (e) => {
+      setIsSidebarPanelActive(!!e.detail?.active);
+    };
+    window.addEventListener('sidebar-panel-active', handleSidebarState);
+    return () => window.removeEventListener('sidebar-panel-active', handleSidebarState);
+  }, []);
 
   // --- UNIFIED URL-DRIVEN NAVIGATION SYSTEM ---
   // The URL is the single source of truth. All navigation should use navigate(path).
@@ -237,7 +341,8 @@ const MainDashboard = () => {
 
   // --- REAL-TIME SYNC (WebSocket) ---
   const wsUrl = connectionId ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/${connectionId}` : null;
-  const { isConnected: wsConnected, lastMessage, sendMessage } = useWebSocket(wsUrl);
+  const { status: wsStatus, lastMessage, send: sendMessage, dbReconnecting } = useWebSocket(wsUrl);
+  const wsConnected = wsStatus === "connected";
 
   // --- MULTIPLAYER PRESENCE ---
   const { persona, activePeers, handlePresenceMessage } = useMultiplayer(sendMessage, wsConnected, {
@@ -301,7 +406,7 @@ const MainDashboard = () => {
           const volt = metrics.avg_battery_volt ? parseFloat(metrics.avg_battery_volt).toFixed(1) : '—';
           const curr = metrics.avg_battery_curr ? parseFloat(metrics.avg_battery_curr).toFixed(1) : '—';
 
-          setSimUpdate(`🔋 Battery Update: ${temp}°C | ${volt}V | ${curr}A`);
+          setSimUpdate(`🔋 Battery Update: ${temp}°C | ${volt}V | ${curr}A${dbReconnecting ? ' | 🔄 DB Resyncing' : ''}`);
           setTimeout(() => setSimUpdate(null), 4000);
 
           setGraphData(prev => ({
@@ -340,9 +445,6 @@ const MainDashboard = () => {
       }
     }
   }, [lastMessage]);
-
-
-
 
 
   // Navigation handlers (URL-driven)
@@ -443,8 +545,6 @@ const MainDashboard = () => {
     fetchGravitySuggestions(id);
     try {
       const rawData = await apiClient.get(`/graph/${id}`);
-      // if (!resp.ok) throw new Error('Failed to fetch graph'); // Axios handles this
-      // const rawData = await resp.json(); // Axios returns data directly
       if (rawData.neural_core) {
         const core = rawData.neural_core;
         setAiStatus(`Neural Core: ${core.ai_stats?.status || 'ACTIVE'} | Scanned: ${core.ai_stats?.scanned_nodes || 0}/${core.ai_stats?.total_nodes || 0}`);
@@ -473,9 +573,9 @@ const MainDashboard = () => {
           metrics: node.metrics || node.foreign_keys || [],
           columns: node.columns || [],
           vitality: node.vitality === undefined ? 100 : node.vitality, // Fix: Don't default to 50
-          pulse_rate: node.pulse_rate || 1.0,
-          glow_intensity: node.node_glow || 0.5,
-          node_glow: node.node_glow || 1.0,
+          pulse_rate: node.pulse_rate || 0.1,
+          glow_intensity: node.node_glow || 0.1,
+          node_glow: node.node_glow || 0.2,
           importance_score: node.importance_score || 1.0,
           cluster: node.cluster,
           foreign_keys: node.foreign_keys || [],
@@ -708,10 +808,22 @@ const MainDashboard = () => {
     setTimeout(() => setAiStatus(null), 3000);
   }, []);
 
+  const handleTimeMachine = useCallback(({ instruction }) => {
+    if (instruction === 'open' || instruction === 'show') {
+      setTimeMachineOpen(true);
+      return { success: true, message: "Opening Time Machine" };
+    } else {
+      setTimeMachineOpen(false);
+      setSnapshotData(null);
+      return { success: true, message: "Exiting Time Machine" };
+    }
+  }, []);
+
   useRegisterCommand('graph_evolution', handleEvolution);
   useRegisterCommand('ui_navigation', handleNav);
   useRegisterCommand('analytics', handleAnalyticsCmd);
   useRegisterCommand('ui_audio', handleAudioCmd);
+  useRegisterCommand('ui_time_machine', handleTimeMachine);
 
   const toggleClusteringMethod = useCallback(async () => {
     const newMethod = clusteringMethod === 'heuristic' ? 'networkx' : 'heuristic';
@@ -770,6 +882,18 @@ const MainDashboard = () => {
 
 
 
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex items-center justify-center">
+        <div className="animate-spin h-8 w-8 text-blue-500" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <>
       <DashboardLayout
@@ -808,38 +932,41 @@ const MainDashboard = () => {
 
         {/* PERSISTENT GRAPH LAYER - Stays mounted to prevent "Cold Start" clumping */}
         <div
-          className={`absolute inset-0 transition-all duration-1000 ease-in-out ${viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent' || viewMode === 'latent'
-            ? 'opacity-100'
-            : 'opacity-0 pointer-events-none'
-            }`}
+          className={cn(
+            "absolute inset-0 transition-all duration-1000 ease-in-out",
+            (viewMode === 'overview' || viewMode === 'analytics' || viewMode === 'globalLatent' || viewMode === 'latent')
+              ? 'opacity-100'
+              : 'opacity-0 pointer-events-none'
+          )}
           style={{ zIndex: 0 }}
         >
           {loading && <GraphOverlaySkeleton />}
 
-          <Suspense fallback={<GraphOverlaySkeleton />}>
-            <ThreeGraph
-              ref={graphRef}
-              data={graphData}
-              initialCameraState={initialCameraState.current}
-              tps={liveStats.tps}
-              liveTableCounts={liveTableCounts}
-              onNodeClick={handleNodeClick}
-              onNodeHover={setHoveredNode}
-              onEdgeHover={(edgeData) => {
-                setHoveredEdge(edgeData);
-                if (edgeData?.mousePos) setHoveredEdgePos(edgeData.mousePos);
-              }}
-              activeLens={activeLens}
-              clusteringMethod={clusteringMethod}
-              paused={viewMode !== 'overview' && viewMode !== 'analytics' && viewMode !== 'globalLatent' && viewMode !== 'latent'}
-              activeFilters={activeFilters}
-              onNodesEnriched={setEnrichedNodes}
-              multiSelectedNodes={multiSelectedNodes}
-              showMultiConnections={showMultiConnections}
-              isWarRoomActive={isWarRoomActive}
-              warRoomTargetNode={warRoomTargetNode}
-            />
-          </Suspense>
+          <ErrorBoundary
+            key={threeGraphKey}
+            fallback={(error, reset) => <ThreeGraphFallback reset={() => { reset(); setThreeGraphKey(prev => prev + 1); }} />}
+            onError={(err) => console.error('3D engine crashed:', err)}
+          >
+            <Suspense fallback={<GraphOverlaySkeleton />}>
+              <ThreeGraph
+                ref={graphRef}
+                data={graphData}
+                initialCameraState={initialCameraState.current}
+                tps={liveStats.tps}
+                onNodeClick={handleNodeClick}
+                onNodeHover={setHoveredNode}
+                onEdgeHover={(edge) => {
+                  setHoveredEdge(edge);
+                  if (edge) setHoveredEdgePos(edge.mousePos);
+                }}
+                layoutMode={resolvedGraphLayoutMode}
+                activeLens={activeLens}
+                activeFilters={activeFilters}
+                multiSelectedNodes={multiSelectedNodes}
+                showMultiConnections={showMultiConnections}
+              />
+            </Suspense>
+          </ErrorBoundary>
 
           {/* AI STATUS TOAST - REPOSITIONED TO GRAPH CORNER */}
           <AnimatePresence>
@@ -856,29 +983,57 @@ const MainDashboard = () => {
             )}
           </AnimatePresence>
 
-          {/* EDGE/RELATIONSHIP HUD - Only floating in non-sidebar modes */}
-          <EdgeStatsPanel
-            edge={hoveredEdge}
-            position={hoveredEdgePos}
-            visible={!!hoveredEdge && viewMode !== 'latent' && viewMode !== 'globalLatent'}
-          />
+          <ErrorBoundary fallback={null}>
+            {/* EDGE/RELATIONSHIP HUD - Only floating in non-sidebar modes */}
+            <EdgeStatsPanel
+              edge={pinnedEdge || hoveredEdge}
+              position={hoveredEdgePos}
+              visible={!isHudMinimized && !!(pinnedEdge || hoveredEdge) && viewMode !== 'latent' && viewMode !== 'globalLatent' && !isSidebarPanelActive}
+              isPinned={!!pinnedEdge}
+              onPin={() => setPinnedEdge(pinnedEdge ? null : hoveredEdge)}
+              onClose={() => { setPinnedEdge(null); setHoveredEdge(null); setIsHudMinimized(true); }}
+            />
+          </ErrorBoundary>
 
-          {/* LINEAGE INSIGHT HUD - Appears on Selection + Hover */}
-          <LineageInsightHUD
-            hoveredNode={hoveredNode}
-            selectedNode={selectedNode}
-            multiSelectedNodes={multiSelectedNodes}
-            graphData={graphData}
-            perspective={insightPerspective}
-            onEnterWarRoom={(nodeId) => {
-              setIsWarRoomActive(true);
-              setWarRoomTargetNode(nodeId);
-              // Cinematic zoom
-              if (graphRef.current?.highlightNode) {
-                graphRef.current.highlightNode(nodeId);
-              }
-            }}
-          />
+          <ErrorBoundary fallback={null}>
+            {/* LINEAGE INSIGHT HUD - Appears on Selection + Hover */}
+            <LineageInsightHUD
+              hoveredNode={hoveredNode}
+              selectedNode={graphData.nodes?.find(n => n.id === pinnedNodeId) || selectedNode}
+              pinnedNodeId={pinnedNodeId}
+              onPin={(nodeId) => setPinnedNodeId(pinnedNodeId === nodeId ? null : nodeId)}
+              onClose={() => { setPinnedNodeId(null); setSelectedNode(null); setHoveredNode(null); setIsHudMinimized(true); }}
+              multiSelectedNodes={multiSelectedNodes}
+              graphData={graphData}
+              perspective={insightPerspective}
+              onEnterWarRoom={(nodeId) => {
+                setIsWarRoomActive(true);
+                setWarRoomTargetNode(nodeId);
+                if (graphRef.current?.highlightNode) {
+                  graphRef.current.highlightNode(nodeId);
+                }
+              }}
+              visible={!isHudMinimized && (!hoveredEdge || pinnedNodeId) && !isSidebarPanelActive}
+            />
+          </ErrorBoundary>
+
+          <ErrorBoundary fallback={null}>
+            {/* MINIMIZED HUD RESTORE TRIGGER */}
+            <AnimatePresence>
+              {isHudMinimized && (
+                <motion.button
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  onClick={() => setIsHudMinimized(false)}
+                  className="fixed top-[100px] left-[92px] p-2 bg-[var(--bg-elevated)]/80 hover:bg-[var(--primary-cyan)]/20 border border-[var(--primary-cyan)]/30 rounded-lg flex items-center gap-2 text-[var(--primary-cyan)] font-bold text-[10px] uppercase tracking-widest backdrop-blur-md z-[5001] shadow-lg transition-all"
+                >
+                  <Activity size={14} className="animate-pulse" />
+                  Restore HUD
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </ErrorBoundary>
 
           {/* WAR ROOM INCIDENT HUD */}
           <AnimatePresence>
@@ -905,46 +1060,48 @@ const MainDashboard = () => {
 
 
           {/* LATENT SPACE HUD OVERLAY */}
-          {(viewMode === 'globalLatent' || viewMode === 'latent') && (
-            <LatentSpaceUIOverlay
-              hudOnly={true}
-              dataClusters={enrichedNodes || graphData?.nodes}
-              schemaData={graphData}
-              selectedNodeId={selectedNode?.id || hoveredNode?.id}
-              liveStats={liveStats}
-              timeValue={timeValue}
-              onTimeChange={setTimeValue}
-              currentLens={activeLens}
-              hoveredEdge={hoveredEdge}
-              connectionId={connectionId}
-              onDrillDown={handleNodeDrillDown}
-              insightPerspective={insightPerspective}
-              setInsightPerspective={setInsightPerspective}
-              onClose={() => {
-                if (viewMode === 'latent') handleNavigate('drilldown');
-                else handleNavigate('overview');
-              }}
-              onZoomIn={() => {
-                if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(0.8);
-              }}
-              onZoomOut={() => {
-                if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(1.2);
-              }}
-              onZoomReset={() => {
-                if (graphRef.current && graphRef.current.resetView) graphRef.current.resetView();
-              }}
-              onToggleLens={handleToggleLens}
-              activeFilters={activeFilters}
-              onFilterChange={(label, value) => {
-                setActiveFilters(prev => ({ ...prev, [label]: value }));
-              }}
-              multiSelectedNodes={multiSelectedNodes}
-              setMultiSelectedNodes={setMultiSelectedNodes}
-              showMultiConnections={showMultiConnections}
-              setShowMultiConnections={setShowMultiConnections}
-              onShareView={handleShareView}
-            />
-          )}
+          <ErrorBoundary fallback={null}>
+            {(viewMode === 'globalLatent' || viewMode === 'latent') && (
+              <LatentSpaceUIOverlay
+                hudOnly={true}
+                dataClusters={enrichedNodes || graphData?.nodes}
+                schemaData={graphData}
+                selectedNodeId={selectedNode?.id || hoveredNode?.id}
+                liveStats={liveStats}
+                timeValue={timeValue}
+                onTimeChange={setTimeValue}
+                currentLens={activeLens}
+                hoveredEdge={hoveredEdge}
+                connectionId={connectionId}
+                onDrillDown={handleNodeDrillDown}
+                insightPerspective={insightPerspective}
+                setInsightPerspective={setInsightPerspective}
+                onClose={() => {
+                  if (viewMode === 'latent') handleNavigate('drilldown');
+                  else handleNavigate('overview');
+                }}
+                onZoomIn={() => {
+                  if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(0.8);
+                }}
+                onZoomOut={() => {
+                  if (graphRef.current && graphRef.current.zoom) graphRef.current.zoom(1.2);
+                }}
+                onZoomReset={() => {
+                  if (graphRef.current && graphRef.current.resetView) graphRef.current.resetView();
+                }}
+                onToggleLens={handleToggleLens}
+                activeFilters={activeFilters}
+                onFilterChange={(label, value) => {
+                  setActiveFilters(prev => ({ ...prev, [label]: value }));
+                }}
+                multiSelectedNodes={multiSelectedNodes}
+                setMultiSelectedNodes={setMultiSelectedNodes}
+                showMultiConnections={showMultiConnections}
+                setShowMultiConnections={setShowMultiConnections}
+                onShareView={handleShareView}
+              />
+            )}
+          </ErrorBoundary>
 
 
         </div>
@@ -954,20 +1111,24 @@ const MainDashboard = () => {
           <Legend layoutMode={activeLayoutMode} />
         )}
 
-        <AgentStatusPanel />
-        <VoiceControl
-          onActionTriggered={handleAgentAction}
-          uiContext={{
-            currentView: viewMode,
-            tableName: drillDownTable,
-            connectionId: connectionId,
-            isEvolution: evolutionMode,
-            isChatOpen,
-            availableTables: graphData.nodes.map(n => n.id).filter(id => id !== 'hub'),
-            databaseMetrics: liveStats,
-            neuralCoreStats: mlInsights
-          }}
-        />
+        <ErrorBoundary fallback={null}>
+          <AgentStatusPanel />
+        </ErrorBoundary>
+        <ErrorBoundary fallback={null}>
+          <VoiceControl
+            onActionTriggered={handleAgentAction}
+            uiContext={{
+              currentView: viewMode,
+              tableName: drillDownTable,
+              connectionId: connectionId,
+              isEvolution: evolutionMode,
+              isChatOpen,
+              availableTables: graphData.nodes.map(n => n.id).filter(id => id !== 'hub'),
+              databaseMetrics: liveStats,
+              neuralCoreStats: mlInsights
+            }}
+          />
+        </ErrorBoundary>
 
         <div className="relative z-10 w-full h-full flex flex-col pointer-events-none">
           <div className="w-full h-full">
@@ -992,40 +1153,64 @@ const MainDashboard = () => {
             ) : (
               <>
                 {viewMode === 'drilldown' && drillDownTable && (
-                  <DrillDownView
-                    connectionId={connectionId}
-                    tableName={drillDownTable}
-                    onBack={handleBackToOverview}
-                    onToggleLatent={handleToggleLatent}
-                    initialShowSimulation={autoSimulate}
-                  />
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Drill Down" reset={reset} />}>
+                    <DrillDownView
+                      connectionId={connectionId}
+                      tableName={drillDownTable}
+                      onBack={handleBackToOverview}
+                      onToggleLatent={handleToggleLatent}
+                      initialShowSimulation={autoSimulate}
+                    />
+                  </ErrorBoundary>
                 )}
-                {viewMode === 'dataflow' && <DataFlowView connectionId={connectionId} />}
-                {viewMode === 'analytics' && <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />}
-                {viewMode === 'vitals' && <SystemVitalsDashboard />}
-                {viewMode === 'schema' && <SchemaView connectionId={connectionId} />}
-                {viewMode === 'intelligence' && <IntelligenceHub connectionId={connectionId} selectedNode={selectedNode} />}
+                {viewMode === 'dataflow' && (
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Data Flow" reset={reset} />}>
+                    <DataFlowView connectionId={connectionId} />
+                  </ErrorBoundary>
+                )}
+                {viewMode === 'analytics' && (
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Analytics" reset={reset} />}>
+                    <AnalyticsView connectionId={connectionId} graphData={graphData} mlInsights={mlInsights} gravitySuggestions={gravitySuggestions} />
+                  </ErrorBoundary>
+                )}
+                {viewMode === 'vitals' && (
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="System Vitals" reset={reset} />}>
+                    <SystemVitalsDashboard />
+                  </ErrorBoundary>
+                )}
+                {viewMode === 'schema' && (
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Schema" reset={reset} />}>
+                    <SchemaView connectionId={connectionId} />
+                  </ErrorBoundary>
+                )}
+                {viewMode === 'intelligence' && (
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Intelligence Hub" reset={reset} />}>
+                    <IntelligenceHub connectionId={connectionId} selectedNode={selectedNode} />
+                  </ErrorBoundary>
+                )}
                 {viewMode === 'lineage' && (
-                  <PerspectiveLineageView
-                    multiSelectedNodes={multiSelectedNodes}
-                    setMultiSelectedNodes={setMultiSelectedNodes}
-                    showMultiConnections={showMultiConnections}
-                    setShowMultiConnections={setShowMultiConnections}
-                    graphData={graphData}
-                    insightPerspective={insightPerspective}
-                    setInsightPerspective={setInsightPerspective}
-                    activeFilters={activeFilters}
-                    onFilterChange={(label, value) => {
-                      setActiveFilters(prev => ({ ...prev, [label]: value }));
-                    }}
-                    connectionId={connectionId}
-                    pinnedNodes={pinnedNodes}
-                    setPinnedNodes={setPinnedNodes}
-                    pinnedCols={pinnedCols}
-                    setPinnedCols={setPinnedCols}
-                    columnAliases={columnAliases}
-                    setColumnAliases={setColumnAliases}
-                  />
+                  <ErrorBoundary fallback={(err, reset) => <PanelError name="Perspective Lineage" reset={reset} />}>
+                    <PerspectiveLineageView
+                      multiSelectedNodes={multiSelectedNodes}
+                      setMultiSelectedNodes={setMultiSelectedNodes}
+                      showMultiConnections={showMultiConnections}
+                      setShowMultiConnections={setShowMultiConnections}
+                      graphData={graphData}
+                      insightPerspective={insightPerspective}
+                      setInsightPerspective={setInsightPerspective}
+                      activeFilters={activeFilters}
+                      onFilterChange={(label, value) => {
+                        setActiveFilters(prev => ({ ...prev, [label]: value }));
+                      }}
+                      connectionId={connectionId}
+                      pinnedNodes={pinnedNodes}
+                      setPinnedNodes={setPinnedNodes}
+                      pinnedCols={pinnedCols}
+                      setPinnedCols={setPinnedCols}
+                      columnAliases={columnAliases}
+                      setColumnAliases={setColumnAliases}
+                    />
+                  </ErrorBoundary>
                 )}
               </>
             )}
@@ -1054,8 +1239,38 @@ const MainDashboard = () => {
           )}
         </AnimatePresence>
 
-        <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-        {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
+        <ErrorBoundary fallback={null}>
+          <ChatInterface connectionId={connectionId} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+        </ErrorBoundary>
+
+        <AnimatePresence>
+          {timeMachineOpen && (
+            <ErrorBoundary fallback={null}>
+              <TimeMachinePanel
+                connectionId={connectionId}
+                onSnapshotSelect={(fullData, meta) => {
+                  setSnapshotData(fullData);
+                  if (graphRef.current?.applySnapshot) {
+                    graphRef.current.applySnapshot(fullData);
+                  }
+                }}
+                onClose={() => {
+                  setTimeMachineOpen(false);
+                  setSnapshotData(null);
+                }}
+              />
+            </ErrorBoundary>
+          )}
+        </AnimatePresence>
+        <ErrorBoundary fallback={null}>
+          {showConnectModal && <ConnectionModal onClose={() => setShowConnectModal(false)} />}
+        </ErrorBoundary>
+
+        {/* MULTIPLAYER CURSOR LAYER */}
+        <RemoteCursors activePeers={activePeers} />
+
+        {/* BACKGROUND PROCESS LOGS */}
+        <GenerationLogPanel />
       </DashboardLayout>
 
     </>

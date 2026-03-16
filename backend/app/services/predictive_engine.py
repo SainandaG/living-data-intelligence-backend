@@ -127,6 +127,7 @@ class PredictiveEngine:
 
     async def _get_fq_table_name(self, db_connector, connection_id: str, table_name: str) -> str:
         """Get fully qualified table name (schema.table)"""
+        db_connector.validate_identifier(table_name)
         # Check if evolution schema exists and has this table
         check_query = f"""
             SELECT table_schema 
@@ -280,7 +281,8 @@ class PredictiveEngine:
                     for t in tables:
                         tn = t['table_name']
                         try:
-                            c = await db_connector.query(connection_id, f"SELECT COUNT(*) as cnt FROM {tn}")
+                            safe_tn = db_connector.validate_identifier(tn)
+                            c = await db_connector.query(connection_id, f"SELECT COUNT(*) as cnt FROM {safe_tn}")
                             res.append({'table_name': tn, 'cnt': c[0]['cnt']})
                         except:
                             pass

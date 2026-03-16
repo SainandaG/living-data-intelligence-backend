@@ -1,3 +1,4 @@
+import logging
 """
 Data Flow Analyzer - Uses Agentic AI to analyze record-level data flows
 Discovers FK/PK relationships + inferred connections based on patterns
@@ -6,6 +7,7 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from app.services.agent_service import agent_service
 from app.services.db_connector import db_connector
+logger = logging.getLogger(__name__)
 
 class DataFlowAnalyzer:
     """Analyze data flow patterns using Agentic AI"""
@@ -22,18 +24,17 @@ class DataFlowAnalyzer:
         if cache_key in self.flow_cache:
             return self.flow_cache[cache_key]
         
-        print(f"🔍 Analyzing data flow for table: {table_name}")
-        
+        logger.info(f"🔍 Analyzing data flow for table: {table_name}")
         # Get schema for context
         from app.services.schema_analyzer import schema_analyzer
         try:
             schema = await schema_analyzer.analyze_schema(connection_id)
             schema_dict = schema.dict() if hasattr(schema, 'dict') else schema.model_dump()
         except ValueError as e:
-            print(f"⚠️ Connection error in data flow: {e}")
+            logger.info(f"⚠️ Connection error in data flow: {e}")
             return {'nodes': [], 'edges': [], 'relationships': [], 'error': str(e)}
         except Exception as e:
-            print(f"⚠️ Schema analysis error: {e}")
+            logger.error(f"⚠️ Schema analysis error: {e}")
             return {'nodes': [], 'edges': [], 'relationships': [], 'error': "Failed to analyze schema"}
         
         # Find the target table (Case-insensitive)
@@ -46,7 +47,7 @@ class DataFlowAnalyzer:
                 break
         
         if not target_table:
-            print(f"⚠️ Table not found in schema: {table_name}")
+            logger.info(f"⚠️ Table not found in schema: {table_name}")
             return {'nodes': [], 'edges': [], 'relationships': [], 'error': f"Table '{table_name}' not found"}
         
         # Build flow graph
@@ -99,8 +100,7 @@ class DataFlowAnalyzer:
         
         # Cache the result
         self.flow_cache[cache_key] = flow_graph
-        print(f"✅ Flow analysis complete: {len(flow_graph['nodes'])} nodes, {len(flow_graph['edges'])} edges")
-        
+        logger.info(f"✅ Flow analysis complete: {len(flow_graph['nodes'])} nodes, {len(flow_graph['edges'])} edges")
         return flow_graph
     
     def _discover_fk_relationships(self, table: Dict, schema: Dict) -> List[Dict]:
@@ -172,8 +172,7 @@ class DataFlowAnalyzer:
                     })
         
         except Exception as e:
-            print(f"⚠️ AI relationship inference failed: {e}")
-        
+            logger.error(f"⚠️ AI relationship inference failed: {e}")
         return relationships
     
     async def get_flow_path(self, connection_id: str, from_table: str, to_table: str) -> List[str]:

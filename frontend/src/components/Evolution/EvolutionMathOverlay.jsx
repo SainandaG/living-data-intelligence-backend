@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sigma, ChevronDown, ChevronUp, BrainCircuit, Activity } from 'lucide-react';
 
+// --- STABLE VARIANTS ---
+const panelVariants = {
+    initial: { opacity: 0, x: -20 },
+    animate: { opacity: 1, x: 0 }
+};
+
+const foldingVariants = {
+    initial: { height: 0, opacity: 0 },
+    animate: { height: 'auto', opacity: 1 },
+    exit: { height: 0, opacity: 0 }
+};
+
 const EvolutionMathOverlay = ({ snapshot }) => {
     const [isFolded, setIsFolded] = useState(false);
     if (!snapshot) return null;
@@ -14,8 +26,9 @@ const EvolutionMathOverlay = ({ snapshot }) => {
     return (
         <div className="fixed top-24 left-[300px] w-[350px] z-40 pointer-events-auto">
             <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
+                variants={panelVariants}
+                initial="initial"
+                animate="animate"
                 className="bg-slate-900/40 backdrop-blur-sm border border-white/5 rounded-2xl p-5 shadow-2xl overflow-hidden"
             >
                 <div
@@ -32,9 +45,10 @@ const EvolutionMathOverlay = ({ snapshot }) => {
                 <AnimatePresence>
                     {!isFolded && (
                         <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
+                            variants={foldingVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
                             className="space-y-6"
                         >
                             {/* Glow Formula */}
@@ -83,4 +97,4 @@ const EvolutionMathOverlay = ({ snapshot }) => {
     );
 };
 
-export default EvolutionMathOverlay;
+export default React.memo(EvolutionMathOverlay);

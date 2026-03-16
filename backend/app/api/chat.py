@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from app.services.chat_service import chat_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -27,4 +30,5 @@ async def chat_endpoint(request: ChatRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Chat failed for {request.connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="AI chat service error")

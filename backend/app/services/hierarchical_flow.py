@@ -1,3 +1,4 @@
+import logging
 """
 Hierarchical Flow Service - Analyzes and visualizes data flow with historical timestamps
 """
@@ -5,6 +6,7 @@ from typing import Dict, List, Any
 from datetime import datetime, timedelta
 from app.services.db_connector import db_connector
 import random
+logger = logging.getLogger(__name__)
 
 class HierarchicalFlowService:
     """Service for hierarchical circle packing and historical flow analysis"""
@@ -61,7 +63,7 @@ class HierarchicalFlowService:
             return hierarchy
             
         except Exception as e:
-            print(f"Error getting table hierarchy: {str(e)}")
+            logger.info(f"Error getting table hierarchy: {str(e)}")
             return {'error': str(e)}
     
     async def get_historical_flow(self, connection_id: str, table_name: str, hours: int = 24) -> List[Dict[str, Any]]:

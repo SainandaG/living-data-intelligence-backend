@@ -1,21 +1,34 @@
-
-import psycopg2
-from psycopg2 import pool
-import pymysql
+import logging
+import asyncpg
+import aiomysql
 from pymongo import MongoClient
 from typing import Dict, Any, Optional, List
 import asyncio
 import time
+import os
+import aiofiles
+logger = logging.getLogger(__name__)
 
 class DatabaseConnector:
     def __init__(self):
-        print(f"⚙️ DatabaseConnector initialized at {id(self)}")
+        logger.info(f"⚙️ DatabaseConnector initialized at {id(self)}")
         self.connections: Dict[str, Dict[str, Any]] = {}
-        self.locks: Dict[str, asyncio.Lock] = {} # Locks for non-pooled DBs (MySQL)
+        self.locks: Dict[str, asyncio.Lock] = {} # Locks for non-pooled DBs
         self.connection_counter = 0
+
+    def validate_identifier(self, identifier: str) -> str:
+        """Validate an identifier (table or column) to prevent SQL injection."""
+        if not identifier:
+            return identifier
+        import re
+        # Allow alphanumeric, underscores, and dots (schema.table)
+        if not re.match(r'^[a-zA-Z0-9_\.]+$', str(identifier)):
+            raise ValueError(f"Invalid identifier (possible SQL injection): {identifier}")
+        return identifier
 
     def quote_identifier(self, connection_id: str, identifier: str) -> str:
         """Quote a database identifier (table/column) based on connection type"""
+        self.validate_identifier(identifier)
         try:
             connection = self.get_connection(connection_id)
             db_type = connection['type'].lower()
@@ -28,11 +41,10 @@ class DatabaseConnector:
             return f'"{identifier}"'
 
     async def connect(self, config: Dict[str, Any]) -> Dict[str, str]:
-        """Connect to a database and return connection info"""
+        """Connect to a database and return connection info with retry logic for cold starts"""
         start_time = time.perf_counter()
         self.connection_counter += 1
         connection_id = f"conn_{self.connection_counter}"
-        
         
         config['host'] = config.get('host', '').strip()
         config['database'] = config.get('database', '').strip()
@@ -41,132 +53,159 @@ class DatabaseConnector:
         db_type = config['db_type'].lower()
         host = config['host'].lower()
         
-        with open("connection_debug.log", "a") as f:
-            f.write(f"\n--- {time.ctime()} ---\n")
-            f.write(f"Incoming Host: {host}, DB Type: {db_type}\n")
+        async with aiofiles.open("connection_debug.log", "a") as f:
+            await f.write(f"\n--- {time.ctime()} ---\n")
+            await f.write(f"Incoming Host: {host}, DB Type: {db_type}\n")
         
-        # Reject mock connections — mock mode has been removed
         if host == 'mock':
-            raise ValueError("Mock database mode is no longer supported. Please provide a real database connection.")
+            raise ValueError("Mock database mode is no longer supported.")
             
-        # Optimization: Neon ALWAYS requires SSL.
         if 'neon.tech' in host:
-            # Force db_type to neon for SSL requirement
             if db_type != 'neon':
                 db_type = 'neon'
                 config['db_type'] = 'neon'
-                with open("connection_debug.log", "a") as f:
-                    f.write(f"AUTO-FIX: Forced Neon DB type for SSL.\n")
-                print(f"🔒 Forced Neon SSL mode (sslmode=require) for {config['host']}")
+                async with aiofiles.open("connection_debug.log", "a") as f:
+                    await f.write(f"AUTO-FIX: Forced Neon DB type for SSL.\n")
+                logger.info(f"🔒 Forced Neon SSL mode (sslmode=require) for {config['host']}")
+        max_retries = int(os.getenv("NEON_MAX_RETRIES", "3"))
+        total_timeout = int(os.getenv("NEON_CONNECT_TIMEOUT", "180"))
         
-        try:
-            # Enforce application-level timeout
-            async def _connect_wrapper():
-                if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
-                    return await asyncio.to_thread(self._connect_postgresql_sync, config)
-                elif db_type == 'mysql':
-                    return await asyncio.to_thread(self._connect_mysql_sync, config)
-                elif db_type in ['mongodb', 'mongo']:
-                    return await asyncio.to_thread(self._connect_mongodb_sync, config)
-                elif db_type == 'mock':
-                    raise ValueError("Mock database mode is no longer supported. Please use a real database connection.")
-                else:
-                    raise ValueError(f"Unsupported database type: {db_type}")
+        # Neon wake-up error messages
+        NEON_WAKEUP_ERRORS = [
+            "connection refused",
+            "the database system is starting up",
+            "ssl connection has been closed unexpectedly",
+            "terminating connection due to administrator command"
+        ]
 
-            client = await asyncio.wait_for(_connect_wrapper(), timeout=120.0)
+        attempt = 0
+        last_exception = None
+
+        while attempt < max_retries:
+            attempt += 1
+            # escalating timeouts: 30s, 60s, 90s
+            current_attempt_timeout = attempt * 30 
             
-            self.connections[connection_id] = {
-                'id': connection_id,
-                'type': db_type,
-                'client': client,
-                'config': {
-                    'host': config['host'],
-                    'port': config['port'],
-                    'database': config['database']
+            try:
+                logger.warning(f"🔌 Connection attempt {attempt}/{max_retries} to {config['database']} (timeout={current_attempt_timeout}s)...")
+                async def _connect_wrapper():
+                    # Pass the current attempt timeout for inner handlers
+                    config['_current_timeout'] = current_attempt_timeout
+                    if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                        return await self._connect_postgresql_async(config)
+                    elif db_type == 'mysql':
+                        return await self._connect_mysql_async(config)
+                    elif db_type in ['mongodb', 'mongo']:
+                        return await asyncio.to_thread(self._connect_mongodb_sync, config)
+                    else:
+                        raise ValueError(f"Unsupported database type: {db_type}")
+
+                client = await asyncio.wait_for(_connect_wrapper(), timeout=float(total_timeout))
+                
+                self.connections[connection_id] = {
+                    'id': connection_id,
+                    'type': db_type,
+                    'client': client,
+                    'config': {
+                        'host': config['host'],
+                        'port': config['port'],
+                        'database': config['database']
+                    }
                 }
-            }
-            
-            # Initialize lock for this connection (Used for MySQL/Mongo)
-            self.locks[connection_id] = asyncio.Lock()
-            
-            duration = time.perf_counter() - start_time
-            print(f"DONE: Connected to {db_type} database: {config['database']} (in {duration:.3f}s)")
-            
-            # CRITICAL: Background the schema analysis AFTER storing connection but BEFORE returning
-            # This ensures the API responds immediately
-            async def _background_schema_analysis():
-                try:
-                    from app.services.schema_analyzer import schema_analyzer
-                    await schema_analyzer.analyze_schema(connection_id)
-                except Exception as e:
-                    print(f"⚠️ Background schema analysis failed for {connection_id}: {e}")
-            
-            asyncio.create_task(_background_schema_analysis())
-            
-            return {'id': connection_id, 'type': db_type}
-            
-        except asyncio.TimeoutError:
-            duration = time.perf_counter() - start_time
-            error_msg = f"Connection timeout after {duration:.1f}s. Database may be sleeping/paused (common with Neon free tier). Please wake it up in your cloud console or try again in 30 seconds."
-            print(f"FAIL: {error_msg}")
-            raise TimeoutError(error_msg)
-        except Exception as e:
-            duration = time.perf_counter() - start_time
-            print(f"FAIL: Failed to connect to {db_type} after {duration:.3f}s: {str(e)}")
-            raise
+                
+                self.locks[connection_id] = asyncio.Lock()
+                
+                duration = time.perf_counter() - start_time
+                logger.info(f"✅ DONE: Connected to {db_type} database: {config['database']} (Attempt {attempt} in {duration:.3f}s)")
+                async def _background_schema_analysis():
+                    try:
+                        from app.services.schema_analyzer import schema_analyzer
+                        await schema_analyzer.analyze_schema(connection_id)
+                    except Exception as e:
+                        logger.error(f"⚠️ Background schema analysis failed for {connection_id}: {e}")
+                asyncio.create_task(_background_schema_analysis())
+                
+                return {'id': connection_id, 'type': db_type}
 
-    def _connect_postgresql_sync(self, config: Dict[str, Any]):
-        """Connect to PostgreSQL"""
-        connection_pool = psycopg2.pool.SimpleConnectionPool(
-            1, 10,
+            except (asyncio.TimeoutError, Exception) as e:
+                last_exception = e
+                error_msg = str(e).lower()
+                is_neon_wakeup = any(substring in error_msg for substring in NEON_WAKEUP_ERRORS)
+                
+                duration = time.perf_counter() - start_time
+                if attempt < max_retries and (is_neon_wakeup or isinstance(e, asyncio.TimeoutError)):
+                    # Exponential backoff: 2s, 5s
+                    backoff = 2 if attempt == 1 else 5
+                    logger.error(f"⏳ Neon DB is waking up (Attempt {attempt}/{max_retries} failed after {duration:.1f}s). Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                    continue
+                else:
+                    logger.error(f"❌ FAIL: Final connection attempt {attempt} failed after {duration:.3f}s: {str(e)}")
+                    if isinstance(e, asyncio.TimeoutError):
+                        raise TimeoutError(f"Connection timeout after {duration:.1f}s. Database may be sleeping/paused.")
+                    raise e
+
+    async def _connect_postgresql_async(self, config: Dict[str, Any]):
+        """Connect to PostgreSQL using asyncpg pool"""
+        timeout = config.get('_current_timeout', 60)
+        sslmode = 'require' if config.get('db_type', '').lower() in ['neon', 'neon_db'] else 'prefer'
+        
+        # In asyncpg, sslmode=require is achieved by passing ssl=True for default context
+        import ssl
+        ssl_ctx = ssl.create_default_context() if sslmode == 'require' else None
+        if sslmode == 'require':
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE  # Equivalent to sslmode=require instead of verify-ca
+            
+        pool = await asyncpg.create_pool(
             host=config['host'],
             port=config.get('port', 5432),
-            database=config['database'],
             user=config['username'],
             password=config['password'],
-            connect_timeout=60, # Increased for high latency cloud databases
-            sslmode='require' if config.get('db_type', '').lower() in ['neon', 'neon_db'] else 'prefer'
+            database=config['database'],
+            min_size=2,
+            max_size=10,
+            command_timeout=timeout,
+            ssl=ssl_ctx
         )
-        
-        # Connection pool creation already validates connectivity
-        # No need for additional test query that can cause timeouts
-        print(f"✅ PostgreSQL connection pool created successfully")
-        
-        return connection_pool
+        logger.info(f"✅ PostgreSQL async connection pool created successfully")
+        return pool
 
-    def _connect_mysql_sync(self, config: Dict[str, Any]):
-        """Connect to MySQL"""
-        connection = pymysql.connect(
+    async def _connect_mysql_async(self, config: Dict[str, Any]):
+        """Connect to MySQL using aiomysql pool"""
+        pool = await aiomysql.create_pool(
             host=config['host'],
             port=config.get('port', 3306),
-            database=config['database'],
             user=config['username'],
             password=config['password'],
-            connect_timeout=10, # 10 second timeout
+            db=config['database'],
+            minsize=2,
+            maxsize=10,
+            connect_timeout=10,
+            autocommit=True,
             charset='utf8mb4'
         )
         
-        
         # Test connection and force UTF-8
-        cursor = connection.cursor()
-        cursor.execute("SET NAMES 'utf8mb4'")
-        cursor.execute('SELECT NOW()')
-        cursor.close()
-        
-        return connection
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("SET NAMES 'utf8mb4'")
+                await cur.execute("SELECT NOW()")
+                
+        logger.info(f"✅ MySQL async connection pool created successfully")
+        return pool
 
     def _connect_mongodb_sync(self, config: Dict[str, Any]):
         """Connect to MongoDB"""
+        logger.warning(f"⚠️ [WARNING] MongoDB is using synchronous pymongo MongoClient! Replace with motor.")
         uri = f"mongodb://{config['username']}:{config['password']}@{config['host']}:{config.get('port', 27017)}/{config['database']}"
         client = MongoClient(
             uri,
             serverSelectionTimeoutMS=5000, # 5 second timeout for server selection
             connectTimeoutMS=5000         # 5 second timeout for connection
         )
-        
         # Test connection
         client.admin.command('ping')
-        
         return client
 
     def list_connections(self) -> List[Dict[str, Any]]:
@@ -186,107 +225,89 @@ class DatabaseConnector:
         if connection_id not in self.connections:
             raise ValueError(f"Connection {connection_id} not found")
         return self.connections[connection_id]
+        
+    def _convert_psycopg2_to_asyncpg_params(self, sql: str) -> str:
+        """Helper to convert %s to $1, $2, etc. dynamically for backwards compatibility"""
+        idx = 1
+        while "%s" in sql:
+            sql = sql.replace("%s", f"${idx}", 1)
+            idx += 1
+        return sql
 
     async def query(self, connection_id: str, sql: str, params: tuple = ()):
-        """Execute a query and return results with concurrency control"""
+        """Execute an asynchronous query and return results directly from the pool"""
         start_time = time.perf_counter()
         
         try:
-            # Restore locking for MySQL/Mongo (Not Thread Safe)
-            # Postgres uses a pool, so it doesn't need this lock.
-            conn = self.connections.get(connection_id)
-            if conn and conn['type'] in ['mysql', 'mariadb', 'mongodb', 'mongo']:
-                async with self.locks[connection_id]:
-                    result = await asyncio.to_thread(self._query_sync, connection_id, sql, params)
-            else:
-                # Postgres (Pooled) - Run in parallel
-                result = await asyncio.to_thread(self._query_sync, connection_id, sql, params)
+            connection = self.get_connection(connection_id)
+            db_type = connection['type']
+            client = connection['client']
             
+            # [FIX] Check if pool is closed or closing
+            if hasattr(client, 'is_closing') and client.is_closing():
+                logger.warning(f"⚠️ Pool for {connection_id} is closing. Attempting to get a fresh connection...")
+                # We could attempt to reconnect here, but for now we throw a cleaner error
+                raise RuntimeError("Database pool is closing or closed.")
+            
+            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                # Replace synchronous %s interpolators with asyncpg's positional $1, $2 params
+                sql = self._convert_psycopg2_to_asyncpg_params(sql)
+                async with connection['client'].acquire() as conn:
+                    if params:
+                        records = await conn.fetch(sql, *params)
+                    else:
+                        records = await conn.fetch(sql)
+                    result = [dict(r) for r in records]
+                    
+            elif db_type == 'mysql':
+                async with connection['client'].acquire() as conn:
+                    async with conn.cursor(aiomysql.DictCursor) as cur:
+                        if params:
+                            await cur.execute(sql, params)
+                        else:
+                            await cur.execute(sql)
+                        result = await cur.fetchall()
+            
+            elif db_type in ['mongodb', 'mongo']:
+                # Maintain thread delegation strictly for non-refactored NoSQL
+                # We do not have proper query parameters mapping here yet since we don't have SQL logic context.
+                raise NotImplementedError("MongoDB native querying directly through pool not exposed.")
+                
             duration = time.perf_counter() - start_time
             if duration > 0.5: # Log slow queries
-                # Suppress expected background schema ops
                 if "CREATE SCHEMA" not in sql and "neural_snapshots" not in sql:
-                    print(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
+                    logger.warning(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
             return result
+            
         except Exception as e:
             duration = time.perf_counter() - start_time
-            print(f"FAIL: Query Error after {duration:.3f}s: {str(e)}")
-            with open("query_error.log", "a") as f:
-                f.write(f"--- ERROR ---\nSQL: {sql}\nERROR: {str(e)}\n")
-            raise
-
-    def _query_sync(self, connection_id: str, sql: str, params: tuple):
-        """Synchronous query execution for use in thread pool"""
-        connection = self.get_connection(connection_id)
-        db_type = connection['type']
-        
-        try:
-            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
-                conn = None
-                try:
-                    conn = connection['client'].getconn()
-                    conn.set_session(autocommit=True)
-                    cursor = conn.cursor()
-                    if not params:
-                        cursor.execute(sql)
-                    else:
-                        cursor.execute(sql, params)
-                    
-                    if cursor.description:
-                        columns = [desc[0] for desc in cursor.description]
-                        rows = cursor.fetchall()
-                        result = [dict(zip(columns, row)) for row in rows]
-                    else:
-                        result = []
-                    cursor.close()
-                    return result
-                finally:
-                    if conn:
-                        connection['client'].putconn(conn)
-                
-            elif db_type == 'mysql':
-                cursor = connection['client'].cursor(pymysql.cursors.DictCursor)
-                # If no params, execute directly to avoid % formatting issues
-                if not params:
-                    cursor.execute(sql)
-                else:
-                    cursor.execute(sql, params)
-                result = cursor.fetchall()
-                cursor.close()
-                return result
-                
-            elif db_type == 'mock':
-                raise ValueError("Mock database mode is no longer supported.")
-            else:
-                raise ValueError(f"Query not supported for {db_type}")
-        except Exception as e:
-            print(f"Query error: {e}")
+            logger.error(f"FAIL: Async Query Error after {duration:.3f}s: {str(e)}")
+            async with aiofiles.open("query_error.log", "a") as f:
+                await f.write(f"--- ERROR ---\nSQL: {sql}\nERROR: {str(e)}\n")
             raise
 
     async def close(self, connection_id: str):
-        """Close a specific connection"""
+        """Close a specific async pool"""
         if connection_id in self.connections:
             connection = self.connections[connection_id]
             try:
-                if connection['type'] in ['postgresql', 'postgres']:
-                    connection['client'].closeall()
-                elif connection['type'] == 'mysql':
-                    connection['client'].close()
+                if connection['type'] in ['postgresql', 'postgres', 'neon', 'neon_db', 'mysql']:
+                    await connection['client'].close()
                 elif connection['type'] in ['mongodb', 'mongo']:
                     connection['client'].close()
                 
                 del self.connections[connection_id]
-                print(f"🔌 Closed connection: {connection_id}")
+                logger.info(f"🔌 Closed async connection pool: {connection_id}")
             except Exception as e:
-                print(f"Error closing connection {connection_id}: {str(e)}")
-
+                logger.info(f"Error closing async connection {connection_id}: {str(e)}")
     async def close_all(self):
         """Close all connections"""
-        print("Closing all database connections...")
+        import traceback
+        caller = "".join(traceback.format_stack()[-5:])
+        logger.info(f"🛑 DatabaseConnector.close_all() called from:\n{caller}")
+        logger.info("Closing all database connection pools...")
         for connection_id in list(self.connections.keys()):
             await self.close(connection_id)
-
-    # _get_mock_data has been removed — mock mode is no longer supported
 
 # Global instance
 db_connector = DatabaseConnector()

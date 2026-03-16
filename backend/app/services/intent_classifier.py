@@ -4,8 +4,11 @@ Classifies user voice commands into actionable intents using LLM + rule-based hy
 """
 import os
 import re
+import logging
 from typing import Dict, List, Optional, Any, Tuple
 import json
+
+logger = logging.getLogger(__name__)
 
 # Import LLM clients
 try:
@@ -46,35 +49,35 @@ class IntentClassifier:
     def _init_groq(self) -> None:
         """Initialize Groq client if API key is available."""
         if not GROQ_AVAILABLE:
-            print("[WARNING] Groq library not installed")
+            logger.warning("Groq library not installed")
             return
             
         api_key = os.getenv('GROQ_API_KEY') or os.getenv('GROQ_KEY')
         if api_key:
             try:
                 self.groq_client = AsyncGroq(api_key=api_key)
-                print("[SUCCESS] Groq LLM (Async) initialized for intent classification")
+                logger.info("Groq LLM (Async) initialized for intent classification")
             except Exception as e:
-                print(f"[ERROR] Groq initialization failed: {e}")
+                logger.error(f"Groq initialization failed: {e}")
         else:
-            print("[ERROR] GROQ_API_KEY/GROQ_KEY not found in environment")
+            logger.warning("GROQ_API_KEY/GROQ_KEY not found in environment")
     
     def _init_gemini(self) -> None:
         """Initialize Gemini client if API key is available."""
         if not GEMINI_AVAILABLE:
-            print("[WARNING] Gemini library not installed")
+            logger.warning("Gemini library not installed")
             return
             
         api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GOOGLE_KEY')
         if api_key:
             try:
                 self.gemini_client = genai.Client(api_key=api_key)
-                self.gemini_model_id = 'gemini-1.5-pro' # updated to standard available
-                print("[SUCCESS] Gemini LLM (v2 SDK) initialized for intent classification")
+                self.gemini_model_id = 'gemini-1.5-pro'
+                logger.info("Gemini LLM (v2 SDK) initialized for intent classification")
             except Exception as e:
-                print(f"[WARNING] Gemini initialization failed: {e}")
+                logger.warning(f"Gemini initialization failed: {e}")
         else:
-            print("[WARNING] GOOGLE_API_KEY/GOOGLE_KEY not found in environment")
+            logger.warning("GOOGLE_API_KEY/GOOGLE_KEY not found in environment")
     
     async def classify(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -135,7 +138,7 @@ class IntentClassifier:
     
     async def _classify_llm(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
-        LLM-based classification using Groq or Gemini.
+        LLM-based classification using Groq AND Gemini in parallel for speed.
         
         Args:
             text: User input text
@@ -145,24 +148,36 @@ class IntentClassifier:
         Returns:
             Classification result or None
         """
-        # Try Groq first (faster)
+        import asyncio
+        tasks = []
+        
+        # Add Groq task if available
         if self.groq_client:
-            try:
-                result = await self._classify_groq(text, context, ui_context)
-                if result:
-                    return result
-            except Exception as e:
-                print(f"[ERROR] Groq classification failed: {e}")
+            tasks.append(self._classify_groq(text, context, ui_context))
         
-        # Fallback to Gemini
-        if self.gemini_model:
-            try:
-                result = await self._classify_gemini(text, context, ui_context)
-                if result:
-                    return result
-            except Exception as e:
-                print(f"[ERROR] Gemini classification failed: {e}")
+        # Add Gemini task if available
+        if self.gemini_client:
+            tasks.append(self._classify_gemini(text, context, ui_context))
         
+        if not tasks:
+            return None
+            
+        # Execute in parallel
+        # We use return_exceptions=True to ensure one failure doesn't stop others
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out exceptions and None results
+        valid_results = [r for r in results if isinstance(r, dict) and r.get('intent') != 'unknown']
+        
+        # Priority 1: High confidence Groq result
+        # Priority 2: High confidence Gemini result
+        # Fallback: Best available
+        
+        if valid_results:
+            # Sort by confidence
+            valid_results.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+            return valid_results[0]
+            
         return None
     
     async def _classify_groq(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -203,9 +218,9 @@ class IntentClassifier:
             }
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
-                print("🧪 Groq LLM: Quota exceeded. Using heuristic fallback.")
+                logger.warning("Groq LLM: Quota exceeded. Using heuristic fallback.")
             else:
-                print(f"[ERROR] Groq classification internal error: {e}")
+                logger.error(f"Groq classification internal error: {e}")
             return None
     
     async def _classify_gemini(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -243,9 +258,9 @@ class IntentClassifier:
             
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
-                print("🧪 Gemini LLM: Quota exceeded. Using heuristic fallback.")
+                logger.warning("Gemini LLM: Quota exceeded. Using heuristic fallback.")
             else:
-                print(f"[ERROR] Gemini classification error: {e}")
+                logger.error(f"Gemini classification error: {e}")
             return None
     
     def _build_llm_prompt(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> str:

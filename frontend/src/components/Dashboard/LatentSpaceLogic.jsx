@@ -1513,6 +1513,21 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, mul
             mountRef.current.appendChild(renderer.domElement);
             rendererRef.current = renderer;
 
+            // --- POST PROCESSING SETUP (Bloom) ---
+            const composer = new EffectComposer(renderer);
+            const renderPass = new RenderPass(sceneRef.current, camera);
+            composer.addPass(renderPass);
+
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(width, height),
+                1.5,  // strength
+                0.5,  // radius
+                0.22  // threshold
+            );
+            composer.addPass(bloomPass);
+            composerRef.current = composer;
+            bloomPassRef.current = bloomPass;
+
             const orbit = new OrbitControls(camera, renderer.domElement);
             orbit.enableDamping = true;
             controlsRef.current = orbit;
@@ -1663,7 +1678,9 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, mul
                 });
             }
             if (controlsRef.current) controlsRef.current.update();
-            if (rendererRef.current && sceneRef.current && cameraRef.current) {
+            if (composerRef.current) {
+                composerRef.current.render();
+            } else if (rendererRef.current && sceneRef.current && cameraRef.current) {
                 rendererRef.current.render(sceneRef.current, cameraRef.current);
             }
         };

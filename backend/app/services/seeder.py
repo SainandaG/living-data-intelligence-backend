@@ -3,9 +3,12 @@ Database Seeder Service
 Generates temporal data for testing and demos (Evolution Playback).
 """
 import random
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from app.services.db_connector import db_connector
+
+logger = logging.getLogger(__name__)
 
 class DatabaseSeeder:
     """
@@ -14,7 +17,7 @@ class DatabaseSeeder:
     
     async def seed_database(self, connection_id: str) -> Dict[str, Any]:
         """Create schema and seed data for evolution playback."""
-        print(f"🌱 Seeding database for connection: {connection_id}...")
+        logger.info(f"Seeding database for connection: {connection_id}...")
         
         # Determine schema (Neon workaround: if public is locked, use 'evolution')
         self.schema = 'public'
@@ -22,7 +25,7 @@ class DatabaseSeeder:
             await db_connector.query(connection_id, "CREATE TABLE IF NOT EXISTS public._seeder_test (id int)")
             await db_connector.query(connection_id, "DROP TABLE public._seeder_test")
         except Exception:
-            print("⚠️ Schema 'public' is restricted. Falling back to 'evolution' schema.")
+            logger.warning("Schema 'public' is restricted. Falling back to 'evolution' schema.")
             await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
             try:
                 # Explicitly grant permissions to ensure access (Using permissive public grants for reliability)
@@ -34,7 +37,7 @@ class DatabaseSeeder:
                 await db_connector.query(connection_id, "GRANT ALL ON SCHEMA evolution TO neondb_owner")
                 await db_connector.query(connection_id, "GRANT ALL ON ALL TABLES IN SCHEMA evolution TO neondb_owner")
             except Exception as e:
-                print(f"⚠️ Failed to grant schema permissions: {e}")
+                logger.warning(f"Failed to grant schema permissions: {e}")
             self.schema = 'evolution'
 
         # Determine if MySQL
@@ -55,7 +58,7 @@ class DatabaseSeeder:
         await self._seed_wezu_assets(connection_id, is_mysql=is_mysql)
         await self._seed_wezu_telemetry(connection_id, is_mysql=is_mysql)
         
-        print(f"✅ Seeding complete for {connection_id} using schema: {self.schema}")
+        logger.info(f"Seeding complete for {connection_id} using schema: {self.schema}")
         return {"success": True, "message": f"Database seeded successfully in schema '{self.schema}'"}
 
     async def _create_tables(self, connection_id: str):
@@ -240,7 +243,7 @@ class DatabaseSeeder:
                     sql = sql.replace(f"{self.schema}.", "")
                 await db_connector.query(connection_id, sql)
             except Exception as e:
-                print(f"⚠️ Error creating table: {e}")
+                logger.warning(f"Error creating table: {e}")
 
     async def _seed_users(self, connection_id: str, count: int, is_mysql: bool = False):
         start_date = datetime.now() - timedelta(days=365)
@@ -289,7 +292,7 @@ class DatabaseSeeder:
 
     async def _seed_wezu_assets(self, connection_id: str, is_mysql: bool = False):
         """Seed WEZU-specific energy assets."""
-        print(f"⚡ Seeding WEZU Energy assets for {connection_id}...")
+        logger.info(f"Seeding WEZU Energy assets for {connection_id}...")
         prefix = "" if is_mysql else f"{self.schema}."
         
         # 1. Seed Batteries
@@ -325,7 +328,7 @@ class DatabaseSeeder:
         batt_ids = [r['id'] for r in battery_ids_resp]
         if not batt_ids: return
 
-        print(f"📈 Seeding telemetry logs for {len(batt_ids)} batteries...")
+        logger.info(f"Seeding telemetry logs for {len(batt_ids)} batteries...")
         start_date = datetime.now() - timedelta(days=30)
 
         for b_id in batt_ids:

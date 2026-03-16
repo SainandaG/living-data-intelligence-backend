@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import apiClient from '../../utils/apiClient';
 import { BrainCircuit, Sparkles, ArrowRight, Table } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -12,11 +13,8 @@ export default function SemanticDiscoveryPanel({ connectionId, tableName, onNode
         const fetchDiscovery = async () => {
             setLoading(true);
             try {
-                const response = await fetch(`/api/drilldown/${connectionId}/semantic-discovery/${tableName}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setPredictions(data.predictions || []);
-                }
+                const data = await apiClient.get(`/drilldown/${connectionId}/semantic-discovery/${tableName}`);
+                setPredictions(data.predictions || []);
             } catch (err) {
                 console.error('Failed to fetch semantic discovery:', err);
             } finally {

@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, Zap, Shield, GitBranch, Terminal } from 'lucide-react';
+
+// --- STABLE VARIANTS ---
+const leftBlueprintVariants = {
+    initial: { opacity: 0, x: -20 },
+    animate: { opacity: 1, x: 0 }
+};
+
+const rightBlueprintVariants = {
+    initial: { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 }
+};
 import apiClient from '../../utils/apiClient';
 
 const BlueprintOverlay = ({ connectionId, tableName }) => {
@@ -43,8 +54,9 @@ const BlueprintOverlay = ({ connectionId, tableName }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
             {/* Mathematical Blueprint */}
             <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
+                variants={leftBlueprintVariants}
+                initial="initial"
+                animate="animate"
                 className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-6 backdrop-blur-md"
             >
                 <div className="flex items-center gap-3 mb-4">
@@ -77,8 +89,9 @@ const BlueprintOverlay = ({ connectionId, tableName }) => {
 
             {/* Logical Connections */}
             <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
+                variants={rightBlueprintVariants}
+                initial="initial"
+                animate="animate"
                 className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-6 backdrop-blur-md"
             >
                 <div className="flex items-center gap-3 mb-4">
@@ -119,4 +132,4 @@ const BlueprintOverlay = ({ connectionId, tableName }) => {
     );
 };
 
-export default BlueprintOverlay;
+export default React.memo(BlueprintOverlay);

@@ -1,3 +1,4 @@
+import logging
 # -*- coding: utf-8 -*-
 """
 Analysis Engine - Computes high-level intelligence metrics for nodes
@@ -7,6 +8,7 @@ import math
 from typing import Dict, List, Any
 from app.services.neural_core import neural_core
 from app.services.db_connector import db_connector
+logger = logging.getLogger(__name__)
 
 class AnalysisEngine:
     def __init__(self):
@@ -20,10 +22,9 @@ class AnalysisEngine:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=groq_key)
-                print("✅ AnalysisEngine: Groq AI Online")
+                logger.info("✅ AnalysisEngine: Groq AI Online")
             except Exception as e:
-                print(f"⚠️ AnalysisEngine: Groq init failed: {e}")
-
+                logger.error(f"⚠️ AnalysisEngine: Groq init failed: {e}")
     async def get_table_intelligence(self, connection_id: str, table_name: str, known_row_count: int = None) -> Dict[str, Any]:
         """
         Compute deep intelligence metrics for a specific table.
@@ -155,7 +156,7 @@ class AnalysisEngine:
                 "narrative": "Node verification pending."
             }
         except Exception as e:
-            print(f"⚠️ Authenticated Analysis Failed for {table_name}: {e}")
+            logger.error(f"⚠️ Authenticated Analysis Failed for {table_name}: {e}")
             import traceback
             traceback.print_exc()
             
@@ -221,7 +222,7 @@ class AnalysisEngine:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"Groq Insight Error: {e}")
+            logger.error(f"Groq Insight Error: {e}")
             return self._generate_static_narrative(table_name, metrics.get('in_degree', 0), metrics.get('out_degree', 0), metrics.get('vitality', 0.0), metrics.get('row_count', 0))
 
     def _generate_static_narrative(self, table_name: str, in_deg: int, out_deg: int, vitality: float, row_count: int = 0) -> str:
