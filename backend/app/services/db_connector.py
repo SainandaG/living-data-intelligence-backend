@@ -221,9 +221,11 @@ class DatabaseConnector:
         ]
 
     def get_connection(self, connection_id: str) -> Dict[str, Any]:
-        """Get connection by ID"""
+        """Get connection by ID with better error reporting"""
         if connection_id not in self.connections:
-            raise ValueError(f"Connection {connection_id} not found")
+            available = list(self.connections.keys())
+            logger.error(f"❌ Connection {connection_id} not found. Available: {available}")
+            raise ValueError(f"Connection {connection_id} not found. Please connect first.")
         return self.connections[connection_id]
         
     def _convert_psycopg2_to_asyncpg_params(self, sql: str) -> str:
@@ -245,9 +247,11 @@ class DatabaseConnector:
             
             # [FIX] Check if pool is closed or closing
             if hasattr(client, 'is_closing') and client.is_closing():
-                logger.warning(f"⚠️ Pool for {connection_id} is closing. Attempting to get a fresh connection...")
-                # We could attempt to reconnect here, but for now we throw a cleaner error
-                raise RuntimeError("Database pool is closing or closed.")
+                logger.error(f"❌ FAIL: Pool for {connection_id} is closing or closed. Query aborted.")
+                raise RuntimeError(f"Database pool for {connection_id} is closing or closed.")
+            
+            if hasattr(client, 'get_size') and hasattr(client, 'get_max_size'):
+                logger.debug(f"Pool {connection_id} status: {client.get_size()}/{client.get_max_size()}")
             
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 # Replace synchronous %s interpolators with asyncpg's positional $1, $2 params

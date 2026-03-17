@@ -739,5 +739,52 @@ class NeuralCore:
         }
 
 
+    def get_priority_level(self, gravity: float) -> str:
+        """Map gravity score to discrete priority level"""
+        if gravity >= 7.0: return "High"
+        if gravity >= 4.0: return "Medium"
+        return "Low"
+
+    def get_ontology_type(self, table_name: str) -> str:
+        """Reverse lookup for table type from ontology"""
+        for key, data in self.WEZU_ENERGY_ONTOLOGY.items():
+            if key.lower() in table_name.lower():
+                return data["type"]
+        return "dimension" # Default
+
+    async def get_tables_by_filter(self, connection_id: str, categories: List[str] = None, priority: str = None) -> List[Dict]:
+        """Retrieve filtered list of tables with intelligence markers"""
+        schema = await self._get_context(connection_id)
+        if not schema: return []
+
+        gravity_store = self.gravity_stores.get(connection_id, {})
+        results = []
+
+        for table in schema.get('tables', []):
+            name = table['name']
+            gravity = gravity_store.get(name, self.predict_importance(name))
+            p_level = self.get_priority_level(gravity)
+            t_type = self.get_ontology_type(name)
+
+            # Apply Priority Filter
+            if priority and p_level.lower() != priority.lower():
+                continue
+
+            # Apply Category Filter
+            if categories and t_type.lower() not in [c.lower() for c in categories]:
+                continue
+
+            results.append({
+                "name": name,
+                "type": t_type,
+                "priority": p_level,
+                "gravity": round(gravity, 2),
+                "row_count": table.get('row_count', 0),
+                "importance": round(gravity / 10.0, 2)
+            })
+
+        return results
+
+
 # Global Instance
 neural_core = NeuralCore()

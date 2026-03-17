@@ -272,15 +272,25 @@ async def get_system_config():
         from app.services.db_connector import db_connector
         
         # Get the first active connection if available
+        # This provides a safeguard if the frontend tries to fetch config before DB is ready
         connections = db_connector.list_connections()
         active_id = connections[0]['id'] if connections else None
         
         return {
             "features": get_enabled_features(),
-            "version": "2.0.0",
+            "version": "2.1.0",
             "environment": "production",
-            "active_connection_id": active_id
+            "active_connection_id": active_id,
+            "db_connected": active_id is not None
         }
     except Exception as e:
         logger.error(f"Agent API error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Instead of 500ing, return a degraded config if it's a non-critical failure
+        return {
+            "features": {},
+            "version": "2.1.0",
+            "environment": "production",
+            "active_connection_id": None,
+            "db_connected": False,
+            "error": "System partially unavailable"
+        }

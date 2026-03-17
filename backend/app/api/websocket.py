@@ -171,12 +171,12 @@ async def stream_metrics():
     from app.services.graph_generator import graph_generator
     from app.services.living_graph_engine import living_graph_engine
     
-    logger.info("Starting global metrics & evolution broadcast...")
+    logger.info("🛰️ Streaming Service: Starting metrics & evolution broadcast loop...")
     # Track consecutive failures per database connection to avoid UI flickering
     consecutive_failures = {}
 
-    while True:
-        try:
+    try:
+        while True:
             # Iterate over connection IDs that have active WebSocket clients
             for conn_id in list(active_connections.keys()):
                 sockets = active_connections.get(conn_id, [])
@@ -184,9 +184,14 @@ async def stream_metrics():
                     continue
                 try:
                     # 0. Safety Check: Is the database actually connected?
-                    # If not, skip this session (the user likely needs to re-auth after a server restart)
                     from app.services.db_connector import db_connector
                     if conn_id not in db_connector.connections:
+                        continue
+                    
+                    # Pool state check
+                    pool = db_connector.connections[conn_id]['client']
+                    if hasattr(pool, 'is_closing') and pool.is_closing():
+                        logger.warning(f"📉 DB Pool {conn_id} is closing. Skipping metrics stream.")
                         continue
 
                     # 1. Get real metrics
@@ -218,16 +223,11 @@ async def stream_metrics():
                         continue
                     
                     # 2. Get Graph Evolution (Size/Health of nodes)
-                    # We fetch current graph to know who to evolve
                     graph_data = await graph_generator.generate_graph(conn_id)
                     evolved_nodes = []
                     
                     for node in graph_data.get("nodes", []):
-                        # Use actual transaction rate for volume-based evolution
                         tx_rate = data['data'].get('transaction_rate', 0)
-                        
-                        # Reality-Driven: Use 0 for errors/latency unless real telemetry is detected
-                        # This removes the "random dummy" jitter.
                         activity = {
                             "transaction_volume": tx_rate * 10,
                             "error_rate": 0.0, 
@@ -266,7 +266,7 @@ async def stream_metrics():
                     except Exception as e:
                         pass  # Non-critical
 
-                    # 4. Send combined update via broadcast to the connection topic
+                    # 4. Send combined update
                     if data:
                         payload = {
                             "type": "metrics_update",
@@ -279,7 +279,6 @@ async def stream_metrics():
                             "timestamp": time.time()
                         }
                         
-                        # PARALLEL BROADCAST: Parallelize and handle stale connections
                         results = await asyncio.gather(
                             *[safe_send(ws, payload) for ws in sockets], 
                             return_exceptions=True
@@ -295,20 +294,22 @@ async def stream_metrics():
                                 sockets.remove(ws)
                                 logger.info(f"🗑️ Removed stale WS connection during metrics broadcast for {conn_id}")
                         
-                        # Cleanup empty keys if necessary (heartbeat also handles this)
                         if not active_connections.get(conn_id) and conn_id in active_connections:
                             del active_connections[conn_id]
                         
                 except Exception as e:
                     logger.error(f"Error streaming for DB conn {conn_id}: {e}")
-        except Exception as e:
-            logger.error(f"Global streaming error: {e}")
             
-        await asyncio.sleep(2.0)
+            await asyncio.sleep(2.0)
+    except asyncio.CancelledError:
+        logger.info("🛑 Streaming Service: Broadcast loop cancelled.")
+        raise
+    except Exception as e:
+        logger.error(f"Global streaming error: {e}")
+        await asyncio.sleep(5.0)
 
-
-# Start background task
 async def start_streaming_task():
-    asyncio.create_task(stream_metrics())
+    """Starts the streaming task. Note: main.py now tracks this directly."""
+    return asyncio.create_task(stream_metrics())
 
 

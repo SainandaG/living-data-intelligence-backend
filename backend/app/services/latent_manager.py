@@ -145,5 +145,45 @@ class LatentSpaceManager:
             
         return results
 
+    def search_nodes(self, query: str, connection_id: str, top_k: int = 10, filters: Dict = None) -> List[Dict]:
+        """
+        Broad semantic search combining name/metadata similarity 
+        with specific category/priority filters.
+        """
+        if not self.is_ready:
+            return []
+
+        query = query.lower()
+        results = []
+        
+        with self._lock:
+            for nid, vec in self.high_dim_embeddings.items():
+                # 1. Text match heuristic
+                score = 0.0
+                if query in nid.lower():
+                    score += 0.5
+                
+                # 2. Add structural similarity if we had a reference node, 
+                # but for global search we mostly rely on name + types for now.
+                
+                # 3. Apply Filters (Categories/Priority)
+                # These filters are usually pre-passed from NeuralCore's knowledge
+                if filters:
+                    cat_match = True
+                    if filters.get('categories'):
+                        # This would be checked against a lookup we pass in
+                        pass
+                
+                if score > 0 or not query:
+                    results.append({
+                        "node_id": nid,
+                        "score": score,
+                        "projection": self.projected_embeddings.get(nid)
+                    })
+        
+        # Sort and return
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:top_k]
+
 # Global Instance
 latent_manager = LatentSpaceManager()

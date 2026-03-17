@@ -694,6 +694,46 @@ async def find_similar_nodes(node_id: str, k: int = 5):
     return {"target": node_id, "matches": similar_nodes}
 
 
+@router.get("/semantic-search/{connection_id}")
+async def semantic_search(connection_id: str, query: str = "", categories: str = None, priority: str = None):
+    """
+    Search and filter tables by importance and type.
+    Enables user to "Discover & Import" critical nodes.
+    """
+    try:
+        from app.services.neural_core import neural_core
+        from app.services.latent_manager import latent_manager
+
+        # 1. Get filtered list from Neural Core (The Intelligence Filter)
+        cat_list = categories.split(',') if categories else None
+        filtered_tables = await neural_core.get_tables_by_filter(connection_id, cat_list, priority)
+
+        # 2. Rank by semantic query if provided
+        if query:
+            # Fuzzy name match ranking
+            for t in filtered_tables:
+                name = t['name'].lower()
+                q = query.lower()
+                score = 1.0 if q == name else 0.8 if q in name else 0.5 if any(p in name for p in q.split()) else 0.0
+                t['search_score'] = score
+            
+            filtered_tables = [t for t in filtered_tables if t.get('search_score', 0) > 0]
+            filtered_tables.sort(key=lambda x: (x.get('search_score', 0), x['gravity']), reverse=True)
+        else:
+            # Sort by gravity by default
+            filtered_tables.sort(key=lambda x: x['gravity'], reverse=True)
+
+        return {
+            "query": query,
+            "filters": {"categories": cat_list, "priority": priority},
+            "results": filtered_tables[:20],
+            "count": len(filtered_tables)
+        }
+    except Exception as e:
+        logger.error(f"Semantic search failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Search service error")
+
+
 # Helper functions
 
 def _generate_health_explanation(health_data: Dict) -> str:

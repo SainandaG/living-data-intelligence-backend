@@ -49,8 +49,9 @@ from app.services.auth import get_current_user
 async def keep_alive_task():
     """Background task to keep database connections alive"""
     logger.info("🛰️ Starting database keep-alive task (every 4m)...")
-    while True:
-        try:
+    from app.services.db_connector import db_connector
+    try:
+        while True:
             await asyncio.sleep(240) # 4 minutes
             connections = db_connector.list_connections()
             if not connections:
@@ -61,8 +62,11 @@ async def keep_alive_task():
                     await db_connector.query(conn['id'], "SELECT 1")
                 except Exception as e:
                     logger.warning(f"⚠️ Keep-alive failed for {conn['database']}: {e}")
-        except Exception as e:
-            logger.error(f"🔥 error in keep_alive_task: {e}")
+    except asyncio.CancelledError:
+        logger.info("🛑 Keep-alive task cancelled.")
+        raise
+    except Exception as e:
+        logger.error(f"🔥 error in keep_alive_task: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -78,25 +82,24 @@ async def lifespan(app: FastAPI):
     port = int(os.getenv("PORT", 8001))
     logger.info(f"startup | version={APP_VERSION} env={APP_ENV} port={port}")
     
-    # Track background tasks for clean cancellation
-    bg_tasks = []
+    # Track ALL background tasks for clean cancellation
+    app.state.bg_tasks = []
 
-    # Start background WebSocket streaming task
-    from app.api.websocket import start_streaming_task
-    # Note: start_streaming_task should ideally return a task or handle its own lifecycle
-    # but we'll assume it starts internal ones. 
-    await start_streaming_task()
+    # 1. Start streaming task
+    from app.api.websocket import stream_metrics
+    streaming_task = asyncio.create_task(stream_metrics())
+    app.state.bg_tasks.append(streaming_task)
     
-    # Start keep-alive task
+    # 2. Start keep-alive task
     keep_alive = asyncio.create_task(keep_alive_task())
-    bg_tasks.append(keep_alive)
+    app.state.bg_tasks.append(keep_alive)
 
+    # 3. Start Agent loop
     from app.services.agent_service import agent_service
-    agent_loop = await agent_service.start_autonomous_loop()
-    if isinstance(agent_loop, asyncio.Task):
-        bg_tasks.append(agent_loop)
+    agent_loop_task = asyncio.create_task(agent_service.start_autonomous_loop())
+    app.state.bg_tasks.append(agent_loop_task)
     
-    # Auto-Connect to Primary Database for Background Services
+    # 4. Auto-Connect to Primary Database
     from app.services.db_connector import db_connector
         
     db_config = {
@@ -110,15 +113,14 @@ async def lifespan(app: FastAPI):
         
     if db_config["host"] and db_config["username"]:
         logger.info(f"🔌 Auto-connecting to database: {db_config['database']}...")
-        conn_info = await db_connector.connect(db_config)
-        logger.info("✅ Auto-connection established.")
-
         try:
+            conn_info = await db_connector.connect(db_config)
+            logger.info("✅ Auto-connection established.")
             logger.info("🔥 Warming up primary database...")
             await db_connector.query(conn_info['id'], "SELECT 1")
             logger.info("✨ Primary database is warm and ready.")
         except Exception as e:
-            logger.warning(f"⚠️ Primary DB is cold — first request may be slow: {e}")
+            logger.warning(f"⚠️ Auto-connect failed: {e}")
     else:
         logger.warning("⚠️ DB Credentials missing in .env, skipping auto-connect.")
 
@@ -128,21 +130,22 @@ async def lifespan(app: FastAPI):
     logger.info(f"shutdown | uptime_seconds={uptime}")
     
     # Cancel background tasks
-    if bg_tasks:
-        logger.info(f"🛑 Cancelling {len(bg_tasks)} background tasks...")
-        for task in bg_tasks:
+    if hasattr(app.state, "bg_tasks") and app.state.bg_tasks:
+        logger.info(f"🛑 Cancelling {len(app.state.bg_tasks)} background tasks...")
+        for task in app.state.bg_tasks:
             task.cancel()
         
         # Wait for tasks to finish cancelling with timeout
         try:
-            await asyncio.wait_for(asyncio.gather(*bg_tasks, return_exceptions=True), timeout=2.0)
+            await asyncio.wait_for(asyncio.gather(*app.state.bg_tasks, return_exceptions=True), timeout=3.0)
             logger.info("✅ All background tasks cancelled.")
         except asyncio.TimeoutError:
             logger.warning("⚠️ Background task cancellation timed out.")
 
+    # [CRITICAL] Close DB connections AFTER tasks are stopped
     from app.services.db_connector import db_connector
     try:
-        # Graceful shutdown with 5s timeout
+        logger.info("🔌 Closing all database connection pools...")
         await asyncio.wait_for(db_connector.close_all(), timeout=5.0)
         logger.info("✅ Database connections closed gracefully.")
     except asyncio.TimeoutError:

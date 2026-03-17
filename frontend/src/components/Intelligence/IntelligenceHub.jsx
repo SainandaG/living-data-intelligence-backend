@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Activity,
@@ -11,6 +11,7 @@ import {
     X,
     Layers,
     Wrench,
+    Search,
     Play,
     StopCircle,
     DatabaseZap,
@@ -26,9 +27,11 @@ import RootCauseDashboard from './RootCauseDashboard';
 import RecommendationDashboard from './RecommendationDashboard';
 import DeepStatusDashboard from './DeepStatusDashboard';
 import OntologyExplorer from './OntologyExplorer';
+import SemanticSearchDiscovery from './SemanticSearchDiscovery';
 
 const dashboards = [
     { id: 'health', name: 'System Health', icon: Activity, component: HealthDashboard, color: '#00ff88' },
+    { id: 'search', name: 'Discovery Search', icon: Search, component: SemanticSearchDiscovery, color: '#00ff88' },
     { id: 'ontology', name: 'Ontology & Entities', icon: Layers, component: OntologyExplorer, color: '#00D7FF' },
     { id: 'deep-status', name: 'Deep Diagnostics', icon: Zap, component: DeepStatusDashboard, color: '#00D7FF' },
     { id: 'patterns', name: 'Behavior Patterns', icon: BarChart3, component: PatternDashboard, color: '#00ccff' },
