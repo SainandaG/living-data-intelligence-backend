@@ -1,0 +1,69 @@
+# Node.js
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.nyc_output
+.cache
+.parcel-cache
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment
+.env
+.flaskenv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Brain / Artifacts (Internal)
+.gemini/
+brain/
+*.log
+
+# APEX runtime data (never commit live data or experiment artefacts)
+backend/data/workspaces/
+backend/data/agent_sessions/
+backend/data/experiments/
+backend/coverage.xml
+backend/bandit-report.json
+backend/pip-audit-report.json

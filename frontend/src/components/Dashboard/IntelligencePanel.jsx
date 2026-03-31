@@ -1,0 +1,154 @@
+import React, { useEffect, useState } from 'react';
+import { Brain, Activity, Zap, Info, Play, ChartBarIcon } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { logger } from '../../utils/logger';
+
+export default function IntelligencePanel({ connectionId, tableName, onSimulate }) {
+    const [analysis, setAnalysis] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchAnalysis = async () => {
+            try {
+                setLoading(true);
+                setError(null);
+                const response = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
+                if (response.status === 404) throw new Error('Evolution service not loaded');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                setAnalysis(data);
+            } catch (err) {
+                logger.error('[IntelligencePanel] Analysis fetch error:', err);
+                setError(err.message);
+                // analysis stays null — defaults at render handle display
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (connectionId && tableName) {
+            fetchAnalysis();
+        }
+    }, [connectionId, tableName]);
+
+    const [justification, setJustification] = useState(null);
+
+    useEffect(() => {
+        const fetchXAI = async () => {
+            if (!connectionId || !tableName) return;
+            try {
+                const res = await fetch(`/api/explainability/justification/${connectionId}/${tableName}`);
+                if (res.status === 404) return; // Explainability service not loaded
+                if (res.ok) {
+                    const data = await res.json();
+                    setJustification(data.justification);
+                }
+            } catch (err) {
+                logger.warn('[IntelligencePanel] XAI Fetch failed:', err);
+            }
+        };
+        fetchXAI();
+    }, [connectionId, tableName]);
+
+    if (loading) {
+        return (
+            <div className="p-4 flex flex-col gap-3 animate-pulse">
+                <div className="h-4 bg-white/5 rounded w-3/4"></div>
+                <div className="h-20 bg-white/5 rounded w-full"></div>
+                <div className="h-4 bg-white/5 rounded w-1/2"></div>
+            </div>
+        );
+    }
+
+    // Always render even if no data
+    const metrics = analysis?.metrics || { gravity: 1.0, vitality: 50, entropy: 0, hub_score: 0, in_degree: 0, out_degree: 0, row_count: 0 };
+    const proofs = analysis?.proofs || { gravity: "Loading...", vitality: "Loading...", entropy: "Loading..." };
+    const narrative = analysis?.narrative || "Initializing intelligence analysis...";
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex flex-col gap-4"
+        >
+            {error && (
+                <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg">
+                    <p className="text-yellow-400 text-xs">⚠️ Using fallback data: {error}</p>
+                </div>
+            )}
+
+            <div className="bg-[var(--primary-cyan)]/10 border border-[var(--primary-cyan)]/20 p-4 rounded-xl">
+                <h3 className="text-[var(--primary-cyan)] font-mono text-xs uppercase mb-3 flex items-center gap-2">
+                    <Brain size={14} />
+                    AI Structural Narrative
+                </h3>
+                <p className="text-sm text-[var(--text-primary)] leading-relaxed italic">
+                    "{narrative}"
+                </p>
+            </div>
+
+            {justification && (
+                <div className="bg-purple-500/10 border border-purple-500/20 p-4 rounded-xl">
+                    <h3 className="text-purple-400 font-mono text-xs uppercase mb-3 flex items-center gap-2">
+                        <Zap size={14} />
+                        Reasoning Trace
+                    </h3>
+                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                        {justification}
+                    </p>
+                </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+                <MetricBox
+                    icon={<Zap size={14} />}
+                    label="Vitality"
+                    value={`${metrics.vitality.toFixed(1)}%`}
+                    color="text-green-400"
+                    tooltip="Graph-derived: α·log(row_count+1) + β·centrality. Not a real-time performance metric."
+                    badge="calc"
+                />
+                <MetricBox
+                    icon={<Activity size={14} />}
+                    label="Entropy"
+                    value={metrics.entropy.toFixed(4)}
+                    color="text-purple-400"
+                    tooltip="Computed from edge weight distribution. Mathematical measure of graph connectivity, not data entropy."
+                    badge="calc"
+                />
+            </div>
+
+            <div className="space-y-3">
+                <h3 className="text-[var(--text-secondary)] font-mono text-[10px] uppercase tracking-wider mb-2">Mathematical Blueprints</h3>
+                {Object.entries(proofs).map(([key, proof]) => (
+                    <div key={key} className="bg-black/40 border border-white/5 p-3 rounded-lg">
+                        <p className="text-[10px] text-[var(--text-secondary)] mb-1 uppercase">{key} proof</p>
+                        <code className="text-xs font-mono text-[var(--primary-cyan)] block overflow-x-auto whitespace-nowrap">
+                            {proof}
+                        </code>
+                    </div>
+                ))}
+            </div>
+        </motion.div>
+    );
+}
+
+function MetricBox({ icon, label, value, color, tooltip, badge }) {
+    return (
+        <div className="bg-white/5 border border-white/10 p-3 rounded-lg" title={tooltip || ''}>
+            <div className="flex items-center gap-2 text-[var(--text-secondary)] mb-1">
+                {icon}
+                <span className="text-[10px] uppercase font-mono">{label}</span>
+                {badge === 'calc' && (
+                    <span style={{
+                        fontSize: '7px', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)',
+                        borderRadius: '3px', padding: '0px 4px', letterSpacing: '0.05em',
+                        fontFamily: 'monospace', cursor: 'help', marginLeft: '2px'
+                    }}>calc</span>
+                )}
+            </div>
+            <div className={`text-lg font-mono font-bold ${color}`}>{value}</div>
+        </div>
+    );
+}

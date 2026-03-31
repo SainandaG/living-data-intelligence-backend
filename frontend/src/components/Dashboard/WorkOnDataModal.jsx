@@ -1,0 +1,960 @@
+/**
+ * WorkOnDataModal.jsx
+ *
+ * Full ML analysis launcher:
+ *  - AI suggests best tables + columns with reasoning
+ *  - User can accept AI suggestion or manually select
+ *  - All 4 algorithm families: Classification, Regression, Time Series, Clustering
+ *  - "Run Model" calls real /api/ml/analyze and shows results inline
+ *  - "Open Deep Analysis" still opens /deep-analysis in a new tab
+ */
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  X, Sparkles, Brain, ChevronDown, ChevronRight, Check,
+  Database, Columns, RefreshCw, Zap, FlaskConical, TrendingUp,
+  GitBranch, Clock, Layers, ExternalLink, AlertTriangle,
+  ArrowLeft, BarChart2, Lightbulb, Activity, Search, CheckSquare, Square,
+  Send, StopCircle, Loader2,
+} from 'lucide-react';
+import apiClient from '../../utils/apiClient';
+import { useAgentStream } from '../../hooks/useAgentStream';
+
+// ─── Algorithm Catalogue ───────────────────────────────────────────────────────
+const ALGO_FAMILIES = [
+  {
+    id: 'classification',
+    label: 'Classification',
+    icon: GitBranch,
+    color: 'cyan',
+    description: 'Predict categories or labels',
+    algos: [
+      { id: 'rf_clf',  name: 'Random Forest',       tag: 'Accurate',      tagColor: 'blue',   best_for: 'High-dimensional data, mixed types' },
+      { id: 'svm',     name: 'SVM',                 tag: 'Robust',        tagColor: 'purple', best_for: 'Clear margin separation, medium datasets' },
+      { id: 'knn',     name: 'K-Nearest Neighbors', tag: 'Fast',          tagColor: 'green',  best_for: 'Local patterns, small-medium datasets' },
+      { id: 'logreg',  name: 'Logistic Regression', tag: 'Interpretable', tagColor: 'teal',   best_for: 'Binary outcomes, linear boundaries' },
+    ],
+  },
+  {
+    id: 'regression',
+    label: 'Regression',
+    icon: TrendingUp,
+    color: 'orange',
+    description: 'Predict continuous numeric values',
+    algos: [
+      { id: 'linear',  name: 'Linear Regression', tag: 'Fast',        tagColor: 'green',  best_for: 'Linear relationships, baseline model' },
+      { id: 'ridge',   name: 'Ridge Regression',  tag: 'Regularized', tagColor: 'blue',   best_for: 'Multicollinearity, many features' },
+      { id: 'lasso',   name: 'Lasso Regression',  tag: 'Sparse',      tagColor: 'purple', best_for: 'Feature selection, sparse solutions' },
+      { id: 'xgboost', name: 'GradientBoosting',  tag: '★ Best',      tagColor: 'amber',  best_for: 'Tabular data, high accuracy, non-linear' },
+    ],
+  },
+  {
+    id: 'timeseries',
+    label: 'Time Series',
+    icon: Clock,
+    color: 'violet',
+    description: 'Forecast temporal patterns',
+    algos: [
+      { id: 'arima',   name: 'ARIMA',   tag: 'Classic', tagColor: 'teal', best_for: 'Stationary time series, seasonal data' },
+      { id: 'prophet', name: 'Prophet', tag: 'Robust',  tagColor: 'blue', best_for: 'Business time series, holidays, trends' },
+    ],
+  },
+  {
+    id: 'clustering',
+    label: 'Clustering',
+    icon: Layers,
+    color: 'pink',
+    description: 'Discover hidden groups',
+    algos: [
+      { id: 'kmeans', name: 'K-Means', tag: 'Fast',     tagColor: 'green',  best_for: 'Well-separated spherical clusters' },
+      { id: 'dbscan', name: 'DBSCAN',  tag: 'Flexible', tagColor: 'purple', best_for: 'Arbitrary shapes, noise detection' },
+    ],
+  },
+];
+
+const COLOR_MAP = {
+  cyan:   { bg: 'bg-cyan-500/10',   border: 'border-cyan-500/30',   text: 'text-cyan-400',   glow: 'shadow-[0_0_12px_rgba(34,211,238,0.15)]' },
+  orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', text: 'text-orange-400', glow: 'shadow-[0_0_12px_rgba(249,115,22,0.15)]' },
+  violet: { bg: 'bg-violet-500/10', border: 'border-violet-500/30', text: 'text-violet-400', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' },
+  pink:   { bg: 'bg-pink-500/10',   border: 'border-pink-500/30',   text: 'text-pink-400',   glow: 'shadow-[0_0_12px_rgba(236,72,153,0.15)]' },
+};
+
+const TAG_COLORS = {
+  blue:   'bg-blue-500/20 text-blue-300',
+  purple: 'bg-purple-500/20 text-purple-300',
+  green:  'bg-green-500/20 text-green-300',
+  teal:   'bg-teal-500/20 text-teal-300',
+  amber:  'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+};
+
+// ─── Family accent colours ────────────────────────────────────────────────────
+const FAMILY_HEX = {
+  classification: '#22d3ee',
+  regression:     '#f97316',
+  timeseries:     '#8b5cf6',
+  clustering:     '#ec4899',
+};
+
+// ─── AI Suggestion Engine (client-side heuristic + optional API) ─────────────
+function generateAISuggestion(graphData) {
+  const tables = graphData?.nodes || [];
+  if (!tables.length) return null;
+
+  const scored = tables.map(t => ({
+    ...t,
+    score: (Math.log10((t.row_count || 1) + 1) * 40)
+      + ((t.columns?.length || 0) * 2)
+      + ((t.foreign_keys?.length || 0) * 5),
+  })).sort((a, b) => b.score - a.score);
+
+  const primary = scored[0];
+  const allColumns = primary?.columns || [];
+  const numericCols = allColumns.filter(c => /int|float|double|decimal|numeric|real|number/i.test(c.type || ''));
+  const dateCols    = allColumns.filter(c => /date|time|timestamp/i.test(c.type || ''));
+  const catCols     = allColumns.filter(c => /char|varchar|text|bool|enum/i.test(c.type || ''));
+
+  let taskFamily = 'regression', recommendedAlgo = 'xgboost';
+  let targetCol = numericCols[0]?.name || allColumns[0]?.name;
+  let featureCols = allColumns.slice(0, 6).map(c => c.name).filter(n => n !== targetCol);
+  let reasoning = '', confidence = 87;
+
+  if (dateCols.length > 0 && numericCols.length > 0) {
+    taskFamily = 'timeseries'; recommendedAlgo = 'arima';
+    targetCol = numericCols[0]?.name;
+    featureCols = [dateCols[0]?.name].filter(Boolean);
+    reasoning = `Detected ${dateCols.length} timestamp column(s) in "${primary.name}". Seasonal trend model will be applied.`;
+    confidence = 82;
+  } else if (numericCols.length >= 2) {
+    taskFamily = 'regression'; recommendedAlgo = 'xgboost';
+    targetCol = numericCols[0]?.name;
+    featureCols = numericCols.slice(1, 5).map(c => c.name).concat(catCols.slice(0, 2).map(c => c.name));
+    reasoning = `"${primary.name}" has ${numericCols.length} numeric columns and ${primary.row_count?.toLocaleString() || 'many'} rows. GradientBoosting excels on tabular data.`;
+    confidence = 91;
+  } else if (catCols.length > 0) {
+    taskFamily = 'classification'; recommendedAlgo = 'rf_clf';
+    targetCol = catCols[0]?.name;
+    featureCols = numericCols.slice(0, 4).map(c => c.name).concat(catCols.slice(1, 3).map(c => c.name));
+    reasoning = `Categorical target "${catCols[0]?.name}" detected in "${primary.name}". Random Forest handles mixed feature types robustly.`;
+    confidence = 85;
+  } else {
+    taskFamily = 'clustering'; recommendedAlgo = 'kmeans';
+    targetCol = null;
+    featureCols = allColumns.slice(0, 5).map(c => c.name);
+    reasoning = `No clear target column detected. K-Means can discover hidden segments in "${primary.name}".`;
+    confidence = 74;
+  }
+
+  const secondaryTables = scored.slice(1, 3).map(t => ({
+    name: t.name,
+    reason: t.foreign_keys?.length > 0
+      ? `Joins to ${primary.name} via foreign key — adds relational context`
+      : `${t.row_count?.toLocaleString() || 0} rows of supporting dimensional data`,
+  }));
+
+  return {
+    primaryTable: primary.name, secondaryTables, taskFamily, recommendedAlgo,
+    targetCol, featureCols: featureCols.filter(Boolean).slice(0, 6),
+    reasoning, confidence, allTables: scored,
+  };
+}
+
+// ─── Results Panel ────────────────────────────────────────────────────────────
+function ResultsPanel({ results, onBack, onOpenDeep }) {
+  const accent = FAMILY_HEX[results.family] || '#22d3ee';
+  const algoName = ALGO_FAMILIES.flatMap(f => f.algos).find(a => a.id === results.algo)?.name || results.algo;
+
+  const metricEntries = Object.entries(results.metrics).filter(
+    ([k]) => !['samples', 'train_size', 'test_size', 'n_classes', 'model'].includes(k)
+  );
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Back + header */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft size={13} /> Back
+        </button>
+        <div className="h-4 w-px bg-white/10" />
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-white">{algoName}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+            style={{ background: `${accent}20`, color: accent, border: `1px solid ${accent}30` }}>
+            {results.family}
+          </span>
+          <span className="text-[10px] text-gray-500 font-mono">{results.table}</span>
+          <span className="text-[10px] text-gray-600">· {results.row_count.toLocaleString()} rows</span>
+        </div>
+        <button
+          onClick={onOpenDeep}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-lg border transition-all"
+          style={{ color: accent, borderColor: `${accent}40`, background: `${accent}10` }}
+        >
+          <ExternalLink size={11} /> Deep Analysis
+        </button>
+      </div>
+
+      {/* Metrics row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {metricEntries.map(([key, val]) => (
+          <div key={key} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest font-bold leading-none mb-1">{key}</p>
+            <p className="text-lg font-black tabular-nums leading-none" style={{ color: accent }}>
+              {typeof val === 'number'
+                ? (key === 'MAPE' ? `${val}%` : key.startsWith('monthly') ? `${val > 0 ? '+' : ''}${val}%` : val.toLocaleString(undefined, { maximumFractionDigits: 4 }))
+                : String(val)}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-[1fr_1fr] gap-4">
+        {/* Feature importances */}
+        {results.feature_importances.length > 0 && (
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
+              <BarChart2 size={11} style={{ color: accent }} /> Feature Importance
+            </p>
+            <div className="space-y-2">
+              {results.feature_importances.slice(0, 8).map((fi) => (
+                <div key={fi.name}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] text-gray-300 font-mono truncate max-w-[65%]">{fi.name}</span>
+                    <span className="text-[10px] font-bold" style={{ color: accent }}>
+                      {(fi.importance * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${fi.importance * 100}%` }}
+                      transition={{ duration: 0.5, delay: 0.05 }}
+                      className="h-full rounded-full"
+                      style={{ background: accent }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Predictions */}
+        {results.predictions.length > 0 && (
+          <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
+              <Activity size={11} style={{ color: accent }} />
+              {results.family === 'clustering' ? 'Segment Distribution' :
+               results.family === 'classification' ? 'Class Distribution' : 'Predictions'}
+            </p>
+            <div className="space-y-2">
+              {results.predictions.slice(0, 6).map((pred, i) => {
+                const confColor = pred.confidence === 'high' ? '#10b981'
+                  : pred.confidence === 'medium' ? '#f59e0b' : '#6b7280';
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-[11px] text-gray-400 w-20 truncate flex-shrink-0">{pred.label}</span>
+                    <div className="flex-1 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, Math.abs(pred.value))}%` }}
+                        transition={{ duration: 0.5, delay: 0.05 * i }}
+                        className="h-full rounded-full"
+                        style={{ background: confColor }}
+                      />
+                    </div>
+                    <span className="text-[11px] font-bold tabular-nums w-20 text-right"
+                      style={{ color: confColor }}>
+                      {typeof pred.value === 'number'
+                        ? (results.family === 'clustering' || results.family === 'classification'
+                            ? `${pred.value.toFixed(1)}%`
+                            : pred.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+                        : pred.value}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Insights */}
+      {results.insights.length > 0 && (
+        <div className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-4">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
+            <Lightbulb size={11} style={{ color: accent }} /> AI Insights
+          </p>
+          <div className="space-y-2">
+            {results.insights.map((ins, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.07 }}
+                className="flex items-start gap-2.5"
+              >
+                <span className="text-[10px] font-black mt-0.5" style={{ color: accent }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <p className="text-[12px] text-gray-300 leading-relaxed">{ins}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+export default function WorkOnDataModal({ isOpen, onClose, graphData, connectionId }) {
+  const [aiSuggestion, setAiSuggestion]         = useState(null);
+  const [manualMode, setManualMode]              = useState(false);
+  const [aiLoading, setAiLoading]               = useState(false);
+
+  // Config selections
+  const [selectedFamily, setSelectedFamily]     = useState('regression');
+  const [selectedAlgo, setSelectedAlgo]         = useState('xgboost');
+  const [expandedFamily, setExpandedFamily]     = useState('regression');
+  const [selectedTable, setSelectedTable]       = useState('');
+  const [selectedSecondaryTables, setSelectedSecondaryTables] = useState([]);
+  const [targetCol, setTargetCol]               = useState('');
+  const [featureCols, setFeatureCols]           = useState([]);
+  const [tableSearch, setTableSearch]           = useState('');
+  const [colSearch, setColSearch]               = useState('');
+
+  // Run state
+  const [isGenerating, setIsGenerating]         = useState(false);
+  const [mlResults, setMlResults]               = useState(null);
+  const [mlError, setMlError]                   = useState(null);
+
+  const tables = graphData?.nodes || [];
+  const activeTable = tables.find(t => t.name === selectedTable);
+  const allColumns = activeTable?.columns || [];
+
+  // Aggregate columns from primary + secondary tables
+  const columnsFromSelected = React.useMemo(() => {
+    const cols = [];
+    const seen = new Set();
+    const addCols = (tName) => {
+      const t = tables.find(x => x.name === tName);
+      if (!t?.columns) return;
+      t.columns.forEach(c => {
+        const key = `${tName}.${c.name}`;
+        if (!seen.has(key)) { seen.add(key); cols.push({ ...c, _table: tName }); }
+      });
+    };
+    if (selectedTable) addCols(selectedTable);
+    selectedSecondaryTables.forEach(addCols);
+    return cols;
+  }, [tables, selectedTable, selectedSecondaryTables]);
+
+  const filteredTables = React.useMemo(() => {
+    const src = aiSuggestion?.allTables || tables;
+    if (!tableSearch.trim()) return src;
+    const q = tableSearch.toLowerCase();
+    return src.filter(t => t.name.toLowerCase().includes(q));
+  }, [tables, aiSuggestion, tableSearch]);
+
+  const filteredCols = React.useMemo(() => {
+    if (!colSearch.trim()) return columnsFromSelected;
+    const q = colSearch.toLowerCase();
+    return columnsFromSelected.filter(c => c.name.toLowerCase().includes(q));
+  }, [columnsFromSelected, colSearch]);
+
+  // Generate AI suggestion when modal opens
+  useEffect(() => {
+    if (!isOpen || !graphData?.nodes?.length) return;
+    setMlResults(null);
+    setMlError(null);
+
+    const local = generateAISuggestion(graphData);
+    setAiSuggestion(local);
+    if (local && !manualMode) applyAISuggestion(local);
+
+    if (!connectionId || !local?.primaryTable) return;
+    setAiLoading(true);
+    apiClient.post(`/ml/suggest?connection_id=${connectionId}&table=${local.primaryTable}`)
+      .then(res => {
+        const s = res?.suggestion || res?.data?.suggestion;
+        if (!s) return;
+        const enhanced = {
+          ...local,
+          taskFamily:      s.family      || local.taskFamily,
+          recommendedAlgo: s.algo        || local.recommendedAlgo,
+          targetCol:       s.target      || local.targetCol,
+          featureCols:     s.features?.length ? s.features : local.featureCols,
+          confidence:      s.confidence  || local.confidence,
+          reasoning:       res?.reason   || local.reasoning,
+          fromBackend:     true,
+        };
+        setAiSuggestion(enhanced);
+        if (!manualMode) applyAISuggestion(enhanced);
+      })
+      .catch(() => {})
+      .finally(() => setAiLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, graphData]);
+
+  const applyAISuggestion = useCallback((s) => {
+    if (!s) return;
+    setSelectedTable(s.primaryTable);
+    setSelectedFamily(s.taskFamily);
+    setSelectedAlgo(s.recommendedAlgo);
+    setExpandedFamily(s.taskFamily);
+    setTargetCol(s.targetCol || '');
+    setFeatureCols(s.featureCols || []);
+    setSelectedSecondaryTables(s.secondaryTables?.map(t => t.name) || []);
+    setManualMode(false);
+  }, []);
+
+  const toggleFeature = (col) => setFeatureCols(prev =>
+    prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
+  );
+
+  const selectAllFeatures = () => {
+    const available = columnsFromSelected.filter(c => c.name !== targetCol).map(c => c.name);
+    setFeatureCols(available);
+  };
+
+  const toggleSecondaryTable = (name) => setSelectedSecondaryTables(prev =>
+    prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name]
+  );
+
+  const handleOpenDeepAnalysis = () => {
+    const params = new URLSearchParams({
+      connectionId: connectionId || '',
+      table: selectedTable,
+      secondaryTables: selectedSecondaryTables.join(','),
+      family: selectedFamily,
+      algo: selectedAlgo,
+      target: targetCol,
+      features: featureCols.join(','),
+    });
+    window.open(`/deep-analysis?${params.toString()}`, '_blank');
+    onClose();
+  };
+
+  const handleRunInline = async () => {
+    if (!selectedTable) return;
+    setIsGenerating(true);
+    setMlError(null);
+    setMlResults(null);
+    try {
+      const result = await apiClient.post('/ml/analyze', {
+        connection_id: connectionId,
+        table: selectedTable,
+        secondary_tables: selectedSecondaryTables,
+        family: selectedFamily,
+        algo: selectedAlgo,
+        target: targetCol || undefined,
+        features: featureCols,
+      });
+      setMlResults(result);
+    } catch (e) {
+      setMlError(e?.message || e?.detail || 'Analysis failed. Check that the selected columns contain usable data.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // ── APEX Agent NL query bar ──────────────────────────────────────────────
+  const [nlQuery,      setNlQuery]      = useState('');
+  const [showAgent,    setShowAgent]    = useState(false);
+  const { run: runAgent, cancel: cancelAgent, events: agentEvents, status: agentStatus, report: agentReport } = useAgentStream();
+
+  const handleAgentQuery = useCallback(async (e) => {
+    e?.preventDefault();
+    const q = nlQuery.trim();
+    if (!q || !connectionId) return;
+    setShowAgent(true);
+    await runAgent({ query: q, connection_id: connectionId });
+  }, [nlQuery, connectionId, runAgent]);
+
+  // When agent produces a report, auto-populate suggestion fields
+  useEffect(() => {
+    if (!agentReport) return;
+    const fi = agentReport.top_feature;
+    if (fi) setFeatureCols(prev => prev.includes(fi) ? prev : [fi, ...prev].slice(0, 6));
+  }, [agentReport]);
+
+  if (!isOpen) return null;
+
+  const currentFamilyColors = COLOR_MAP[ALGO_FAMILIES.find(f => f.id === selectedFamily)?.color || 'cyan'];
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          className="relative w-[960px] max-h-[90vh] bg-[#0a1212] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-r from-[#0a1212] to-[#0f1a1a] shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-br from-amber-500/20 to-orange-500/20 rounded-lg border border-amber-500/20">
+                <FlaskConical size={20} className="text-amber-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  Work on Data
+                  <span className="text-[10px] px-2 py-0.5 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 rounded-full font-semibold uppercase tracking-wider">
+                    AI Analyst
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {mlResults ? 'Model results from your database' : 'AI-powered ML analysis with real algorithms'}
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+              <X size={18} className="text-gray-400" />
+            </button>
+          </div>
+
+          {/* ── APEX NL Query Bar ── */}
+          <div className="px-6 pt-4 pb-3 border-b border-white/[0.06] bg-[#0a1212] shrink-0">
+            <form onSubmit={handleAgentQuery} className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 focus-within:border-violet-500/40 transition-colors">
+                <Brain size={14} className="text-violet-400 shrink-0" />
+                <input
+                  value={nlQuery}
+                  onChange={e => setNlQuery(e.target.value)}
+                  placeholder='Ask APEX: "Find churn drivers" or "Detect anomalies in orders"'
+                  disabled={!connectionId}
+                  className="flex-1 bg-transparent text-sm text-white placeholder-white/25 outline-none"
+                />
+                {agentStatus === 'running' || agentStatus === 'planning' ? (
+                  <Loader2 size={14} className="text-violet-400 animate-spin shrink-0" />
+                ) : agentEvents.length > 0 ? (
+                  <span className="text-[10px] text-violet-400 shrink-0">✓ done</span>
+                ) : null}
+              </div>
+              {agentStatus === 'running' || agentStatus === 'planning' ? (
+                <button type="button" onClick={cancelAgent}
+                  className="p-2 rounded-xl bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors">
+                  <StopCircle size={15} />
+                </button>
+              ) : (
+                <button type="submit" disabled={!nlQuery.trim() || !connectionId}
+                  className="p-2 rounded-xl bg-violet-500/15 text-violet-400 hover:bg-violet-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  <Send size={15} />
+                </button>
+              )}
+            </form>
+            {/* Live agent status line */}
+            {showAgent && agentEvents.length > 0 && (
+              <div className="mt-2 text-[11px] text-white/35 truncate pl-1">
+                {[...agentEvents].reverse().find(e => e.text)?.text || ''}
+              </div>
+            )}
+            {agentReport?.narrative && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                className="mt-2 text-[11px] text-violet-300/70 bg-violet-500/5 rounded-lg px-3 py-2 border border-violet-500/15 line-clamp-2">
+                {agentReport.narrative}
+              </motion.div>
+            )}
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto">
+            {/* ── Results view ── */}
+            {mlResults ? (
+              <ResultsPanel
+                results={mlResults}
+                onBack={() => setMlResults(null)}
+                onOpenDeep={handleOpenDeepAnalysis}
+              />
+            ) : (
+              <>
+                {/* AI Suggestion Banner */}
+                {aiSuggestion && !manualMode && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mx-6 mt-5 p-4 bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/25 rounded-xl"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="p-1.5 bg-purple-500/20 rounded-lg mt-0.5 flex-shrink-0">
+                        <Sparkles size={16} className="text-purple-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-sm font-semibold text-cyan-400">AI Recommendation</span>
+                          <span className="text-[10px] px-2 py-0.5 bg-green-500/20 text-green-300 rounded-full font-semibold">
+                            {aiSuggestion.confidence}% confidence
+                          </span>
+                          {aiSuggestion.fromBackend && (
+                            <span className="text-[10px] px-2 py-0.5 bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 rounded-full font-semibold">
+                              ✓ Schema-enhanced
+                            </span>
+                          )}
+                          {aiLoading && (
+                            <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                              <RefreshCw size={9} className="animate-spin" /> Enhancing…
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed mb-3">{aiSuggestion.reasoning}</p>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          <span className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded-md text-gray-300">
+                            <span className="text-gray-500">Table:</span> <strong className="text-cyan-400">{aiSuggestion.primaryTable}</strong>
+                          </span>
+                          <span className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded-md text-gray-300">
+                            <span className="text-gray-500">Algorithm:</span> <strong className="text-amber-300">{ALGO_FAMILIES.flatMap(f => f.algos).find(a => a.id === aiSuggestion.recommendedAlgo)?.name}</strong>
+                          </span>
+                          {aiSuggestion.targetCol && (
+                            <span className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded-md text-gray-300">
+                              <span className="text-gray-500">Target:</span> <strong className="text-green-300">{aiSuggestion.targetCol}</strong>
+                            </span>
+                          )}
+                          <span className="text-[10px] px-2 py-1 bg-white/5 border border-white/10 rounded-md text-gray-300">
+                            <span className="text-gray-500">Features:</span> <strong className="text-purple-300">{aiSuggestion.featureCols.length} cols</strong>
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => applyAISuggestion(aiSuggestion)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 rounded-lg text-xs font-semibold hover:bg-cyan-500/30 transition-all"
+                          >
+                            <Check size={12} /> Accept Suggestion
+                          </button>
+                          <button
+                            onClick={() => { setManualMode(true); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-gray-400 rounded-lg text-xs font-semibold hover:bg-white/10 transition-all"
+                          >
+                            Configure Manually
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Error banner */}
+                {mlError && (
+                  <div className="mx-6 mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-red-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-red-300 leading-relaxed">{mlError}</p>
+                  </div>
+                )}
+
+                {/* Config grid */}
+                <div className="grid grid-cols-[1fr_1fr] gap-x-6 p-6">
+
+                  {/* LEFT: Table + Column Selection */}
+                  <div className="flex flex-col gap-4 min-h-0">
+
+                    {/* ── Tables ── */}
+                    <div className="flex flex-col min-h-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Database size={13} className="text-cyan-400" />
+                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tables</span>
+                        <span className="text-[10px] text-gray-500 ml-auto tabular-nums">
+                          {selectedTable ? '1 primary' : '—'}
+                          {selectedSecondaryTables.length > 0 ? ` + ${selectedSecondaryTables.length} joined` : ''}
+                        </span>
+                      </div>
+                      {/* Table search */}
+                      <div className="relative mb-2">
+                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                        <input
+                          type="text" value={tableSearch} onChange={e => setTableSearch(e.target.value)}
+                          placeholder="Filter tables…"
+                          className="w-full pl-7 pr-3 py-1.5 bg-white/[0.03] border border-white/10 rounded-lg text-[11px] text-white placeholder-gray-600 outline-none focus:border-cyan-500/40 transition-colors"
+                        />
+                      </div>
+                      {/* Table list — ALL tables, scrollable */}
+                      <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                        {filteredTables.map((table) => {
+                          const isPrimary = selectedTable === table.name;
+                          const isSecondary = selectedSecondaryTables.includes(table.name);
+                          const isAI = aiSuggestion?.primaryTable === table.name;
+                          return (
+                            <div key={table.name} className="flex items-center gap-1">
+                              {/* Primary selection (radio) */}
+                              <button
+                                onClick={() => { setSelectedTable(table.name); setTargetCol(''); setFeatureCols([]); setColSearch(''); }}
+                                className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${
+                                  isPrimary
+                                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
+                                    : isSecondary
+                                    ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
+                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                }`}
+                              >
+                                <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isPrimary ? 'border-cyan-400' : 'border-gray-600'}`}>
+                                  {isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
+                                </div>
+                                <span className="font-mono font-medium flex-1 truncate">{table.name}</span>
+                                <span className="text-[10px] text-gray-500 flex-shrink-0">{(table.row_count || 0).toLocaleString()}</span>
+                                {isAI && <span className="text-[8px] px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex-shrink-0">AI</span>}
+                              </button>
+                              {/* Join checkbox — only shown for non-primary tables when a primary is selected */}
+                              {selectedTable && selectedTable !== table.name && (
+                                <button
+                                  onClick={() => toggleSecondaryTable(table.name)}
+                                  title={isSecondary ? 'Remove from join' : 'Add as join table'}
+                                  className={`p-1 rounded transition-all flex-shrink-0 ${
+                                    isSecondary ? 'text-purple-400 hover:text-purple-300' : 'text-gray-600 hover:text-gray-400'
+                                  }`}
+                                >
+                                  {isSecondary ? <CheckSquare size={13} /> : <Square size={13} />}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {filteredTables.length === 0 && (
+                          <p className="text-[10px] text-gray-500 text-center py-3 italic">No tables match &quot;{tableSearch}&quot;</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ── Columns ── */}
+                    {columnsFromSelected.length > 0 ? (
+                      <div className="flex flex-col min-h-0">
+                        {/* Target column (not shown for clustering) */}
+                        {selectedFamily !== 'clustering' && (
+                          <>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Columns size={13} className="text-green-400" />
+                              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Target Column</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mb-3 max-h-28 overflow-y-auto pr-1">
+                              {columnsFromSelected.map((col) => {
+                                const isTarget = targetCol === col.name;
+                                const typeLabel = /int|float|double|decimal|numeric/i.test(col.type || '') ? 'NUM'
+                                  : /date|time/i.test(col.type || '') ? 'DATE' : 'CAT';
+                                const typeColor = typeLabel === 'NUM' ? 'text-teal-400'
+                                  : typeLabel === 'DATE' ? 'text-amber-400' : 'text-pink-400';
+                                return (
+                                  <button
+                                    key={`t-${col._table}.${col.name}`}
+                                    onClick={() => setTargetCol(col.name)}
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${
+                                      isTarget
+                                        ? 'bg-green-500/15 border-green-500/40 text-green-300'
+                                        : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
+                                    }`}
+                                  >
+                                    {col.name}
+                                    <span className={`text-[9px] font-bold ${typeColor}`}>{typeLabel}</span>
+                                    {selectedSecondaryTables.length > 0 && col._table !== selectedTable && (
+                                      <span className="text-[8px] text-purple-400/60">{col._table}</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+
+                        {/* Feature columns */}
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <Columns size={13} className="text-cyan-400" />
+                          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Feature Columns</span>
+                          <span className="text-[10px] text-gray-500">{featureCols.length} / {columnsFromSelected.filter(c => c.name !== targetCol).length}</span>
+                          <div className="ml-auto flex gap-1">
+                            <button onClick={selectAllFeatures}
+                              className="text-[10px] px-1.5 py-0.5 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-500/20 transition-all">
+                              All
+                            </button>
+                            <button onClick={() => setFeatureCols([])}
+                              className="text-[10px] px-1.5 py-0.5 bg-white/5 border border-white/10 text-gray-400 rounded hover:bg-white/10 transition-all">
+                              None
+                            </button>
+                          </div>
+                        </div>
+                        {/* Column search (only shown when there are many columns) */}
+                        {columnsFromSelected.length > 8 && (
+                          <div className="relative mb-2">
+                            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            <input
+                              type="text" value={colSearch} onChange={e => setColSearch(e.target.value)}
+                              placeholder="Filter columns…"
+                              className="w-full pl-7 pr-3 py-1.5 bg-white/[0.03] border border-white/10 rounded-lg text-[11px] text-white placeholder-gray-600 outline-none focus:border-cyan-500/40 transition-colors"
+                            />
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pr-1">
+                          {filteredCols.filter(c => c.name !== targetCol).map((col) => {
+                            const isFeature = featureCols.includes(col.name);
+                            const isAIFeature = aiSuggestion?.featureCols?.includes(col.name);
+                            const typeLabel = /int|float|double|decimal|numeric/i.test(col.type || '') ? 'NUM'
+                              : /date|time/i.test(col.type || '') ? 'DATE' : 'CAT';
+                            const typeColor = typeLabel === 'NUM' ? 'text-teal-400'
+                              : typeLabel === 'DATE' ? 'text-amber-400' : 'text-pink-400';
+                            return (
+                              <button
+                                key={`f-${col._table}.${col.name}`}
+                                onClick={() => toggleFeature(col.name)}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${
+                                  isFeature
+                                    ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400'
+                                    : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
+                                }`}
+                              >
+                                {col.name}
+                                <span className={`text-[9px] font-bold ${typeColor}`}>{typeLabel}</span>
+                                {isAIFeature && !isFeature && <span className="text-[8px] text-purple-400">★</span>}
+                                {selectedSecondaryTables.length > 0 && col._table !== selectedTable && (
+                                  <span className="text-[8px] text-purple-400/60">{col._table}</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-8 text-center border-2 border-dashed border-white/[0.08] rounded-xl">
+                        <Database size={28} className="text-gray-600 mb-2" />
+                        <p className="text-xs text-gray-500">Select a table to configure columns</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* RIGHT: Algorithm Families */}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2 mb-0">
+                      <Brain size={13} className="text-purple-400" />
+                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Algorithm</span>
+                    </div>
+                    {ALGO_FAMILIES.map((family) => {
+                      const colors = COLOR_MAP[family.color];
+                      const FamilyIcon = family.icon;
+                      const isExpanded = expandedFamily === family.id;
+                      const isActive = selectedFamily === family.id;
+                      return (
+                        <div key={family.id} className={`border rounded-xl overflow-hidden transition-all ${isActive ? `${colors.border} ${colors.glow}` : 'border-white/[0.08]'}`}>
+                          <button
+                            onClick={() => { setExpandedFamily(isExpanded ? null : family.id); setSelectedFamily(family.id); }}
+                            className={`w-full flex items-center gap-3 px-4 py-3 transition-all ${isActive ? colors.bg : 'hover:bg-white/[0.03]'}`}
+                          >
+                            <FamilyIcon size={15} className={isActive ? colors.text : 'text-gray-500'} />
+                            <div className="flex-1 text-left">
+                              <div className={`text-sm font-semibold ${isActive ? colors.text : 'text-gray-300'}`}>{family.label}</div>
+                              <div className="text-[10px] text-gray-500">{family.description}</div>
+                            </div>
+                            {isExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+                          </button>
+
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.18 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-3 pb-3 space-y-1.5">
+                                  {family.algos.map((algo) => {
+                                    const isSelectedAlgo = selectedAlgo === algo.id && selectedFamily === family.id;
+                                    return (
+                                      <button
+                                        key={algo.id}
+                                        onClick={() => { setSelectedAlgo(algo.id); setSelectedFamily(family.id); }}
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all border ${
+                                          isSelectedAlgo
+                                            ? `${colors.bg} ${colors.border} ${colors.text}`
+                                            : 'bg-white/[0.03] border-transparent hover:bg-white/[0.06] text-gray-400'
+                                        }`}
+                                      >
+                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelectedAlgo ? 'border-current' : 'border-gray-600'}`}>
+                                          {isSelectedAlgo && <div className="w-2 h-2 rounded-full bg-current" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className={`text-xs font-semibold ${isSelectedAlgo ? 'text-current' : 'text-gray-300'}`}>{algo.name}</div>
+                                          <div className="text-[10px] text-gray-500 truncate">{algo.best_for}</div>
+                                        </div>
+                                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold flex-shrink-0 ${TAG_COLORS[algo.tagColor]}`}>
+                                          {algo.tag}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-white/10 bg-[#0a1212] flex items-center gap-3 shrink-0">
+            <div className="text-xs text-gray-500 flex items-center gap-1.5 min-w-0 overflow-hidden">
+              {selectedTable ? (
+                <>
+                  <span className="text-cyan-400 font-mono truncate">{selectedTable}</span>
+                  <span className="shrink-0">·</span>
+                  <span className="text-amber-400 shrink-0">{ALGO_FAMILIES.flatMap(f => f.algos).find(a => a.id === selectedAlgo)?.name}</span>
+                  {targetCol && <><span className="shrink-0">·</span><span className="text-green-400 shrink-0">→ {targetCol}</span></>}
+                  {featureCols.length > 0 && <><span className="shrink-0">·</span><span className="text-purple-400 shrink-0">{featureCols.length} features</span></>}
+                </>
+              ) : (
+                <span className="flex items-center gap-1 shrink-0">
+                  <AlertTriangle size={11} className="text-amber-500" /> Select a table to continue
+                </span>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              {mlResults ? (
+                <button
+                  onClick={() => setMlResults(null)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white/5 border border-white/10 text-gray-400 rounded-lg text-xs font-semibold hover:bg-white/10 transition-all"
+                >
+                  <ArrowLeft size={13} /> Reconfigure
+                </button>
+              ) : (
+                <>
+                  <button onClick={onClose} className="px-4 py-2 text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleOpenDeepAnalysis}
+                    disabled={!selectedTable}
+                    className="flex items-center gap-2 px-4 py-2 bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 rounded-lg text-xs font-semibold hover:bg-cyan-500/25 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ExternalLink size={13} /> Open Deep Analysis
+                  </button>
+                </>
+              )}
+              <button
+                onClick={handleRunInline}
+                disabled={!selectedTable || isGenerating}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-300 rounded-lg text-xs font-semibold hover:from-amber-500/30 hover:to-orange-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_12px_rgba(251,191,36,0.1)]"
+              >
+                {isGenerating
+                  ? <><RefreshCw size={13} className="animate-spin" /> Running…</>
+                  : mlResults
+                  ? <><RefreshCw size={13} /> Re-run</>
+                  : <><Zap size={13} /> Run Model</>
+                }
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}

@@ -1,0 +1,211 @@
+{
+    "version": "1.0.0",
+    "commands": [
+        {
+            "id": "highlight_node",
+            "phrases": [
+                "highlight {table_name}",
+                "focus on {table_name}",
+                "zoom {table_name}",
+                "zoom to {table_name}",
+                "show me {table_name}",
+                "find {table_name}",
+                "center on {table_name}",
+                "select {table_name}",
+                "where is {table_name}"
+            ],
+            "intent": "highlight_node",
+            "action": "graph.highlight",
+            "parameters": {
+                "table_name": "table_name"
+            },
+            "examples": [
+                "highlight patient table",
+                "show me orders"
+            ],
+            "description": "Auto-generated for highlight_node"
+        },
+        {
+            "id": "zoom_cluster",
+            "phrases": [
+                "zoom into {cluster_name}",
+                "focus cluster {cluster_name}",
+                "show cluster {cluster_name}",
+                "go to cluster {cluster_name}",
+                "drill into {cluster_name}"
+            ],
+            "intent": "zoom_cluster",
+            "action": "graph.zoom_cluster",
+            "parameters": {
+                "cluster_name": "cluster_name"
+            },
+            "examples": [
+                "zoom into revenue cluster"
+            ],
+            "description": "Auto-generated for zoom_cluster"
+        },
+        {
+            "id": "start_flow",
+            "phrases": [
+                "start data flow",
+                "play transaction flow",
+                "start flow",
+                "begin animation",
+                "show data moving",
+                "activate particles",
+                "transaction flow of {table_name}",
+                "show flow for {table_name}",
+                "flow of {table_name}",
+                "start flow for {table_name}"
+            ],
+            "intent": "start_flow",
+            "action": "graph.start_flow",
+            "parameters": {
+                "table_name": "table_name"
+            },
+            "examples": [
+                "start data flow",
+                "play transaction flow"
+            ],
+            "description": "Auto-generated for start_flow"
+        },
+        {
+            "id": "stop_flow",
+            "phrases": [
+                "stop flow",
+                "pause flow",
+                "stop data flow",
+                "pause animation"
+            ],
+            "intent": "stop_flow",
+            "action": "graph.stop_flow",
+            "parameters": {},
+            "examples": [
+                "stop flow"
+            ],
+            "description": "Auto-generated for stop_flow"
+        },
+        {
+            "id": "run_anomaly_detection",
+            "phrases": [
+                "show anomalies",
+                "detect anomalies",
+                "find anomalies",
+                "run health check"
+            ],
+            "intent": "run_anomaly_detection",
+            "action": "analytics.anomaly",
+            "parameters": {},
+            "examples": [
+                "show anomalies"
+            ],
+            "description": "Auto-generated for run_anomaly_detection"
+        },
+        {
+            "id": "apply_clustering",
+            "phrases": [
+                "apply clustering",
+                "run clustering",
+                "cluster tables",
+                "organize tables"
+            ],
+            "intent": "apply_clustering",
+            "action": "analytics.cluster",
+            "parameters": {},
+            "examples": [
+                "apply clustering"
+            ],
+            "description": "Auto-generated for apply_clustering"
+        },
+        {
+            "id": "show_schema",
+            "phrases": [
+                "show schema",
+                "display schema",
+                "view database structure"
+            ],
+            "intent": "show_schema",
+            "action": "ui.show_schema",
+            "parameters": {},
+            "examples": [
+                "show schema"
+            ],
+            "description": "Auto-generated for show_schema"
+        },
+        {
+            "id": "reset_view",
+            "phrases": [
+                "reset view",
+                "reset camera",
+                "go back",
+                "overview"
+            ],
+            "intent": "reset_view",
+            "action": "graph.reset_view",
+            "parameters": {},
+            "examples": [
+                "reset view"
+            ],
+            "description": "Auto-generated for reset_view"
+        },
+        {
+            "id": "drill_down",
+            "phrases": [
+                "drill down {table_name}",
+                "inspect table {table_name}",
+                "open detail for {table_name}",
+                "show me more details",
+                "more details",
+                "show details"
+            ],
+            "intent": "drill_down",
+            "action": "ui.drill_down",
+            "parameters": {
+                "table_name": "table_name"
+            },
+            "examples": [
+                "drill down users",
+                "show me more details"
+            ],
+            "description": "Auto-generated for drill_down"
+        },
+        {
+            "id": "zoom_in",
+            "phrases": [
+                "zoom in",
+                "zoom closer",
+                "get closer",
+                "zoom in more"
+            ],
+            "intent": "zoom_in",
+            "action": "graph.zoom_in",
+            "parameters": {},
+            "examples": [
+                "zoom in"
+            ],
+            "description": "Zoom camera closer to the graph"
+        },
+        {
+            "id": "zoom_out",
+            "phrases": [
+                "zoom out",
+                "zoom back",
+                "pull back",
+                "zoom out more"
+            ],
+            "intent": "zoom_out",
+            "action": "graph.zoom_out",
+            "parameters": {},
+            "examples": [
+                "zoom out"
+            ],
+            "description": "Zoom camera away from the graph"
+        }
+    ],
+    "metadata": {
+        "created": "2026-01-28",
+        "version": "1.0.0",
+        "total_commands": 11,
+        "description": "Auto-generated command registry"
+    }
+}

@@ -1,0 +1,353 @@
+# Fix Windows console encoding issues
+import sys
+import os
+
+# Configure UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    # Force UTF-8 encoding for stdout/stderr to handle Unicode characters (emojis, etc.)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# Configure structured logging — must happen before any module import
+from app.config.logging import configure_logging, request_id_var, APP_VERSION, APP_ENV
+configure_logging()
+import logging
+import time as _time
+import uuid
+logger = logging.getLogger("app")
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware  # [NEW] Compression
+from contextlib import asynccontextmanager
+import uvicorn
+import asyncio
+from dotenv import load_dotenv
+
+# Ensure backend directory is in path and 'app' is findable
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
+# Load environment variables BEFORE importing services
+# Force override ensures local .env takes precedence over system env vars
+load_dotenv(override=False)  # Never override env vars already set by the container/system
+
+from app.services.db_connector import db_connector
+from app.api.auth import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+async def keep_alive_task():
+    """Background task to keep database connections alive"""
+    logger.info("🛰️ Starting database keep-alive task (every 4m)...")
+    from app.services.db_connector import db_connector
+    try:
+        while True:
+            await asyncio.sleep(240) # 4 minutes
+            connections = db_connector.list_connections()
+            if not connections:
+                continue
+                
+            for conn in connections:
+                try:
+                    await db_connector.query(conn['id'], "SELECT 1")
+                except Exception as e:
+                    logger.warning(f"⚠️ Keep-alive failed for {conn['database']}: {e}")
+    except asyncio.CancelledError:
+        logger.info("🛑 Keep-alive task cancelled.")
+        raise
+    except Exception as e:
+        logger.error(f"🔥 error in keep_alive_task: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Security Validation
+    REQUIRED_SECRETS = ["GOOGLE_API_KEY", "JWT_SECRET_KEY"]
+    is_dev = os.getenv("APP_ENV", "development") == "development"
+    for secret in REQUIRED_SECRETS:
+        if not os.getenv(secret):
+            if is_dev:
+                logger.warning(f"Missing secret: {secret} (allowed in development mode)")
+                if secret == "JWT_SECRET_KEY":
+                    # Generate a random dev secret so it changes every restart and
+                    # is never a guessable/well-known string.
+                    import secrets as _secrets
+                    os.environ["JWT_SECRET_KEY"] = _secrets.token_hex(32)
+            else:
+                logger.critical(f"Missing required secret: {secret}")
+                raise RuntimeError(f"Missing required secret: {secret}")
+
+    # Startup
+    _startup_time = _time.monotonic()
+    port = int(os.getenv("PORT", 8001))
+    logger.info(f"startup | version={APP_VERSION} env={APP_ENV} port={port}")
+    
+    # Track ALL background tasks for clean cancellation
+    app.state.bg_tasks = []
+
+    # 1. Start streaming task
+    from app.api.websocket import stream_metrics
+    streaming_task = asyncio.create_task(stream_metrics())
+    app.state.bg_tasks.append(streaming_task)
+    
+    # 2. Start keep-alive task
+    keep_alive = asyncio.create_task(keep_alive_task())
+    app.state.bg_tasks.append(keep_alive)
+
+    # 3. Start Agent loop
+    from app.services.agent_service import agent_service
+    agent_loop_task = asyncio.create_task(agent_service.start_autonomous_loop())
+    app.state.bg_tasks.append(agent_loop_task)
+    
+    # 4. Auto-Connect to Primary Database
+    from app.services.db_connector import db_connector
+        
+    db_config = {
+        "db_type": "postgres",
+        "host": os.getenv("DB_HOST"),
+        "port": os.getenv("DB_PORT"),
+        "username": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASSWORD"),
+        "database": os.getenv("DB_NAME")
+    }
+        
+    if db_config["host"] and db_config["username"]:
+        logger.info(f"🔌 Auto-connecting to database: {db_config['database']}...")
+        try:
+            conn_info = await db_connector.connect(db_config)
+            logger.info("✅ Auto-connection established.")
+            logger.info("🔥 Warming up primary database...")
+            await db_connector.query(conn_info['id'], "SELECT 1")
+            logger.info("✨ Primary database is warm and ready.")
+        except Exception as e:
+            logger.warning(f"⚠️ Auto-connect failed: {e}")
+    else:
+        logger.warning("⚠️ DB Credentials missing in .env, skipping auto-connect.")
+
+    yield
+    # Shutdown
+    uptime = round(_time.monotonic() - _startup_time, 1)
+    logger.info(f"shutdown | uptime_seconds={uptime}")
+    
+    # Cancel background tasks
+    if hasattr(app.state, "bg_tasks") and app.state.bg_tasks:
+        logger.info(f"🛑 Cancelling {len(app.state.bg_tasks)} background tasks...")
+        for task in app.state.bg_tasks:
+            task.cancel()
+        
+        # Wait for tasks to finish cancelling with timeout
+        try:
+            await asyncio.wait_for(asyncio.gather(*app.state.bg_tasks, return_exceptions=True), timeout=3.0)
+            logger.info("✅ All background tasks cancelled.")
+        except asyncio.TimeoutError:
+            logger.warning("⚠️ Background task cancellation timed out.")
+
+    # [CRITICAL] Close DB connections AFTER tasks are stopped
+    from app.services.db_connector import db_connector
+    try:
+        logger.info("🔌 Closing all database connection pools...")
+        await asyncio.wait_for(db_connector.close_all(), timeout=5.0)
+        logger.info("✅ Database connections closed gracefully.")
+    except asyncio.TimeoutError:
+        logger.warning("⚠️ Shutdown timed out while closing DB connections.")
+    except Exception as e:
+        logger.error(f"❌ Error during shutdown: {e}")
+
+app = FastAPI(
+    title="Living Data Intelligence Platform",
+    description="Transform database schemas into interactive 3D visualizations",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Setup SlowAPI Rate Limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(request: Request, exc: RequestValidationError):
+    """
+    Standardized Validation Error Handler to match the frontend expectations.
+    """
+    logger.warning(
+        "Validation error",
+        extra={"path": request.url.path, "errors": exc.errors()}
+    )
+    return JSONResponse(status_code=422, content={
+        "error": "Invalid request data",
+        "code": "VALIDATION_ERROR",
+        "details": exc.errors()
+    })
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler to prevent leaking internal stack traces.
+    Logs full details internally for debugging.
+    """
+    logger.error(
+        f"Unhandled exception: {str(exc)}",
+        exc_info=True,
+        extra={"path": request.url.path, "method": request.method}
+    )
+    
+    # Check if it's already an HTTPException (which usually has a status code)
+    status_code = 500
+    detail = "An internal error occurred"
+    error_code = "INTERNAL_ERROR"
+    
+    if isinstance(exc, HTTPException):
+        status_code = exc.status_code
+        detail = exc.detail
+        # Try to map detail to a code or use a generic one
+        error_code = getattr(exc, "code", "INTERNAL_ERROR")
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": detail,
+            "code": error_code,
+            "path": request.url.path
+        }
+    )
+
+# CORS middleware — supports comma-separated and JSON-list format in .env
+_origins_raw = os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGINS") or "http://localhost:5173"
+logger.info(f"CORS raw origins: {_origins_raw}")
+
+if _origins_raw.startswith("["):
+    try:
+        import json
+        ALLOWED_ORIGINS = json.loads(_origins_raw)
+    except Exception as e:
+        logger.error(f"Failed to parse CORS origins JSON: {e}")
+        ALLOWED_ORIGINS = ["http://localhost:5173"]
+else:
+    ALLOWED_ORIGINS = [o.strip() for o in _origins_raw.split(",")]
+
+# Add local dev origins only outside production
+if os.getenv("APP_ENV", "development") != "production":
+    for dev_origin in ["http://localhost:5173", "http://127.0.0.1:5173"]:
+        if dev_origin not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(dev_origin)
+
+logger.info(f"Final ALLOWED_ORIGINS for CORS: {ALLOWED_ORIGINS}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID", "X-Tenant-ID"],
+)
+
+# [NEW] Enable GZip Compression for performance
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Request logging middleware with request_id tracking
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    req_id = str(uuid.uuid4())[:8]
+    token = request_id_var.set(req_id)
+    start = _time.monotonic()
+    response = None
+    try:
+        response = await call_next(request)
+    except Exception:
+        raise
+    finally:
+        duration_ms = round((_time.monotonic() - start) * 1000, 2)
+        logger.info(
+            f"request | method={request.method} path={request.url.path} "
+            f"status={getattr(response, 'status_code', '???')} duration_ms={duration_ms} req={req_id}"
+        )
+        request_id_var.reset(token)
+    return response
+
+class RouterRegistry:
+    """
+    Centralized router registry with validation
+    Ensures all required routes are loaded before startup
+    """
+    def __init__(self, app: FastAPI):
+        self.app = app
+        self.required_routers = []
+        self.optional_routers = []
+        self.failed_routers = []
+    
+    def register_required(self, module_path: str, prefix: str = "", tags: list = None, router_name: str = "router", dependencies: list = None):
+        """Register a required router (app won't start if missing)"""
+        try:
+            module = __import__(module_path, fromlist=[router_name])
+            router = getattr(module, router_name)
+            self.app.include_router(router, prefix=prefix, tags=tags or [], dependencies=dependencies or [])
+            self.required_routers.append(module_path)
+            logger.info(f"✅ Registered required router: {module_path}")
+        except Exception as e:
+            logger.error(f"❌ CRITICAL: Failed to load required router {module_path}: {e}", exc_info=True)
+            self.failed_routers.append((module_path, "Internal Registry Error"))
+            raise RuntimeError(f"Required router {module_path} failed to load") from e
+    
+    def register_optional(self, module_path: str, prefix: str = "", tags: list = None, router_name: str = "router", dependencies: list = None):
+        """Register an optional router (app continues if missing)"""
+        try:
+            module = __import__(module_path, fromlist=[router_name])
+            router = getattr(module, router_name)
+            self.app.include_router(router, prefix=prefix, tags=tags or [], dependencies=dependencies or [])
+            self.optional_routers.append(module_path)
+            logger.info(f"✅ Registered optional router: {module_path}")
+        except Exception as e:
+            logger.warning(f"⚠️ Optional router {module_path} not loaded: {e}")
+            self.failed_routers.append((module_path, str(e)))
+    
+    def get_status(self):
+        """Get registration status"""
+        return {
+            "required_routers": self.required_routers,
+            "optional_routers": self.optional_routers,
+            "failed_routers": self.failed_routers,
+            "total_registered": len(self.required_routers) + len(self.optional_routers),
+            "status": "healthy" if not self.failed_routers else "degraded"
+        }
+
+# Initialize registry
+registry = RouterRegistry(app)
+
+# ============================================================================
+# ROUTER REGISTRATION & VALIDATION
+# ============================================================================
+
+# Define critical routers that MUST be present for production
+EXPECTED_ROUTERS = ["database", "schema", "graph", "metrics", "websocket"]
+
+# ── Router registration (extracted to router_registry.py) ────────────────────
+from router_registry import register_all_routes
+register_all_routes(app, registry, EXPECTED_ROUTERS)
+
+# ── Health & debug endpoints (extracted to health_endpoints.py) ──────────────
+from health_endpoints import mount_health_endpoints
+mount_health_endpoints(app, registry)
+
+# ─────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8001))
+    host = os.getenv("HOST", "0.0.0.0")
+    
+    logger.info(f"🌐 Server starting on http://{host}:{port}")
+    logger.info(f"📊 Open http://localhost:{port} to view the application")
+    
+    is_dev = os.getenv("APP_ENV", "development") == "development"
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=is_dev,
+        reload_excludes=["*.log", "*.tmp"] if is_dev else [],
+        log_level="info"
+    )
