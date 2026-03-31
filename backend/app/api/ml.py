@@ -4,7 +4,6 @@ Connects to backend/ml/graph_neural_core.py
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
 from pydantic import BaseModel
 import logging
 

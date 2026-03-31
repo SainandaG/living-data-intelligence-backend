@@ -7,8 +7,6 @@ Coverage targets:
   - verify_token: valid token succeeds, expired token fails, tampered token fails
   - create_refresh_token: different payload than access token
 """
-import pytest
-import time
 from app.services.auth import hash_password, verify_password, create_access_token, verify_token, create_refresh_token
 
 
@@ -27,7 +25,15 @@ class TestPasswordHashing:
         assert hash_password(pwd) != pwd
 
 
+import os
+
 class TestJWTTokens:
+    def setup_method(self):
+        os.environ["JWT_SECRET_KEY"] = "super_secret_test_key_1234567890"
+
+    def teardown_method(self):
+        if "JWT_SECRET_KEY" in os.environ:
+            del os.environ["JWT_SECRET_KEY"]
     def test_access_token_verifiable(self):
         token = create_access_token({"sub": "user@example.com"})
         payload = verify_token(token)

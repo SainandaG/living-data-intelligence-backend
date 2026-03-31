@@ -65,7 +65,7 @@ class DatabaseConnector:
             if db_type != 'neon':
                 db_type = 'neon'
                 config['db_type'] = 'neon'
-                logger.info(f"Forced Neon SSL mode (sslmode=require) for host")
+                logger.info("Forced Neon SSL mode (sslmode=require) for host")
         max_retries = int(os.getenv("NEON_MAX_RETRIES", "3"))
         total_timeout = int(os.getenv("NEON_CONNECT_TIMEOUT", "180"))
         
@@ -166,7 +166,7 @@ class DatabaseConnector:
             command_timeout=timeout,
             ssl=ssl_ctx
         )
-        logger.info(f"✅ PostgreSQL async connection pool created successfully")
+        logger.info("✅ PostgreSQL async connection pool created successfully")
         return pool
 
     async def _connect_mysql_async(self, config: Dict[str, Any]):
@@ -190,12 +190,12 @@ class DatabaseConnector:
                 await cur.execute("SET NAMES 'utf8mb4'")
                 await cur.execute("SELECT NOW()")
                 
-        logger.info(f"✅ MySQL async connection pool created successfully")
+        logger.info("✅ MySQL async connection pool created successfully")
         return pool
 
     def _connect_mongodb_sync(self, config: Dict[str, Any]):
         """Connect to MongoDB"""
-        logger.warning(f"⚠️ [WARNING] MongoDB is using synchronous pymongo MongoClient! Replace with motor.")
+        logger.warning("⚠️ [WARNING] MongoDB is using synchronous pymongo MongoClient! Replace with motor.")
         uri = f"mongodb://{config['username']}:{config['password']}@{config['host']}:{config.get('port', 27017)}/{config['database']}"
         client = MongoClient(
             uri,
@@ -252,7 +252,7 @@ class DatabaseConnector:
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 if ('$1' in sql or '%s' in sql) and not params:
                     logger.error(f"❌ FAIL: Query contains placeholders but no parameters were provided. SQL: {sql}")
-                    raise ValueError(f"Query expects parameters but none were provided.")
+                    raise ValueError("Query expects parameters but none were provided.")
 
             if hasattr(client, 'get_size') and hasattr(client, 'get_max_size'):
                 logger.debug(f"Pool {connection_id} status: {client.get_size()}/{client.get_max_size()}")

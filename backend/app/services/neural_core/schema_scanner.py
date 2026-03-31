@@ -13,10 +13,9 @@ to build relationship graphs and calculate complexity metrics in real-time.
 
 import asyncio
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict
 import math
-from datetime import datetime, timedelta
-from functools import lru_cache
+from datetime import datetime
 import time
 
 logger = logging.getLogger(__name__)

@@ -1,0 +1,9 @@
+target-version = "py312"
+
+[lint]
+# E402: Many modules intentionally place imports after sys.path manipulation,
+#        logging initialisation, or load_dotenv() calls. Suppressing globally
+#        because enforcing it would require restructuring ~90 files.
+# E701: Single-line compound statements (e.g. `if x: continue`, `class Foo: pass`)
+#        are used intentionally throughout the codebase for conciseness.
+ignore = ["E402", "E701"]

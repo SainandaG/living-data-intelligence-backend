@@ -1,7 +1,5 @@
-import pytest
 import sys
 import os
-import math
 
 # Add backend to path so we can import modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../')))

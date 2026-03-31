@@ -54,7 +54,7 @@ class PathTracer:
             {
                 "path": [start_node, "belongs_to", "Cluster A", "contains", end_node],
                 "score": 0.70,
-                "description": f"Both belong to Cluster A"
+                "description": "Both belong to Cluster A"
             }
         ]
         

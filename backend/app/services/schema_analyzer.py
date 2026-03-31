@@ -9,7 +9,7 @@ import logging
 from app.services.db_connector import db_connector
 from app.services.ai_classifier import ai_classifier
 from app.models.schemas import Schema, Table, Column, ForeignKey, Relationship
-from typing import Dict, List, Any
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,6 @@ class SchemaAnalyzer:
             logger.error(f"❌ FAIL: Schema analyzer could not find any tables for connection {connection_id} after {max_retries} attempts.")
             # Still return empty schema so the system doesn't crash, but log it clearly
             if not schema:
-                from app.models.schemas import Table, Column
                 schema = Schema(database=connection['config']['database'], tables=[], relationships=[])
         
         # 1. Fast Initial Classification (Heuristic)
@@ -102,7 +101,7 @@ class SchemaAnalyzer:
     async def _analyze_postgresql(self, connection_id: str) -> Schema:
         """Analyze PostgreSQL schema using bulk queries for performance"""
         connection = db_connector.get_connection(connection_id)
-        schema_name = 'public' # Default to public, could be config-driven
+        _schema_name = 'public'  # Default to public, could be config-driven
         
         # 1. Get all tables
         tables_query = """

@@ -11,13 +11,9 @@ Instead of simulating training, this core actively scans the connected database 
 to build relationship graphs and calculate complexity metrics in real-time.
 """
 
-import asyncio
 import logging
 from typing import List, Dict, Any
-import math
-from datetime import datetime, timedelta
-from functools import lru_cache
-import time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 try:

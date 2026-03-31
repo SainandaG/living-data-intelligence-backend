@@ -2,7 +2,7 @@
 Intelligence Engine: The Projection Layer
 Projects the immutable state chain into human-readable insights and narratives.
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 from app.services.neural_core import neural_core
 from app.services.latent_space_service import latent_space_service

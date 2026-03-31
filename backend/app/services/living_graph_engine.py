@@ -3,11 +3,10 @@ Living Graph Engine
 
 Evolves node size and status over time based on activity signals to create a living visualization.
 """
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 from datetime import datetime
 import math
 import random
-from app.models.schemas import Table, GraphNode
 
 class LivingGraphEngine:
     """
@@ -139,10 +138,10 @@ class LivingGraphEngine:
 
         node_id = get(node, 'id')
         self.system_pulse += 0.05
-        pulse = math.sin(self.system_pulse + self.node_states[node_id]['pulse_phase'])
-        
+        _pulse = math.sin(self.system_pulse + self.node_states[node_id]['pulse_phase'])
+
         if health < 0.8:
-            pulse = math.sin(self.system_pulse * 3 + self.node_states[node_id]['pulse_phase'])
+            _pulse = math.sin(self.system_pulse * 3 + self.node_states[node_id]['pulse_phase'])
         
         pass
 

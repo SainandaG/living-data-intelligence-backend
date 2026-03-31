@@ -4,9 +4,7 @@ Integration tests for /api/workspace endpoints.
 Uses FastAPI TestClient against an isolated router.
 Workspace files are written to a tmp directory to avoid polluting real data/.
 """
-import json
 import pytest
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

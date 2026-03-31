@@ -4,8 +4,7 @@ Reinforcement Learning Optimizer
 Self-optimizing system parameters based on user feedback.
 """
 
-import random
-from typing import Dict, List
+from typing import Dict
 
 class RLOptimizer:
     def __init__(self):

@@ -8,9 +8,7 @@ import logging
 Hierarchical Flow Service - Analyzes and visualizes data flow with historical timestamps
 """
 from typing import Dict, List, Any
-from datetime import datetime, timedelta
 from app.services.db_connector import db_connector
-import random
 logger = logging.getLogger(__name__)
 
 class HierarchicalFlowService:
@@ -24,7 +22,7 @@ class HierarchicalFlowService:
         - Historical flow patterns
         """
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
             
             # Get table schema
             from app.services.schema_analyzer import schema_analyzer

@@ -2,10 +2,8 @@
 Recommendation Engine Service
 Generates actionable recommendations based on system health and intelligence.
 """
-from typing import Dict, List, Any, Optional
 import logging
 import json
-import asyncio
 from app.services.db_connector import db_connector
 from app.services.chat_service import chat_service
 

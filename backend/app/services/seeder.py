@@ -5,7 +5,7 @@ Generates temporal data for testing and demos (Evolution Playback).
 import random
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any
 from app.services.db_connector import db_connector
 
 logger = logging.getLogger(__name__)

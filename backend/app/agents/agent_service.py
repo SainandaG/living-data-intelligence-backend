@@ -13,7 +13,6 @@ Autonomous agents that explore the data graph effectively.
 import asyncio
 import random
 import math
-from datetime import datetime
 from typing import Dict, List
 logger = logging.getLogger(__name__)
 
@@ -123,7 +122,7 @@ class AgentService:
         
         # Trigger an initial retraining cycle
         await neural_core.trigger_retraining(connection_id=connection_id)
-        logger.info(f"🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
+        logger.info("🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
     async def get_gravity_suggestions(self, schema_data: Dict) -> List[Dict]:
         """
         Suggest columns that would impact the 'gravity' of the flow data.
@@ -136,7 +135,7 @@ class AgentService:
         
         # 1. Check Neural Core for high-gravity nodes
         # If the core has learned that a certain node is important, we suggest it
-        core_metrics = await neural_core.get_core_metrics()
+        _core_metrics = await neural_core.get_core_metrics()
         # Access internal gravity store directly if needed or via a method
         gravity_store = neural_core.gravity_stores.get(neural_core.active_connection_id, {})
         top_gravity_nodes = sorted(gravity_store.items(), key=lambda x: x[1], reverse=True)[:3]

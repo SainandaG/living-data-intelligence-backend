@@ -51,7 +51,7 @@ class AgentExecutor:
 
         completed: Set[int] = set()
         failed:    Set[int] = set()
-        results:   Dict[int, Any] = {}
+        _results:   Dict[int, Any] = {}
 
         start_time = time.time()
 

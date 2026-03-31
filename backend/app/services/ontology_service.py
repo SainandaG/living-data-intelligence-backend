@@ -3,9 +3,8 @@ Ontology Service
 
 Classifies tables into semantic ontology types (fact, dimension, reference) based on naming patterns and structure.
 """
-from typing import Dict, List, Any
+from typing import Dict, Any
 from app.services.neural_core import neural_core
-from app.services.ai_classifier import ai_classifier
 from app.services.schema_analyzer import schema_analyzer
 
 class OntologyService:

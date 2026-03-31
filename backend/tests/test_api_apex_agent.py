@@ -130,7 +130,7 @@ class TestAgentRunStream:
                 for line in resp.iter_lines():
                     lines.append(line)
 
-            data_lines = [l for l in lines if l.startswith("data:")]
+            data_lines = [ln for ln in lines if ln.startswith("data:")]
             event_types = []
             for dl in data_lines:
                 try:
@@ -154,7 +154,7 @@ class TestAgentRunStream:
                 for line in resp.iter_lines():
                     lines.append(line)
 
-            data_lines = [l for l in lines if l.startswith("data:")]
+            data_lines = [ln for ln in lines if ln.startswith("data:")]
             event_types = [json.loads(dl[5:].strip())["type"] for dl in data_lines
                            if dl.strip() != "data:"]
 

@@ -13,11 +13,7 @@ to build relationship graphs and calculate complexity metrics in real-time.
 
 import asyncio
 import logging
-from typing import List, Dict, Any
-import math
-from datetime import datetime, timedelta
-from functools import lru_cache
-import time
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 try:
@@ -156,7 +152,8 @@ class NeuralCore:
                 linked = False
                 for fk in t.get('foreign_keys', []):
                     if fk.get('referenced_table', fk.get('target_table', '')).lower() == last.lower():
-                        linked = True; break
+                        linked = True
+                        break
                 if linked:
                     path_nodes.append(t['name'])
                     break

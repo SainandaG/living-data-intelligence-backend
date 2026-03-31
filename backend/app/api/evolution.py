@@ -3,7 +3,6 @@ Evolution API Endpoints
 Endpoints for temporal database genesis playback.
 """
 from fastapi import APIRouter, HTTPException, Query
-from typing import Dict, List, Any, Optional
 from datetime import datetime
 from app.services.temporal_analyzer import temporal_analyzer
 from app.services.evolution_engine import evolution_engine

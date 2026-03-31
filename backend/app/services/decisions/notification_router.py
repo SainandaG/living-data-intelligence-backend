@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Dict
 
 if TYPE_CHECKING:
     from .alert_engine import Decision

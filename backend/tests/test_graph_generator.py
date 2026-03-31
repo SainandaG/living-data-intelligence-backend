@@ -7,8 +7,6 @@ Coverage targets:
   - get_cluster_color: deterministic, different clusters get different colors
   - _calculate_statistical_position: returns a 3-tuple of numbers
 """
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 
 class TestGetClusterColor:

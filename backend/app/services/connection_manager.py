@@ -6,8 +6,8 @@ Manages active WebSocket connections, topic subscriptions, and heartbeat loops.
 import asyncio
 import time
 import logging
-from typing import Dict, Set, Any, List, Optional
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, Set, List
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 

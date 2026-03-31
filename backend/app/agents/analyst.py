@@ -3,8 +3,6 @@ Agent Analyst Service
 
 Provides analytical tools for agents to query and interpret database intelligence.
 """
-import random
-from typing import Dict, List, Any
 from app.services.graph_intelligence import graph_intelligence
 from app.services.schema_analyzer import schema_analyzer
 
@@ -45,6 +43,6 @@ class AgentAnalyst:
             return "I am using a Neural Network to predict hidden relationships. You can see these visualized as purple connections in the 3D Graph view."
 
         # 3. Default fallback (Honest response)
-        return "I'm analyzing the graph topology, but I don't have a specific insight for that query yet. Try asking about 'health', 'fraud', or 'schema'.";
+        return "I'm analyzing the graph topology, but I don't have a specific insight for that query yet. Try asking about 'health', 'fraud', or 'schema'."
 
 agent_analyst = AgentAnalyst()

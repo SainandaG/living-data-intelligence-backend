@@ -10,10 +10,7 @@ Polls connected databases for live business metrics, WEZU energy data, and DB di
 """
 from app.services.db_connector import db_connector
 from app.services.anomaly_detector import anomaly_detector
-from app.services.neural_core import neural_core
 from datetime import datetime
-from typing import Dict, Any, List
-import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -91,7 +88,7 @@ class RealtimeMonitor:
             # Auto-discover a significant table to check integrity
             is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
             db_func = "current_database()" if is_pg else "DATABASE()"
-            schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
+            schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
             discovery_query = f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_type = 'BASE TABLE' LIMIT 1"
             dq_res = await db_connector.query(connection_id, discovery_query)
             

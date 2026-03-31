@@ -27,7 +27,7 @@ class InsightWriterTool:
         try:
             ml_result  = memory.get("ml_result", {})
             anomalies  = memory.get("anomaly_result", {})
-            entity_map = memory.get("entity_map", {})
+            _entity_map = memory.get("entity_map", {})
             insights   = memory.get("ml_insights", [])
             metrics    = memory.get("ml_metrics", {})
             fi         = memory.get("ml_fi", [])

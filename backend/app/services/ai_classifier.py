@@ -8,7 +8,7 @@ import logging
 import os
 import json
 from google import genai
-from app.models.schemas import Schema, Table
+from app.models.schemas import Schema
 from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 

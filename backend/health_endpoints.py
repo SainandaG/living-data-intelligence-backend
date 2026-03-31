@@ -4,7 +4,6 @@ Health check and debug endpoints extracted from main.py.
 Mounted via mount_health_endpoints(app, registry) during startup.
 """
 import os
-import sys
 import logging
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
@@ -105,11 +104,9 @@ def mount_health_endpoints(app: FastAPI, registry):
                 steps_completed.append(f"wezu_data: {len(wezu_node_data)} tables")
 
                 # Step 7: Latent Space (where crash likely is)
-                from app.services.latent_space_service import latent_space_service
                 steps_completed.append("latent_space_imported")
 
                 # Step 8: Causal Intelligence
-                from app.services.causal_intelligence import causal_intelligence
                 steps_completed.append("causal_intelligence_imported")
 
                 return {"status": "ok", "steps": steps_completed}

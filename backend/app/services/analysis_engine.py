@@ -9,10 +9,8 @@ import logging
 Analysis Engine - Computes high-level intelligence metrics for nodes
 Calculates Entropy, Centrality, and Vitality history.
 """
-import math
-from typing import Dict, List, Any
+from typing import Dict, Any
 from app.services.neural_core import neural_core
-from app.services.db_connector import db_connector
 logger = logging.getLogger(__name__)
 
 class AnalysisEngine:

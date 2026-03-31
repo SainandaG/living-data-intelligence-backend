@@ -3,8 +3,6 @@ WEZU Specialized Agents
 -----------------------
 Custom extensions of the T0/T1 hierarchy for the Energy Domain.
 """
-from typing import Dict, List, Any
-import asyncio
 import logging
 from app.services.t0_agent import T0Agent
 from app.services.t1_agent import T1Agent
@@ -55,7 +53,7 @@ class WEZUGridSentinel(T0Agent):
                             "sn": record['serial_number'],
                             "velocity": velocity,
                             "insight": f"Battery {record['serial_number']} shows critical SoH degradation (-{abs(velocity):.1f}%). High risk of field failure.",
-                            "justification": f"Degradation velocity exceeds the 5% weekly threshold specified in WEZU Safety Protocol 2.1."
+                            "justification": "Degradation velocity exceeds the 5% weekly threshold specified in WEZU Safety Protocol 2.1."
                         }
                     )
             
@@ -100,7 +98,7 @@ class WEZUDemandPredictor(T1Agent):
         if prediction > 0:
             recommendation = "Maintain levels"
             if prediction > 40:
-                recommendation = f"Transfer units from nearest Warehouse"
+                recommendation = "Transfer units from nearest Warehouse"
             
         return {
             "station_id": station_id,

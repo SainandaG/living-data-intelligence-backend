@@ -139,7 +139,7 @@ class RealtimeMonitor:
             is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
             like_op = "ILIKE" if is_pg else "LIKE"
             db_func = "current_database()" if is_pg else "DATABASE()"
-            schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
+            schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
 
             # 3. Sub-metric fetches (each isolated so one failure can't blank all stats)
             wezu = await self._get_wezu_metrics(connection_id)
@@ -443,7 +443,7 @@ class RealtimeMonitor:
             # Auto-discover a significant table to check integrity
             is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
             db_func = "current_database()" if is_pg else "DATABASE()"
-            schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
+            schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
             discovery_query = f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_type = 'BASE TABLE' LIMIT 1"
             dq_res = await db_connector.query(connection_id, discovery_query)
             
@@ -711,7 +711,7 @@ class RealtimeMonitor:
                                 story_metrics.append({
                                     'label': c['column_name'].replace('_', ' ').title(),
                                     'value': round(float(raw_val), 2),
-                                    'insight': f"Average value per record."
+                                    'insight': "Average value per record."
                                 })
                                 
                 # If no numeric metrics, generate Structural Insights (REAL DATA)

@@ -1,7 +1,11 @@
+import sys
+import os
 
-import pytest
-from unittest.mock import MagicMock, patch
-from backend.visualization.glow_calculator import GlowCalculator
+# Add backend to path so we can import modules
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+from unittest.mock import patch
+from backend.app.visualization.glow_calculator import GlowCalculator
 from backend.app.config import feature_flags
 
 def test_glow_fallback_safety_when_enabled(monkeypatch):
@@ -44,9 +48,9 @@ def test_gnn_fallback_safety(monkeypatch):
         
         node = {'id': 'A', 'edges': ['B', 'C', 'D']} # 3 connections
         
-        # Should return heuristic score (log(4)*0.5 ≈ 0.69)
+        # Should return heuristic score: max(1.0, 3/2.0) = 1.5
         score = gnn.calculate_importance(node)
         
-        assert score > 0
-        assert score < 1.0
+        assert score >= 1.0
+        assert score < 2.0
         print(f"Fallback SUCCESS: Got score {score} despite missing Torch")

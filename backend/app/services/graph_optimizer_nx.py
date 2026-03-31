@@ -19,7 +19,7 @@ Usage:
 import networkx as nx
 import community as community_louvain  # python-louvain
 import numpy as np
-from typing import Dict, List, Any
+from typing import Dict, Any
 import asyncio
 logger = logging.getLogger(__name__)
 

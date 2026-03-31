@@ -10,8 +10,7 @@ import json
 import asyncio
 import logging
 from google import genai
-from typing import Dict, Any, List, Optional
-from app.services.neural_core import neural_core
+from typing import Dict, Any
 from app.services.analysis_engine import analysis_engine
 
 logger = logging.getLogger(__name__)

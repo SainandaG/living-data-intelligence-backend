@@ -50,7 +50,7 @@ class RealtimeMonitor:
             is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
             like_op = "ILIKE" if is_pg else "LIKE"
             db_func = "current_database()" if is_pg else "DATABASE()"
-            schema_clause = f"table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
+            schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
 
             # 3. Sub-metric fetches
             wezu = await self._get_wezu_metrics(connection_id)

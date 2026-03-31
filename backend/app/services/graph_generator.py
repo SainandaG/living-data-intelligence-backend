@@ -9,10 +9,8 @@ Graph Generator - Creates 3D graph structure from database schema
 Enhanced with AI (Neural Core & RL) for intelligent layout and link prediction.
 """
 import math
-import random
 from typing import Dict, List
 from app.services.neural_core import neural_core
-from app.services.rl_optimizer import rl_optimizer
 logger = logging.getLogger(__name__)
 
 class GraphGenerator:

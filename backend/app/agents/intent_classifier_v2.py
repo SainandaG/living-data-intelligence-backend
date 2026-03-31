@@ -1,7 +1,5 @@
 from typing import Dict, Any, List, Optional
 import logging
-import json
-import re
 
 # Try importing transformers, handle missing deps gracefully
 try:

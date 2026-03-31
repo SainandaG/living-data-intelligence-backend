@@ -3,7 +3,7 @@ Predictive Engine Service
 Time-series forecasting with multi-algorithm model selection.
 Automatically picks the best model (Linear, Polynomial, Exponential) via holdout RMSE.
 """
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Tuple
 from datetime import datetime, timedelta
 import logging
 import numpy as np

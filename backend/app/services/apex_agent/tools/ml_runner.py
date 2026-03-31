@@ -48,9 +48,9 @@ class MLRunnerTool:
         try:
             import asyncio
             from app.api.ml_analysis import (
-                AnalysisRequest, _fetch_data, _preprocess,
+                _fetch_data, _preprocess,
                 _run_classification, _run_regression, _run_clustering,
-                _run_timeseries, _build_insights, AnalysisResult,
+                _run_timeseries, _build_insights,
             )
 
             all_cols = list(dict.fromkeys(([target] if target else []) + features))

@@ -3,9 +3,8 @@ Evolution Engine
 Generates database snapshots at specific points in time.
 Part of the Database Evolution Playback system.
 """
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
-import math
+from typing import Dict, List, Any
+from datetime import datetime
 from app.services.temporal_analyzer import temporal_analyzer
 
 class EvolutionEngine:
@@ -98,7 +97,7 @@ class EvolutionEngine:
             # Force high-fidelity metrics from the single source of truth
             auth = graph_intelligence.get_authenticated_metrics(
                 table['table_name'], 
-                safe_count, 
+                estimated_count,
                 in_deg, 
                 out_deg
             )

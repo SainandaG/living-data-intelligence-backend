@@ -5,8 +5,7 @@ Generates 3D graph visualizations from database schema with Neural Core Intellig
 from fastapi import APIRouter, HTTPException
 from app.services.graph_generator import graph_generator
 from app.models.schemas import ErrorResponse, StatusResponse
-from typing import Dict, List, Any
-import math
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)

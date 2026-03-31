@@ -2,7 +2,6 @@ import asyncio
 import os
 from dotenv import load_dotenv
 import asyncpg
-import sys
 
 async def test_conn():
     load_dotenv(override=True)

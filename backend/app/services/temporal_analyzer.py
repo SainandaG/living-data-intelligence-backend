@@ -7,7 +7,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, date
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from app.services.db_connector import db_connector
 from app.services.schema_analyzer import schema_analyzer
 

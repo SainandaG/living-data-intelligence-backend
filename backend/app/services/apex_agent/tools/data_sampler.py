@@ -5,7 +5,7 @@ Also handles engineer_features and compute_metric step aliases.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class DataSamplerTool:
 
             conn = db_connector.get_connection(connection_id)
             db_type = conn.get("type", "postgres").lower()
-            qt = lambda n: f"`{n}`" if "mysql" in db_type else f'"{n}"'
+            def qt(n): return f"`{n}`" if "mysql" in db_type else f'"{n}"'
 
             query = f"SELECT * FROM {qt(table)} LIMIT {limit}"
             rows = await db_connector.query(connection_id, query)
@@ -66,7 +66,6 @@ class DataSamplerTool:
 
 
 def _profile_dataframe(df: Any) -> Dict:
-    import pandas as pd
     import numpy as np
 
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()

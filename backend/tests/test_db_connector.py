@@ -8,7 +8,7 @@ Coverage targets:
   - query: parameterized queries, empty result, error propagation
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 from app.services.db_connector import DatabaseConnector
 
 

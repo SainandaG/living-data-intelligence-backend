@@ -6,7 +6,7 @@ Coordinates latent space embeddings across connections for the Galaxy visualizat
 
 import logging
 import numpy as np
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 import threading
@@ -174,7 +174,7 @@ class LatentSpaceManager:
                 # 3. Apply Filters (Categories/Priority)
                 # These filters are usually pre-passed from NeuralCore's knowledge
                 if filters:
-                    cat_match = True
+                    _cat_match = True
                     if filters.get('categories'):
                         # This would be checked against a lookup we pass in
                         pass

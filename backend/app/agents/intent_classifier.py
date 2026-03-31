@@ -3,9 +3,9 @@ Intent Classifier Service
 Classifies user voice commands into actionable intents using LLM + rule-based hybrid approach.
 """
 import os
-import re
+import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 import json
 
 logger = logging.getLogger(__name__)
@@ -275,16 +275,16 @@ class IntentClassifier:
         
         context_str = ""
         if context:
-            context_str = f"\n\nRecent commands:\n" + "\n".join([f"- {c}" for c in context[-3:]])
+            context_str = "\n\nRecent commands:\n" + "\n".join([f"- {c}" for c in context[-3:]])
             
         ui_context_str = ""
         available_tables_str = ""
         system_telemetry_str = ""
         if ui_context and isinstance(ui_context, dict):
-            ui_context_str = f"\n\nCurrent UI State:\n" + "\n".join([f"- {k}: {v}" for k, v in ui_context.items() if k not in ['availableTables', 'databaseMetrics', 'neuralCoreStats']])
+            ui_context_str = "\n\nCurrent UI State:\n" + "\n".join([f"- {k}: {v}" for k, v in ui_context.items() if k not in ['availableTables', 'databaseMetrics', 'neuralCoreStats']])
             
             if 'availableTables' in ui_context:
-                available_tables_str = f"\n\nACTUAL DATABASE TABLES:\n" + ", ".join(ui_context['availableTables'])
+                available_tables_str = "\n\nACTUAL DATABASE TABLES:\n" + ", ".join(ui_context['availableTables'])
             
             if 'databaseMetrics' in ui_context or 'neuralCoreStats' in ui_context:
                 metrics = ui_context.get('databaseMetrics', {})

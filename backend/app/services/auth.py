@@ -6,7 +6,7 @@ Handles JWT token creation, verification, password hashing, and token refresh lo
 import os
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext

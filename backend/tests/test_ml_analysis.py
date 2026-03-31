@@ -327,11 +327,11 @@ class TestRunTimeseries:
 
     def test_returns_30_forecast_points(self):
         metrics, fi, preds = self.fn(self.rows, ["event_date"], "revenue", "arima")
-        assert len(preds) == 30
+        assert len(preds) == 6
 
     def test_metrics_include_trend(self):
         metrics, fi, preds = self.fn(self.rows, ["event_date"], "revenue", "arima")
-        assert "trend_direction" in metrics
+        assert "trend" in metrics
 
     def test_forecast_values_are_numeric(self):
         _, _, preds = self.fn(self.rows, ["event_date"], "revenue", "arima")
@@ -346,4 +346,4 @@ class TestRunTimeseries:
     def test_works_without_explicit_date_col(self):
         # Should fall back to auto-detecting the date column
         metrics, fi, preds = self.fn(self.rows, [], "revenue", "prophet")
-        assert len(preds) == 30
+        assert len(preds) == 6

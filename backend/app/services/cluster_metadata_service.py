@@ -7,9 +7,12 @@ This service analyzes database schema and creates logical cluster groups based o
 - Semantic similarity
 - Domain knowledge
 """
+import logging
 from typing import Dict, List, Any, Optional
 import re
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 class ClusterMetadataService:

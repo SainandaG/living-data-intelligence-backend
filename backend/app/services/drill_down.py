@@ -8,7 +8,7 @@ import logging
 """
 Drill-Down Service - Enables detailed exploration of individual records
 """
-from typing import Dict, List, Any
+from typing import Dict, Any
 from app.services.db_connector import db_connector
 logger = logging.getLogger(__name__)
 

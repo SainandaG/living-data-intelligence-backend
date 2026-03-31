@@ -2,7 +2,6 @@
 Internal Node API - Provides detailed column-level cluster data for Latent World visualization
 """
 from fastapi import APIRouter, HTTPException
-from app.services.db_connector import db_connector
 import logging
 
 router = APIRouter()

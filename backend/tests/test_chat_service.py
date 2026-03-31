@@ -8,7 +8,7 @@ Coverage targets:
   - _execute_sql_from_response: extracts SQL blocks, blocks non-SELECT
 """
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 
 class TestChatServiceNoAI:
@@ -52,4 +52,4 @@ class TestExecuteSQLBlocking:
         with patch("app.services.chat_service.db_connector") as mock_db:
             mock_db.get_connection = MagicMock(return_value={"type": "postgresql"})
             result = await self.svc._execute_sql_from_response(response, "conn1")
-        assert "DROP" not in result or "only allow SELECT" in result.lower() or result == response
+        assert "DROP" not in result or "non-select" in result.lower() or result == response

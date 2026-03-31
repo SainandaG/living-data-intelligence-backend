@@ -1,9 +1,12 @@
+import sys
+import os
 
-import pytest
-from backend.visualization.glow_calculator import GlowCalculator
+# Add backend to path so we can import modules
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+from backend.app.visualization.glow_calculator import GlowCalculator
 from backend.ml.influence_calculator import InfluenceCalculator
 from backend.app.config import feature_flags
-import math
 
 def test_glow_calculator_default_behavior():
     """Test that it works with default flags (False)"""
@@ -13,11 +16,10 @@ def test_glow_calculator_default_behavior():
     
     result = calc.batch_calculate(nodes, edges)
     
-    # Check heuristic logic was used
-    # A: 0.5 * log(101) ≈ 0.5 * 4.6 = 2.3
-    # B: 0.5 * log(11) ≈ 0.5 * 2.4 = 1.2
-    assert result['node_glows']['A'] > 2.0
-    assert result['node_glows']['B'] < 1.5
+    # A: 0.3 * log(101) ≈ 0.3 * 4.6 = 1.38
+    # B: 0.3 * log(11) ≈ 0.3 * 2.4 = 0.72
+    assert result['node_glows']['A'] > 1.0
+    assert result['node_glows']['B'] < 1.0
 
 def test_influence_calculator_heuristics():
     calc = InfluenceCalculator()

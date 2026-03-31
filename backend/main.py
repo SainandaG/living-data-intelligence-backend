@@ -1,6 +1,9 @@
 # Fix Windows console encoding issues
 import sys
 import os
+import logging
+import time as _time
+import uuid
 
 # Configure UTF-8 encoding for Windows console
 if sys.platform == 'win32':
@@ -10,24 +13,20 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-# Configure structured logging — must happen before any module import
-from app.config.logging import configure_logging, request_id_var, APP_VERSION, APP_ENV
+# Configure structured logging — must happen before any app module import
+from app.config.logging import configure_logging, request_id_var, APP_VERSION, APP_ENV  # noqa: E402
 configure_logging()
-import logging
-import time as _time
-import uuid
 logger = logging.getLogger("app")
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware  # [NEW] Compression
-from contextlib import asynccontextmanager
-import uvicorn
-import asyncio
-from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+import uvicorn  # noqa: E402
+import asyncio  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
 
 # Ensure backend directory is in path and 'app' is findable
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,10 +37,9 @@ if current_dir not in sys.path:
 # Force override ensures local .env takes precedence over system env vars
 load_dotenv(override=False)  # Never override env vars already set by the container/system
 
-from app.services.db_connector import db_connector
-from app.api.auth import limiter
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from app.api.auth import limiter  # noqa: E402
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
 
 async def keep_alive_task():
     """Background task to keep database connections alive"""
@@ -327,11 +325,11 @@ registry = RouterRegistry(app)
 EXPECTED_ROUTERS = ["database", "schema", "graph", "metrics", "websocket"]
 
 # ── Router registration (extracted to router_registry.py) ────────────────────
-from router_registry import register_all_routes
+from router_registry import register_all_routes  # noqa: E402
 register_all_routes(app, registry, EXPECTED_ROUTERS)
 
 # ── Health & debug endpoints (extracted to health_endpoints.py) ──────────────
-from health_endpoints import mount_health_endpoints
+from health_endpoints import mount_health_endpoints  # noqa: E402
 mount_health_endpoints(app, registry)
 
 # ─────────────────────────────────────────────────────────────────────────────

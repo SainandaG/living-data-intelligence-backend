@@ -3,9 +3,8 @@ Metrics Service
 
 Aggregates and exposes system-level performance metrics for monitoring dashboards.
 """
-import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 from app.services.db_connector import db_connector
 from app.services.schema_analyzer import schema_analyzer
 

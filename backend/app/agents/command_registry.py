@@ -9,7 +9,6 @@ Command Registry Service
 Manages voice command definitions and intent-to-action mappings.
 """
 import json
-import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import re
@@ -52,7 +51,7 @@ class CommandRegistry:
             
             if not config_file:
                 logger.info(f"❌ Commands config NOT found in: {[str(p) for p in possible_paths]}")
-                raise FileNotFoundError(f"Commands configuration not found")
+                raise FileNotFoundError("Commands configuration not found")
             
             logger.info(f"✅ Loading commands from: {config_file}")
             with open(config_file, 'r', encoding='utf-8') as f:

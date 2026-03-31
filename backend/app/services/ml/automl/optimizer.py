@@ -6,7 +6,7 @@ Falls back to a simple grid when Optuna is not installed.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 from sklearn.model_selection import cross_val_score
@@ -24,7 +24,7 @@ except ImportError:
 
 def _make_model(algo_id: str, params: Dict[str, Any]):
     """Instantiate an sklearn-compatible model from algo_id + params."""
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, GradientBoostingRegressor
+    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
     from sklearn.linear_model import LogisticRegression, Ridge, Lasso, LinearRegression
     from sklearn.svm import SVC
     from sklearn.neighbors import KNeighborsClassifier

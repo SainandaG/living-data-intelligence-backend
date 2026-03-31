@@ -3,7 +3,7 @@ Causal Intelligence Service
 
 Maintains a running narrative of cause-and-effect relationships observed across the database graph.
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 
 class CausalIntelligence:

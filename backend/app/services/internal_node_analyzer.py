@@ -4,11 +4,9 @@ Internal Node Analyzer Service - Analyzes table data and creates semantic cluste
 This service provides real data clustering for the LatentWorld visualization,
 replacing mock data with actual analysis of table records.
 """
-import math
 import logging
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
-import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +120,7 @@ class InternalNodeAnalyzer:
         numeric_cols = [c for c in columns if c.get('data_type', '').lower() in 
                        ['int', 'integer', 'bigint', 'decimal', 'numeric', 'float', 'double', 'money']]
         
-        text_cols = [c for c in columns if c.get('data_type', '').lower() in 
+        _text_cols = [c for c in columns if c.get('data_type', '').lower() in
                     ['varchar', 'text', 'char', 'string']]
         
         # 1. VALUE-BASED CLUSTERING (if numeric columns exist)
@@ -177,7 +175,7 @@ class InternalNodeAnalyzer:
             return []
         
         q1 = values[n // 4]
-        q2 = values[n // 2]  # median
+        _q2 = values[n // 2]  # median
         q3 = values[3 * n // 4]
         
         # Define value-based clusters
@@ -249,7 +247,7 @@ class InternalNodeAnalyzer:
                 "shape": "octa",
                 "risk": "high",
                 "tags": ["Errors", "Failed Operations"],
-                "description": f"Records with error or failure status"
+                "description": "Records with error or failure status"
             })
         
         # Identify successful records
@@ -268,7 +266,7 @@ class InternalNodeAnalyzer:
                 "shape": "box",
                 "risk": "low",
                 "tags": ["Success", "Completed"],
-                "description": f"Records with successful status"
+                "description": "Records with successful status"
             })
         
         return clusters

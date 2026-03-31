@@ -1,5 +1,8 @@
+import logging
 from typing import Dict, Any
 from .base_handler import ActionHandler
+
+logger = logging.getLogger(__name__)
 
 class GraphActionHandler(ActionHandler):
     """Handles 3D graph visualizations and interactions."""

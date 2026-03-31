@@ -78,7 +78,7 @@ class ChatService:
                 query = query.strip()
                 # Only allow SELECT queries for safety
                 if not query.upper().startswith('SELECT'):
-                    results.append(f"⚠️ Skipped non-SELECT query for safety")
+                    results.append("⚠️ Skipped non-SELECT query for safety")
                     continue
                 
                 try:

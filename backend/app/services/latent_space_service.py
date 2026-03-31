@@ -20,8 +20,7 @@ DATA PROVENANCE:
 """
 import math
 import time
-from typing import Dict, List, Any, Optional
-from app.services.neural_core import neural_core
+from typing import Dict, List, Any
 
 class LatentSpaceService:
     """

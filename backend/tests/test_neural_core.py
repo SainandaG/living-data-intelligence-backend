@@ -1,6 +1,5 @@
 
 import pytest
-import asyncio
 from datetime import datetime, timedelta
 
 @pytest.mark.asyncio
@@ -9,7 +8,7 @@ async def test_neural_topology_building(neural_core, mock_schema):
     connection_id = "test_conn_1"
     
     # Initialize
-    neural_core.update_schema_context(mock_schema, connection_id)
+    await neural_core.update_schema_context(mock_schema, connection_id)
     
     # Check In-Degrees (Users is referenced by Orders and Logs)
     # Note: Accessing internal state directly for white-box testing
@@ -22,7 +21,7 @@ async def test_neural_topology_building(neural_core, mock_schema):
 async def test_gravity_calculation(neural_core, mock_schema):
     """Test gravity score logic"""
     connection_id = "test_conn_2"
-    neural_core.update_schema_context(mock_schema, connection_id)
+    await neural_core.update_schema_context(mock_schema, connection_id)
     
     # Process signals to simulate scanning
     for t in mock_schema['tables']:
@@ -47,8 +46,9 @@ async def test_time_decay_logic(neural_core, mock_schema):
     # 48 hours ago
     old_iso = (datetime.now() - timedelta(hours=48)).isoformat()
     
-    # Add time-variant nodes to schema
+    # Ensure nodes have IDs (required by NeuralCore)
     mock_schema['tables'].append({
+        "id": "recent_node",
         "name": "recent_node", 
         "row_count": 500, 
         "columns": [], 
@@ -56,6 +56,7 @@ async def test_time_decay_logic(neural_core, mock_schema):
         "last_interaction": now_iso
     })
     mock_schema['tables'].append({
+        "id": "old_node",
         "name": "old_node", 
         "row_count": 500, 
         "columns": [], 
@@ -63,7 +64,7 @@ async def test_time_decay_logic(neural_core, mock_schema):
         "last_interaction": old_iso
     })
     
-    neural_core.update_schema_context(mock_schema, connection_id)
+    await neural_core.update_schema_context(mock_schema, connection_id)
     
     # Analyze
     await neural_core.process_signal("recent_node", 1.0, connection_id=connection_id)

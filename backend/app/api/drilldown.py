@@ -96,7 +96,6 @@ async def get_semantic_discovery(connection_id: str, table_name: str):
 async def get_column_intelligence(connection_id: str, table_name: str, column_name: str):
     """Get granular intelligence for a specific column"""
     try:
-        from app.services.neural_core import neural_core
         from app.services.analysis_engine import analysis_engine # Added import for analysis_engine
         # Optimistically fetch row count from schema to helper analysis engine
         from app.services.schema_analyzer import schema_analyzer

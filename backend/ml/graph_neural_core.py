@@ -16,21 +16,31 @@ class GraphNeuralCore:
         self.metrics_cache = {}
         self.last_topo_hash = ""
 
+    @staticmethod
+    def _row_count(n: Dict) -> int:
+        """Extract row_count from a node dict, handling both flat and nested formats."""
+        if 'row_count' in n:
+            return int(n.get('row_count') or 0)
+        return int((n.get('metadata') or {}).get('row_count') or 0)
+
     def _build_graph_if_needed(self, nodes: List[Dict], edges: List[Dict]):
         """
         Rebuilds the internal NetworkX graph only if topology changed.
         """
-        # Simple hash of node/edge counts to detect changes
-        current_hash = f"{len(nodes)}-{len(edges)}"
+        # Hash includes node IDs and edge pairs so different graphs with the same
+        # counts (e.g. two 3-node/1-edge graphs with different node names) always rebuild.
+        node_ids = tuple(sorted(n['id'] for n in nodes))
+        edge_pairs = tuple(sorted((e.get('source', ''), e.get('target', '')) for e in edges))
+        current_hash = f"{node_ids}-{edge_pairs}"
         if current_hash == self.last_topo_hash:
             return
 
         self.graph.clear()
-        
+
         # Add Nodes with weight
         for n in nodes:
             # Base weight = Log(Row Count) - larger tables have more "mass"
-            rows = n.get('row_count', 0) or 0
+            rows = self._row_count(n)
             mass = math.log10(max(1, rows)) + 1.0
             self.graph.add_node(n['id'], mass=mass, type=n.get('table_type', 'dimension'))
 
@@ -66,7 +76,7 @@ class GraphNeuralCore:
                     personalization = {k: v/total_mass for k, v in personalization.items()}
                 
                 pagerank = nx.pagerank(self.graph, alpha=0.85, weight='weight', personalization=personalization)
-            except:
+            except Exception:
                 # Fallback to unweighted
                 pagerank = nx.pagerank(self.graph, alpha=0.85)
 
@@ -123,26 +133,57 @@ class GraphNeuralCore:
 
     def generate_embeddings(self, nodes: List[Dict], edges: List[Dict]) -> Dict[str, List[float]]:
         """
-        Generate Topological Embeddings (Gravity + Connectivity Vector).
+        Generate 8-dimensional Topological Embeddings.
+
+        Dimensions:
+          0 - gravity         (combined PageRank + degree score, 0–10)
+          1 - pagerank        (normalised PageRank, 0–10)
+          2 - degree          (normalised degree centrality, 0–10)
+          3 - in_degree       (raw in-degree, normalised 0–10)
+          4 - out_degree      (raw out-degree, normalised 0–10)
+          5 - row_count_log   (log10 of row count)
+          6 - clustering      (local clustering coefficient, 0–1)
+          7 - closeness       (closeness centrality, 0–1)
         """
         self._build_graph_if_needed(nodes, edges)
-        
+
+        # Pre-compute per-node structural metrics
+        undirected = self.graph.to_undirected()
+        try:
+            clustering = nx.clustering(undirected)
+        except Exception:
+            clustering = {n: 0.0 for n in self.graph.nodes()}
+        try:
+            closeness = nx.closeness_centrality(self.graph)
+        except Exception:
+            closeness = {n: 0.0 for n in self.graph.nodes()}
+
+        max_in  = max((d for _, d in self.graph.in_degree()),  default=1) or 1
+        max_out = max((d for _, d in self.graph.out_degree()), default=1) or 1
+
         embeddings = {}
         for n in nodes:
             nid = n['id']
-            metrics = self.metrics_cache.get(nid, {'gravity': 1, 'pagerank': 0, 'degree': 0})
-            
-            # 3-Dimensional Vector representing the node's role
-            # [Gravity (Importance), Connectivity (Hub-ness), Mass (Size Log)]
-            row_log = math.log10(max(1, n.get('row_count', 0)))
-            
+            metrics = self.metrics_cache.get(nid, {'gravity': 1.0, 'pagerank': 0.0, 'degree': 0.0})
+
+            row_log   = math.log10(max(1, self._row_count(n)))
+            in_deg    = (self.graph.in_degree(nid)  if nid in self.graph else 0) / max_in  * 10
+            out_deg   = (self.graph.out_degree(nid) if nid in self.graph else 0) / max_out * 10
+            clust     = clustering.get(nid, 0.0)
+            close     = closeness.get(nid, 0.0)
+
             vector = [
-                metrics['gravity'],      # Role: Importance
-                metrics['degree'],       # Role: Hub
-                row_log                  # Role: Size
+                metrics['gravity'],    # 0 – combined importance
+                metrics['pagerank'],   # 1 – PageRank score
+                metrics['degree'],     # 2 – degree centrality
+                round(in_deg, 4),      # 3 – in-degree
+                round(out_deg, 4),     # 4 – out-degree
+                round(row_log, 4),     # 5 – size (log scale)
+                round(clust, 4),       # 6 – clustering
+                round(close, 4),       # 7 – closeness
             ]
             embeddings[nid] = vector
-            
+
         return embeddings
 
     def predict_links(self, node_id: str, graph_context: Dict[str, Any]) -> List[Dict]:
@@ -167,7 +208,7 @@ class GraphNeuralCore:
                         'confidence': min(0.9, p / 5.0), # Normalize
                         'reasoning': 'Shared Connections (Adamic-Adar)'
                     })
-        except:
+        except Exception:
             pass
             
         return sorted(suggestions, key=lambda x: x['confidence'], reverse=True)[:3]

@@ -9,11 +9,7 @@ Realtime Monitor
 Polls connected databases for live business metrics, WEZU energy data, and DB diagnostics on each tick.
 """
 from app.services.db_connector import db_connector
-from app.services.anomaly_detector import anomaly_detector
-from app.services.neural_core import neural_core
-from datetime import datetime
-from typing import Dict, Any, List
-import time
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -111,7 +107,7 @@ class RealtimeMonitor:
             growth_rate = 0.0
             projected_30d = 0
             samples = []
-            null_count = 0
+            _null_count = 0
 
             # Auto-detect correct casing and DB type
             actual_table_name = table_name
@@ -191,7 +187,7 @@ class RealtimeMonitor:
                                 story_metrics.append({
                                     'label': c['column_name'].replace('_', ' ').title(),
                                     'value': round(float(raw_val), 2),
-                                    'insight': f"Average value per record."
+                                    'insight': "Average value per record."
                                 })
                                 
                 # If no numeric metrics, generate Structural Insights (REAL DATA)

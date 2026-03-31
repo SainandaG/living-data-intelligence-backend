@@ -5,9 +5,12 @@ GRAVITY ENGINE
 Agentic AI service that calculates the 'Gravity' (Importance) of individual records
 based on global context distribution (Z-Scores) and relational pull.
 """
+import logging
 import numpy as np
 from typing import List, Dict, Any
 from app.services.db_connector import db_connector
+
+logger = logging.getLogger(__name__)
 
 class GravityEngine:
     def __init__(self):

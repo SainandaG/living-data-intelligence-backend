@@ -2,11 +2,11 @@
 Intelligence API Endpoints
 Provides business-friendly data intelligence and insights
 """
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Dict, Any, List
+from fastapi import APIRouter, HTTPException
+from typing import Dict, List
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,6 @@ async def _hydrate_nodes(connection_id: str, nodes: List[Dict]) -> List[Dict]:
     This ensures the Frontend visualizations reflect REAL structural truth.
     """
     from app.services.neural_core import neural_core
-    from app.services.graph_intelligence import graph_intelligence
-    from app.services.predictive_engine import predictive_engine
     
     hydrated_nodes = []
     
@@ -187,7 +185,7 @@ async def get_table_data_analysis(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -212,7 +210,7 @@ async def get_data_quality_report(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -282,7 +280,7 @@ async def get_business_insights(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -318,7 +316,7 @@ async def get_pattern_analysis(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -340,7 +338,7 @@ async def get_data_correlations(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -412,7 +410,7 @@ async def get_predictions(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -434,7 +432,7 @@ async def get_root_cause_analysis(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -475,7 +473,7 @@ async def get_recommendations(connection_id: str, table_name: str):
     try:
         # Get connection
         try:
-            connection = db_connector.get_connection(connection_id)
+            _connection = db_connector.get_connection(connection_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Connection not found")
         
@@ -708,7 +706,6 @@ async def semantic_search(connection_id: str, query: str = "", categories: str =
     """
     try:
         from app.services.neural_core import neural_core
-        from app.services.latent_manager import latent_manager
 
         # 1. Get filtered list from Neural Core (The Intelligence Filter)
         cat_list = categories.split(',') if categories else None
@@ -745,7 +742,7 @@ async def semantic_search(connection_id: str, query: str = "", categories: str =
 def _generate_health_explanation(health_data: Dict) -> str:
     """Generate simple explanation of health status"""
     state = health_data['state']
-    score = health_data['score']
+    _score = health_data['score']
     issues = health_data['issues']
     
     if state == 'healthy':

@@ -1,6 +1,5 @@
 
 import pytest
-import asyncio
 from unittest.mock import MagicMock, patch
 from backend.app.services.t1_agent import T1Agent
 

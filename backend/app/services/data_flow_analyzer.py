@@ -8,10 +8,8 @@ import logging
 Data Flow Analyzer - Uses Agentic AI to analyze record-level data flows
 Discovers FK/PK relationships + inferred connections based on patterns
 """
-import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from app.services.agent_service import agent_service
-from app.services.db_connector import db_connector
 logger = logging.getLogger(__name__)
 
 class DataFlowAnalyzer:
@@ -148,7 +146,7 @@ class DataFlowAnalyzer:
         
         # Use Agentic AI to discover semantic relationships
         try:
-            prompt = f"""
+            _prompt = f"""
             Analyze the following database table and suggest potential relationships with other tables
             based on column names, business logic, and semantic patterns.
             

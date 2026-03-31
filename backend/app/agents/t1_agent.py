@@ -4,7 +4,6 @@ Executes platform actions triggered by T0 Agent.
 """
 from typing import Dict, Any, Optional
 import time
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -111,7 +110,7 @@ class T1Agent:
             # HYBRID EXECUTION MODE: Try Modular, Fallback to Legacy
             # This ensures "existing features" are never lost even if new handlers fail.
             result = None
-            used_legacy = False
+            _used_legacy = False
             
             if USE_MODULAR_HANDLERS and action in self.modular_handler_map:
                 try:
@@ -137,7 +136,7 @@ class T1Agent:
                 
                 # Execute the legacy action
                 result = await handler(parameters)
-                used_legacy = True
+                _used_legacy = True
             
             execution_time = int((time.time() - start_time) * 1000)
             

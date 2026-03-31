@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, Any
 from ...services.neural_core import NeuralCore
 from .base_handler import ActionHandler
+
+logger = logging.getLogger(__name__)
 
 class AnalyticsActionHandler(ActionHandler):
     """Handles data analytics, anomalies, and reporting."""

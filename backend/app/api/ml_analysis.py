@@ -84,7 +84,7 @@ async def _fetch_data(connection_id: str, table: str,
         from app.services.db_connector import db_connector
         conn = db_connector.get_connection(connection_id)
         db_type = conn.get("type", "").lower()
-        qt = lambda name: _safe_quote(name, db_type)
+        def qt(name): return _safe_quote(name, db_type)
 
         safe_table = qt(table)
         if columns:
@@ -482,11 +482,14 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
 
     df = pd.DataFrame(rows)
 
-    # Auto-detect date column from feature_cols
+    # Auto-detect date column
     date_col = None
-    for col in feature_cols:
+    # First, try columns explicitly passed in features
+    cols_to_check = feature_cols if feature_cols else df.columns
+    for col in cols_to_check:
         if col in df.columns:
             sample = df[col].dropna().head(10)
+            if len(sample) == 0: continue
             try:
                 pd.to_datetime(sample)
                 date_col = col
@@ -589,7 +592,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
 
     # 6 prediction points spread across the 30-day horizon
     step = max(1, 30 // 6)
-    last_actual = float(y[-1])
+    _last_actual = float(y[-1])
     predictions = []
     for i, idx in enumerate(range(0, 30, step)):
         if len(predictions) >= 6:

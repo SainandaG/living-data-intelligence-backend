@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from app.services.data_simulator import data_simulator
 from pydantic import BaseModel
 

@@ -2,9 +2,8 @@
 Root Cause Analyzer Service
 Traces issues to their origin and maps impact paths between tables.
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import logging
-from app.services.db_connector import db_connector
 
 logger = logging.getLogger(__name__)
 
