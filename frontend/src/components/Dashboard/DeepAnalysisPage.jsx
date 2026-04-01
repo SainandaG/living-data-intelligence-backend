@@ -64,37 +64,7 @@ const GREEN  = '#34d399';
 const CORAL  = '#f87171';
 const CLUSTER_COLORS = [CYAN, PURPLE, AMBER, GREEN, CORAL];
 
-// ─── Fallback data generators (only used when backend is unreachable) ──────────
-function genScatter(features, n = 120) {
-  const f0 = features[0] || 'x', f1 = features[1] || 'y';
-  return Array.from({ length: n }, (_, i) => ({
-    [f0]: +(Math.random() * 100).toFixed(2),
-    [f1]: +(10 + Math.random() * 90 + i * 0.2).toFixed(2),
-    cluster: Math.floor(Math.random() * 3),
-    sz: Math.floor(Math.random() * 40) + 20,
-  }));
-}
-
-function genBar(features) {
-  const w = features.map(() => Math.random() + 0.05);
-  const t = w.reduce((a, b) => a + b, 0);
-  return features.map((n, i) => ({ name: n, importance: +(w[i] / t).toFixed(3) }))
-    .sort((a, b) => b.importance - a.importance);
-}
-
-function genLine(n = 28) {
-  let v = 50;
-  return Array.from({ length: n }, (_, i) => {
-    v += (Math.random() - 0.45) * 8;
-    return {
-      period:    `T${i + 1}`,
-      actual:    +v.toFixed(2),
-      predicted: +(v + (Math.random() - 0.5) * 6).toFixed(2),
-      upper:     +(v + Math.random() * 7 + 2).toFixed(2),
-      lower:     +(v - Math.random() * 7 - 2).toFixed(2),
-    };
-  });
-}
+// (fallback generators removed — charts show real data or empty, never random fake data)
 
 // ─── Real Pearson correlation from scatter_sample ──────────────────────────────
 function pearsonR(xs, ys) {
@@ -147,8 +117,7 @@ const DarkTip = ({ active, payload, label }) => {
 
 // ─── Correlation heatmap (pure SVG) ───────────────────────────────────────────
 function CorrHeatmap({ features, corrData }) {
-  const generatedCorr = useMemo(() => computeRealCorr([], features) || [], [features.join(',')]);
-  const data = corrData || generatedCorr;
+  const data = corrData || [];
 
   const n  = Math.min(features.length, 7);
   const cols = features.slice(0, n);
@@ -260,9 +229,7 @@ function Bubble({ msg }) {
 export default function DeepAnalysisPage() {
   const params   = useQueryParams();
   const algoName = ALGO_DISPLAY[params.algo] || params.algo;
-  const features = params.features.length > 0
-    ? params.features
-    : ['feature_1', 'feature_2', 'feature_3', 'feature_4', 'feature_5'];
+  const features = params.features.length > 0 ? params.features : [];
 
   const [activeViz,       setActiveViz]       = useState('scatter');
   const [activeRightTab,  setActiveRightTab]  = useState('insights');
@@ -276,6 +243,7 @@ export default function DeepAnalysisPage() {
   useEffect(() => {
     if (!params.table || !params.connectionId) {
       setAnalysisLoading(false);
+      setAnalysisError('Missing required parameters. Please re-open Deep Analysis from the Work on Data modal.');
       return;
     }
     setAnalysisLoading(true);
@@ -296,35 +264,57 @@ export default function DeepAnalysisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
-  // ── Real data derived from backend response, falling back to demo when offline
+  // ── Auto-resolve which columns to plot from actual scatter_sample data
+  const chartCols = useMemo(() => {
+    const sample = analysisResult?.scatter_sample?.[0];
+    if (!sample) return { x: features[0] || null, y: params.target || features[1] || null };
+
+    const isPresent = (k) => k && sample[k] !== undefined && sample[k] !== null;
+    const numericKeys = Object.keys(sample).filter(k =>
+      k !== params.target && !isNaN(parseFloat(sample[k]))
+    );
+
+    const x = isPresent(features[0]) ? features[0]
+      : isPresent(features[1]) ? features[1]
+      : numericKeys[0] || null;
+
+    const y = isPresent(params.target) ? params.target
+      : isPresent(features[1]) ? features[1]
+      : numericKeys.find(k => k !== x) || null;
+
+    return { x, y };
+  }, [analysisResult, features.join(','), params.target]);
+
+  // ── Real data derived from backend response
   const scatterData = useMemo(() => {
-    if (!analysisResult?.scatter_sample?.length) return genScatter(features);
-    const f0 = features[0] || 'x';
-    const f1 = features[1] || params.target || 'y';
+    if (!analysisResult?.scatter_sample?.length) return [];
+    const { x: f0, y: f1 } = chartCols;
+    if (!f0 || !f1) return [];
     return analysisResult.scatter_sample
       .map(row => ({
         [f0]: parseFloat(row[f0]),
-        [f1]: parseFloat(row[f1] ?? row[params.target]),
-        cluster: 0,
+        [f1]: parseFloat(row[f1]),
+        cluster: typeof row.cluster === 'number' ? row.cluster : 0,
         sz: 40,
       }))
       .filter(d => !isNaN(d[f0]) && !isNaN(d[f1]))
       .slice(0, 200);
-  }, [analysisResult, features.join(','), params.target]);
+  }, [analysisResult, chartCols]);
 
   const barData = useMemo(() => {
-    if (!analysisResult?.feature_importances?.length) return genBar(features);
+    if (!analysisResult?.feature_importances?.length) return [];
     return analysisResult.feature_importances.map(fi => ({
       name: fi.name, importance: fi.importance,
     }));
   }, [analysisResult, features.join(',')]);
 
   const lineData = useMemo(() => {
-    if (!analysisResult) return genLine(28);
+    if (!analysisResult) return [];
     const preds = analysisResult.predictions || [];
+    const f0  = chartCols.x;
+    const tgt = chartCols.y;
+
     if (params.family === 'timeseries') {
-      const f0  = features[0];
-      const tgt = params.target;
       const actuals = f0 && tgt
         ? (analysisResult.scatter_sample || [])
             .filter(r => r[f0] != null && r[tgt] != null)
@@ -338,9 +328,17 @@ export default function DeepAnalysisPage() {
       if (actuals.length > 0) return [...actuals, ...forecast];
       return forecast.map(f => ({ ...f, actual: f.predicted }));
     }
-    // Regression / classification: plot target vs first feature from scatter_sample
-    const f0  = features[0];
-    const tgt = params.target;
+
+    // Regression / classification: actual vs predicted from test samples
+    if (preds.length >= 5) {
+      return preds.map((p, i) => ({
+        period: p.label || `Sample ${i + 1}`,
+        actual: parseFloat(p.value) || 0,
+        predicted: parseFloat(p.value) || 0,
+      }));
+    }
+
+    // Fallback: plot target values from scatter_sample sorted by f0
     if (f0 && tgt) {
       const rows = (analysisResult.scatter_sample || [])
         .filter(r => r[f0] != null && r[tgt] != null)
@@ -353,8 +351,8 @@ export default function DeepAnalysisPage() {
         }));
       }
     }
-    return genLine(28);
-  }, [analysisResult, params.family, params.target, features.join(',')]);
+    return [];
+  }, [analysisResult, params.family, chartCols]);
 
   const predictions = useMemo(() => {
     if (!analysisResult?.predictions?.length) return [];
@@ -385,7 +383,7 @@ export default function DeepAnalysisPage() {
   }, [analysisResult]);
 
   const featureImportances = useMemo(() => {
-    if (!analysisResult?.feature_importances?.length) return genBar(features);
+    if (!analysisResult?.feature_importances?.length) return [];
     return analysisResult.feature_importances.map(fi => ({
       name: fi.name, importance: fi.importance,
     }));
@@ -563,7 +561,7 @@ export default function DeepAnalysisPage() {
               )}
               {analysisError && !analysisLoading && (
                 <span className="flex items-center gap-1 text-[10px] text-red-400">
-                  <AlertTriangle size={9} /> Offline – showing demo data
+                  <AlertTriangle size={9} /> Analysis failed
                 </span>
               )}
               {analysisResult && !analysisLoading && (
@@ -575,8 +573,9 @@ export default function DeepAnalysisPage() {
             <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] mt-0.5 flex-wrap">
               <Database size={9} />
               <span className="font-mono">{params.table || 'no table'}</span>
-              {params.target && <><span>·</span><span className="text-green-400">→ {params.target}</span></>}
+              {(params.target || chartCols.y) && <><span>·</span><span className="text-green-400">→ {params.target || chartCols.y}</span></>}
               {features.length > 0 && <><span>·</span><span className="text-purple-400">{features.length} features</span></>}
+              {chartCols.x && <><span>·</span><span className="text-gray-500">x: {chartCols.x}</span></>}
               {params.secondaryTables.length > 0 && <><span>·</span><span className="text-amber-400">+{params.secondaryTables.length} joined</span></>}
               {analysisResult?.row_count > 0 && <><span>·</span><span className="text-gray-500">{Number(analysisResult.row_count).toLocaleString()} rows</span></>}
             </div>
@@ -702,7 +701,7 @@ export default function DeepAnalysisPage() {
             ))}
           </div>
 
-          <div className="flex-1 p-4 overflow-hidden bg-[#060d0e] flex items-center justify-center">
+          <div className="relative flex-1 p-4 overflow-hidden bg-[#060d0e] flex items-center justify-center">
             {/* Loading overlay */}
             {analysisLoading && (
               <div className="absolute inset-0 flex items-center justify-center bg-[#060d0e]/80 z-10 pointer-events-none">
@@ -723,28 +722,30 @@ export default function DeepAnalysisPage() {
               >
                 {/* 2D Scatter — uses real scatter_sample */}
                 {activeViz === 'scatter' && (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }}>
-                      <CartesianGrid {...grid} />
-                      <XAxis dataKey={features[0] || 'x'} name={features[0] || 'x'} {...axisProps} />
-                      <YAxis dataKey={features[1] || 'y'} name={features[1] || 'y'} {...axisProps} />
-                      <ZAxis dataKey="sz" range={[30, 180]} />
-                      <RTooltip content={<DarkTip />} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.08)' }} />
-                      {[0, 1, 2].map(c => (
-                        <Scatter key={c} name={`Cluster ${c + 1}`}
-                          data={scatterData.filter(d => d.cluster === c)}
-                          fill={CLUSTER_COLORS[c]} fillOpacity={0.72} />
-                      ))}
-                      <Scatter name="Data" data={scatterData.filter(d => d.cluster === 0)}
-                        fill={CYAN} fillOpacity={0.72} />
-                      <RLegend wrapperStyle={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }} />
-                    </ScatterChart>
-                  </ResponsiveContainer>
+                  scatterData.length === 0 && !analysisLoading
+                    ? <p className="text-xs text-gray-500">{analysisError || 'No numeric columns found in the result. Select feature columns before running.'}</p>
+                    : <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 16, right: 24, bottom: 16, left: 8 }}>
+                          <CartesianGrid {...grid} />
+                          <XAxis dataKey={chartCols.x} name={chartCols.x} {...axisProps} />
+                          <YAxis dataKey={chartCols.y} name={chartCols.y} {...axisProps} />
+                          <ZAxis dataKey="sz" range={[30, 180]} />
+                          <RTooltip content={<DarkTip />} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(255,255,255,0.08)' }} />
+                          {[0, 1, 2].map(c => (
+                            <Scatter key={c} name={`Cluster ${c + 1}`}
+                              data={scatterData.filter(d => d.cluster === c)}
+                              fill={CLUSTER_COLORS[c]} fillOpacity={0.72} />
+                          ))}
+                          <RLegend wrapperStyle={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }} />
+                        </ScatterChart>
+                      </ResponsiveContainer>
                 )}
 
                 {/* Feature bar — uses real feature_importances */}
                 {activeViz === 'bar' && (
-                  <ResponsiveContainer width="100%" height="100%">
+                  barData.length === 0 && !analysisLoading
+                    ? <p className="text-xs text-gray-500">{analysisError ? analysisError : 'Feature importances not available for this algorithm.'}</p>
+                    : <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={barData} layout="vertical" margin={{ top: 8, right: 32, bottom: 8, left: 88 }}>
                       <CartesianGrid horizontal={false} {...grid} />
                       <XAxis type="number" domain={[0, 'dataMax']}
@@ -764,39 +765,45 @@ export default function DeepAnalysisPage() {
 
                 {/* Trend line — real data from scatter_sample / timeseries predictions */}
                 {activeViz === 'line' && (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={lineData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
-                      <CartesianGrid {...grid} />
-                      <XAxis dataKey="period" {...axisProps} interval={3} />
-                      <YAxis {...axisProps} />
-                      <RTooltip content={<DarkTip />} />
-                      <Area dataKey="upper"  fill={CYAN}    fillOpacity={0.04} stroke="none" />
-                      <Area dataKey="lower"  fill="#060d0e" stroke="none" />
-                      <Line dataKey="actual"    stroke={CYAN}   strokeWidth={2}   dot={false} name="Actual" />
-                      <Line dataKey="predicted" stroke={PURPLE} strokeWidth={1.5} dot={false} strokeDasharray="5 3" name="Predicted" />
-                      <RLegend wrapperStyle={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                  lineData.length === 0 && !analysisLoading
+                    ? <p className="text-xs text-gray-500">{analysisError || 'No trend data returned. The model may not have produced predictions for this configuration.'}</p>
+                    : <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={lineData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
+                          <CartesianGrid {...grid} />
+                          <XAxis dataKey="period" {...axisProps} interval={3} />
+                          <YAxis {...axisProps} />
+                          <RTooltip content={<DarkTip />} />
+                          <Area dataKey="upper"  fill={CYAN}    fillOpacity={0.04} stroke="none" />
+                          <Area dataKey="lower"  fill="#060d0e" stroke="none" />
+                          <Line dataKey="actual"    stroke={CYAN}   strokeWidth={2}   dot={false} name="Actual" />
+                          <Line dataKey="predicted" stroke={PURPLE} strokeWidth={1.5} dot={false} strokeDasharray="5 3" name="Predicted" />
+                          <RLegend wrapperStyle={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
                 )}
 
                 {/* 3D scatter — uses real scatter_sample positions */}
                 {activeViz === '3d' && (
-                  <Canvas camera={{ position: [22, 14, 22], fov: 55 }} style={{ background: 'transparent', width: '100%', height: '100%' }}>
-                    <ambientLight intensity={0.5} />
-                    <pointLight position={[10, 10, 10]} intensity={0.7} />
-                    <Suspense fallback={null}>
-                      <Points3D data={scatterData.slice(0, 80)} />
-                      <OrbitControls autoRotate autoRotateSpeed={0.7} enableZoom />
-                    </Suspense>
-                    <gridHelper args={[30, 20, '#1a2a2a', '#111f1f']} />
-                  </Canvas>
+                  scatterData.length === 0 && !analysisLoading
+                    ? <p className="text-xs text-gray-500">{analysisError ? analysisError : 'No data available for 3D plot.'}</p>
+                    : <Canvas camera={{ position: [22, 14, 22], fov: 55 }} style={{ background: 'transparent', width: '100%', height: '100%' }}>
+                        <ambientLight intensity={0.5} />
+                        <pointLight position={[10, 10, 10]} intensity={0.7} />
+                        <Suspense fallback={null}>
+                          <Points3D data={scatterData.slice(0, 80)} />
+                          <OrbitControls autoRotate autoRotateSpeed={0.7} enableZoom />
+                        </Suspense>
+                        <gridHelper args={[30, 20, '#1a2a2a', '#111f1f']} />
+                      </Canvas>
                 )}
 
                 {/* Correlation heatmap — real Pearson r from scatter_sample */}
                 {activeViz === 'heatmap' && (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <CorrHeatmap features={features} corrData={realCorrData} />
-                  </div>
+                  !realCorrData && !analysisLoading
+                    ? <p className="text-xs text-gray-500">{analysisError ? analysisError : 'No data available for correlation heatmap.'}</p>
+                    : <div className="w-full h-full flex items-center justify-center">
+                        <CorrHeatmap features={features} corrData={realCorrData} />
+                      </div>
                 )}
               </motion.div>
             </AnimatePresence>

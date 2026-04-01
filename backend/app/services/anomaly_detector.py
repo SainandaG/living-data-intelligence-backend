@@ -143,6 +143,10 @@ class AnomalyDetector:
             "noise_floor": 0.1,
             "votes_required": 2,
         }
+        # Track which connections have had their DB tables created (one-time cost)
+        self._tables_initialized: set = set()
+        # Track last persist time per connection — only persist every 30s
+        self._last_persist: Dict[str, float] = {}
 
     async def hydrate_memory(self, db_connector, connection_id: str):
         """Restore statistical baselines from the database."""
@@ -192,7 +196,11 @@ class AnomalyDetector:
                 if anomaly:
                     anomalies.append(anomaly)
 
-        asyncio.create_task(self._persist_memory(connection_id))
+        import time
+        now = time.monotonic()
+        if now - self._last_persist.get(connection_id, 0) >= 30.0:
+            self._last_persist[connection_id] = now
+            asyncio.create_task(self._persist_memory(connection_id))
         return anomalies
 
     async def _persist_memory(self, connection_id: str):
@@ -202,23 +210,26 @@ class AnomalyDetector:
             conn_info = db_connector.get_connection(connection_id)
             db_type = conn_info.get('type', 'mysql').lower()
 
-            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
-                await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
-                await db_connector.query(connection_id, """
-                    CREATE TABLE IF NOT EXISTS evolution.statistical_memory (
-                        connection_id VARCHAR(255) PRIMARY KEY,
-                        metrics_json JSONB,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-            else:
-                await db_connector.query(connection_id, """
-                    CREATE TABLE IF NOT EXISTS statistical_memory (
-                        connection_id VARCHAR(255) PRIMARY KEY,
-                        metrics_json JSON,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+            # Create tables only once per connection — not on every persist call
+            if connection_id not in self._tables_initialized:
+                if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                    await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
+                    await db_connector.query(connection_id, """
+                        CREATE TABLE IF NOT EXISTS evolution.statistical_memory (
+                            connection_id VARCHAR(255) PRIMARY KEY,
+                            metrics_json JSONB,
+                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                else:
+                    await db_connector.query(connection_id, """
+                        CREATE TABLE IF NOT EXISTS statistical_memory (
+                            connection_id VARCHAR(255) PRIMARY KEY,
+                            metrics_json JSON,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                self._tables_initialized.add(connection_id)
 
             data = json.dumps(self.baseline_metrics.get(connection_id, {}))
 

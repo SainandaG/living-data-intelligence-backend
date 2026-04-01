@@ -28,6 +28,8 @@ class RealtimeMonitor:
         self.last_metrics_update: Dict[str, float] = {} # connection_id -> last_tick
         self.cached_metrics: Dict[str, Dict[str, Any]] = {} # connection_id -> last_valid_total
         self.active_discovery_cache: Dict[str, Dict[str, Any]] = {} # connection_id -> meta_data
+        # Cache for expensive data-quality NULL-density scan (3 queries) — refreshed every 60s
+        self._dq_cache: Dict[str, tuple] = {} # connection_id -> (timestamp, score_delta, issues_list)
 
     def _get_key(self, row: dict, key: str):
         """Case-insensitive key fetch helper for cross-DB compatibility"""
@@ -438,48 +440,62 @@ class RealtimeMonitor:
             health_score -= 20 * len(high_risk)
             issues.append(f"{len(high_risk)} Critical Anomalies Detected")
             
-        # 4. Data Quality Analysis (Reality-Driven)
+        # 4. Data Quality Analysis (Reality-Driven) — cached 60s to avoid hammering DB
         try:
-            # Auto-discover a significant table to check integrity
-            is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
-            db_func = "current_database()" if is_pg else "DATABASE()"
-            schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
-            discovery_query = f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_type = 'BASE TABLE' LIMIT 1"
-            dq_res = await db_connector.query(connection_id, discovery_query)
-            
-            if dq_res:
-                target_table = self._get_key(dq_res[0], 'table_name')
+            _dq_ttl = 60.0
+            _dq_cached = self._dq_cache.get(connection_id)
+            if _dq_cached and (time.time() - _dq_cached[0]) < _dq_ttl:
+                # Replay cached delta without hitting the DB
+                health_score -= _dq_cached[1]
+                issues.extend(_dq_cached[2])
+            else:
+                _dq_score_delta = 0
+                _dq_issues: list = []
+                # Auto-discover a significant table to check integrity
                 is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
-                q_table = f'"{target_table}"' if is_pg else f'`{target_table}`'
-                
-                # Check for NULL density in top 3 columns
-                param_placeholder = "$1" if is_pg else "%s"
-                col_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = {param_placeholder} LIMIT 3"
-                cols = await db_connector.query(connection_id, col_query, (target_table,))
-                
-                if cols:
-                    safe_cols = []
-                    for c in cols:
-                        c_name = self._get_key(c, 'column_name')
-                        if c_name: safe_cols.append(c_name)
-                        
-                    null_checks = [f"SUM(CASE WHEN \"{c}\" IS NULL THEN 1 ELSE 0 END) as \"{c}_nulls\"" for c in safe_cols]
-                    if db_type == 'mysql':
-                        null_checks = [f"SUM(CASE WHEN `{c}` IS NULL THEN 1 ELSE 0 END) as `{c}_nulls`" for c in safe_cols]
-                    
-                    if null_checks:
-                        data_check_query = f"SELECT COUNT(*) as total, {', '.join(null_checks)} FROM {q_table}"
-                        check_results = await db_connector.query(connection_id, data_check_query)
-                        
-                        if check_results:
-                            total = check_results[0]['total']
-                            if total > 0:
-                                for c in safe_cols:
-                                    null_count = check_results[0].get(f"{c}_nulls", 0)
-                                    null_pct = (null_count / total) * 100
-                                    if null_pct > 20: # Over 20% NULLs in a discovered column
-                                        health_score -= 5
-                                        issues.append(f"High NULL Density: {target_table}.{c} ({null_pct:.1f}%)")
+                db_func = "current_database()" if is_pg else "DATABASE()"
+                schema_clause = "table_schema = 'public'" if is_pg else f"table_schema = {db_func}"
+                discovery_query = f"SELECT table_name FROM information_schema.tables WHERE {schema_clause} AND table_type = 'BASE TABLE' LIMIT 1"
+                dq_res = await db_connector.query(connection_id, discovery_query)
+
+                if dq_res:
+                    target_table = self._get_key(dq_res[0], 'table_name')
+                    is_pg = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
+                    q_table = f'"{target_table}"' if is_pg else f'`{target_table}`'
+
+                    # Check for NULL density in top 3 columns
+                    param_placeholder = "$1" if is_pg else "%s"
+                    col_query = f"SELECT column_name FROM information_schema.columns WHERE table_name = {param_placeholder} LIMIT 3"
+                    cols = await db_connector.query(connection_id, col_query, (target_table,))
+
+                    if cols:
+                        safe_cols = []
+                        for c in cols:
+                            c_name = self._get_key(c, 'column_name')
+                            if c_name: safe_cols.append(c_name)
+
+                        null_checks = [f"SUM(CASE WHEN \"{c}\" IS NULL THEN 1 ELSE 0 END) as \"{c}_nulls\"" for c in safe_cols]
+                        if db_type == 'mysql':
+                            null_checks = [f"SUM(CASE WHEN `{c}` IS NULL THEN 1 ELSE 0 END) as `{c}_nulls`" for c in safe_cols]
+
+                        if null_checks:
+                            data_check_query = f"SELECT COUNT(*) as total, {', '.join(null_checks)} FROM {q_table}"
+                            check_results = await db_connector.query(connection_id, data_check_query)
+
+                            if check_results:
+                                total = check_results[0]['total']
+                                if total > 0:
+                                    for c in safe_cols:
+                                        null_count = check_results[0].get(f"{c}_nulls", 0)
+                                        null_pct = (null_count / total) * 100
+                                        if null_pct > 20: # Over 20% NULLs in a discovered column
+                                            _dq_score_delta += 5
+                                            _dq_issues.append(f"High NULL Density: {target_table}.{c} ({null_pct:.1f}%)")
+
+                # Store result in cache
+                self._dq_cache[connection_id] = (time.time(), _dq_score_delta, _dq_issues)
+                health_score -= _dq_score_delta
+                issues.extend(_dq_issues)
 
             # 5. Orphaned Node Detection (Topology Health)
             # Find nodes with in_degree and out_degree == 0

@@ -92,7 +92,6 @@ class Explainer:
             # Tree-based models — fastest
             model_type = type(model).__name__
             if any(t in model_type for t in ("Forest", "Tree", "Gradient", "XGB", "LGBM")):
-                bg = shap.sample(X_bg, min(100, len(X_bg)))
                 return shap.TreeExplainer(model)
 
             # Linear models

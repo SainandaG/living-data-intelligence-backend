@@ -304,7 +304,7 @@ async def stream_metrics():
                     await _stream_to_connection(conn_id, sockets, consecutive_failures)
                 except Exception as e:
                     logger.error(f"Error streaming for DB conn {conn_id}: {e}")
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(5.0)
     except asyncio.CancelledError:
         logger.info("Streaming Service: Broadcast loop cancelled.")
         raise
