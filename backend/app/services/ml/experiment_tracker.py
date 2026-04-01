@@ -7,9 +7,11 @@ available in the environment it is used as a secondary sink automatically.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -19,6 +21,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 EXPERIMENTS_DIR = Path(os.getenv("EXPERIMENTS_DIR", "data/experiments"))
+_MAX_LOG_BYTES = int(os.getenv("EXPERIMENTS_MAX_MB", "10")) * 1024 * 1024  # default 10 MB
 
 
 @dataclass
@@ -52,11 +55,27 @@ class ExperimentTracker:
     def __init__(self) -> None:
         EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
         self._log_path = EXPERIMENTS_DIR / "runs.jsonl"
+        self._lock = threading.Lock()          # serialises concurrent writes (H3)
         self._mlflow_available = self._probe_mlflow()
+        self._validate_dir_writable()
+
+    def _validate_dir_writable(self) -> None:
+        """T5-1: Warn at startup if the experiments directory is not writable."""
+        try:
+            test = EXPERIMENTS_DIR / ".write_test"
+            test.write_text("ok")
+            test.unlink()
+        except Exception as exc:
+            logger.warning(
+                "experiment_tracker: experiments directory '%s' is not writable: %s. "
+                "Run history will not be persisted.",
+                EXPERIMENTS_DIR,
+                exc,
+            )
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def start_run(
+    async def start_run(
         self,
         experiment: str,
         algo: str,
@@ -80,23 +99,23 @@ class ExperimentTracker:
             tenant_id=tenant_id,
             user_id=user_id,
         )
-        self._write(run)
+        await asyncio.to_thread(self._write_locked, run)
         logger.debug("run_start run_id=%s algo=%s", run.run_id, algo)
         return run
 
-    def finish_run(
+    async def finish_run(
         self,
         run: MLRun,
         metrics: Dict[str, Any],
         feature_importances: List[Dict] | None = None,
         status: str = "success",
     ) -> MLRun:
-        run.metrics            = metrics
+        run.metrics             = metrics
         run.feature_importances = feature_importances or []
-        run.status             = status
-        run.finished_at        = time.time()
-        run.duration_s         = round(run.finished_at - run.created_at, 3)
-        self._write(run)
+        run.status              = status
+        run.finished_at         = time.time()
+        run.duration_s          = round(run.finished_at - run.created_at, 3)
+        await asyncio.to_thread(self._write_locked, run)
 
         if self._mlflow_available:
             self._log_to_mlflow(run)
@@ -113,20 +132,22 @@ class ExperimentTracker:
         runs = []
         if not self._log_path.exists():
             return runs
-        with open(self._log_path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if rec.get("tenant_id") != tenant_id:
-                    continue
-                if experiment and rec.get("experiment") != experiment:
-                    continue
-                runs.append(rec)
+        # T5-3: hold lock during read to prevent partial-line reads during rotation
+        with self._lock:
+            with open(self._log_path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if rec.get("tenant_id") != tenant_id:
+                        continue
+                    if experiment and rec.get("experiment") != experiment:
+                        continue
+                    runs.append(rec)
         # newest first
         runs.sort(key=lambda r: r.get("created_at", 0), reverse=True)
         return runs[:limit]
@@ -146,12 +167,20 @@ class ExperimentTracker:
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
-    def _write(self, run: MLRun) -> None:
-        try:
-            with open(self._log_path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(asdict(run)) + "\n")
-        except Exception as exc:
-            logger.warning("experiment_tracker write failed: %s", exc)
+    def _write_locked(self, run: MLRun) -> None:
+        """Thread-safe append with log rotation (H1, H2, H3)."""
+        with self._lock:
+            try:
+                # Rotate when file exceeds _MAX_LOG_BYTES
+                if self._log_path.exists() and self._log_path.stat().st_size >= _MAX_LOG_BYTES:
+                    bak = self._log_path.with_suffix(".jsonl.bak")
+                    bak.unlink(missing_ok=True)
+                    self._log_path.rename(bak)
+                    logger.info("experiment_tracker: rotated runs.jsonl → runs.jsonl.bak")
+                with open(self._log_path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(asdict(run)) + "\n")
+            except Exception as exc:
+                logger.warning("experiment_tracker write failed: %s", exc)
 
     def _probe_mlflow(self) -> bool:
         try:

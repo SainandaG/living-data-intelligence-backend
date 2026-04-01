@@ -30,10 +30,10 @@ const ALGO_FAMILIES = [
     color: 'cyan',
     description: 'Predict categories or labels',
     algos: [
-      { id: 'rf_clf',  name: 'Random Forest',       tag: 'Accurate',      tagColor: 'blue',   best_for: 'High-dimensional data, mixed types' },
-      { id: 'svm',     name: 'SVM',                 tag: 'Robust',        tagColor: 'purple', best_for: 'Clear margin separation, medium datasets' },
-      { id: 'knn',     name: 'K-Nearest Neighbors', tag: 'Fast',          tagColor: 'green',  best_for: 'Local patterns, small-medium datasets' },
-      { id: 'logreg',  name: 'Logistic Regression', tag: 'Interpretable', tagColor: 'teal',   best_for: 'Binary outcomes, linear boundaries' },
+      { id: 'rf_clf', name: 'Random Forest', tag: 'Accurate', tagColor: 'blue', best_for: 'High-dimensional data, mixed types' },
+      { id: 'svm', name: 'SVM', tag: 'Robust', tagColor: 'purple', best_for: 'Clear margin separation, medium datasets' },
+      { id: 'knn', name: 'K-Nearest Neighbors', tag: 'Fast', tagColor: 'green', best_for: 'Local patterns, small-medium datasets' },
+      { id: 'logreg', name: 'Logistic Regression', tag: 'Interpretable', tagColor: 'teal', best_for: 'Binary outcomes, linear boundaries' },
     ],
   },
   {
@@ -43,10 +43,10 @@ const ALGO_FAMILIES = [
     color: 'orange',
     description: 'Predict continuous numeric values',
     algos: [
-      { id: 'linear',  name: 'Linear Regression', tag: 'Fast',        tagColor: 'green',  best_for: 'Linear relationships, baseline model' },
-      { id: 'ridge',   name: 'Ridge Regression',  tag: 'Regularized', tagColor: 'blue',   best_for: 'Multicollinearity, many features' },
-      { id: 'lasso',   name: 'Lasso Regression',  tag: 'Sparse',      tagColor: 'purple', best_for: 'Feature selection, sparse solutions' },
-      { id: 'xgboost', name: 'GradientBoosting',  tag: '★ Best',      tagColor: 'amber',  best_for: 'Tabular data, high accuracy, non-linear' },
+      { id: 'linear', name: 'Linear Regression', tag: 'Fast', tagColor: 'green', best_for: 'Linear relationships, baseline model' },
+      { id: 'ridge', name: 'Ridge Regression', tag: 'Regularized', tagColor: 'blue', best_for: 'Multicollinearity, many features' },
+      { id: 'lasso', name: 'Lasso Regression', tag: 'Sparse', tagColor: 'purple', best_for: 'Feature selection, sparse solutions' },
+      { id: 'xgboost', name: 'GradientBoosting', tag: '★ Best', tagColor: 'amber', best_for: 'Tabular data, high accuracy, non-linear' },
     ],
   },
   {
@@ -56,8 +56,8 @@ const ALGO_FAMILIES = [
     color: 'violet',
     description: 'Forecast temporal patterns',
     algos: [
-      { id: 'arima',   name: 'ARIMA',   tag: 'Classic', tagColor: 'teal', best_for: 'Stationary time series, seasonal data' },
-      { id: 'prophet', name: 'Prophet', tag: 'Robust',  tagColor: 'blue', best_for: 'Business time series, holidays, trends' },
+      { id: 'arima', name: 'ARIMA', tag: 'Classic', tagColor: 'teal', best_for: 'Stationary time series, seasonal data' },
+      { id: 'prophet', name: 'Prophet', tag: 'Robust', tagColor: 'blue', best_for: 'Business time series, holidays, trends' },
     ],
   },
   {
@@ -67,80 +67,105 @@ const ALGO_FAMILIES = [
     color: 'pink',
     description: 'Discover hidden groups',
     algos: [
-      { id: 'kmeans', name: 'K-Means', tag: 'Fast',     tagColor: 'green',  best_for: 'Well-separated spherical clusters' },
-      { id: 'dbscan', name: 'DBSCAN',  tag: 'Flexible', tagColor: 'purple', best_for: 'Arbitrary shapes, noise detection' },
+      { id: 'kmeans', name: 'K-Means', tag: 'Fast', tagColor: 'green', best_for: 'Well-separated spherical clusters' },
+      { id: 'dbscan', name: 'DBSCAN', tag: 'Flexible', tagColor: 'purple', best_for: 'Arbitrary shapes, noise detection' },
     ],
   },
 ];
 
 const COLOR_MAP = {
-  cyan:   { bg: 'bg-cyan-500/10',   border: 'border-cyan-500/30',   text: 'text-cyan-400',   glow: 'shadow-[0_0_12px_rgba(34,211,238,0.15)]' },
+  cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/30', text: 'text-cyan-400', glow: 'shadow-[0_0_12px_rgba(34,211,238,0.15)]' },
   orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/30', text: 'text-orange-400', glow: 'shadow-[0_0_12px_rgba(249,115,22,0.15)]' },
   violet: { bg: 'bg-violet-500/10', border: 'border-violet-500/30', text: 'text-violet-400', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' },
-  pink:   { bg: 'bg-pink-500/10',   border: 'border-pink-500/30',   text: 'text-pink-400',   glow: 'shadow-[0_0_12px_rgba(236,72,153,0.15)]' },
+  pink: { bg: 'bg-pink-500/10', border: 'border-pink-500/30', text: 'text-pink-400', glow: 'shadow-[0_0_12px_rgba(236,72,153,0.15)]' },
 };
 
 const TAG_COLORS = {
-  blue:   'bg-blue-500/20 text-blue-300',
+  blue: 'bg-blue-500/20 text-blue-300',
   purple: 'bg-purple-500/20 text-purple-300',
-  green:  'bg-green-500/20 text-green-300',
-  teal:   'bg-teal-500/20 text-teal-300',
-  amber:  'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+  green: 'bg-green-500/20 text-green-300',
+  teal: 'bg-teal-500/20 text-teal-300',
+  amber: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
 };
 
 // ─── Family accent colours ────────────────────────────────────────────────────
 const FAMILY_HEX = {
   classification: '#22d3ee',
-  regression:     '#f97316',
-  timeseries:     '#8b5cf6',
-  clustering:     '#ec4899',
+  regression: '#f97316',
+  timeseries: '#8b5cf6',
+  clustering: '#ec4899',
 };
 
 // ─── AI Suggestion Engine (client-side heuristic + optional API) ─────────────
+
+// Tables that are internal/system tables — bad primary ML tables
+const SYSTEM_TABLE_RE = /token|snapshot|migration|audit|_log$|logs$|session|auth|permission|role|cache|queue|celery|job_|neural_/i;
+// Columns that are IDs/FKs — bad regression targets
+const ID_COL_RE = /^id$|_id$|^fk_/i;
+// Column names that make strong regression targets
+const PREFERRED_TARGET_RE = /amount|price|rate|duration|score|count|total|soc|pct|percent|revenue|cost|age|weight|temp|value|salary|balance|distance|health|charge/i;
+
+function pickBestTarget(candidates) {
+  const nonId = candidates.filter(c => !ID_COL_RE.test(c.name));
+  const preferred = nonId.filter(c => PREFERRED_TARGET_RE.test(c.name));
+  return (preferred[0] || nonId[0] || candidates[0])?.name || null;
+}
+
 function generateAISuggestion(graphData) {
   const tables = graphData?.nodes || [];
   if (!tables.length) return null;
 
-  const scored = tables.map(t => ({
-    ...t,
-    score: (Math.log10((t.row_count || 1) + 1) * 40)
-      + ((t.columns?.length || 0) * 2)
-      + ((t.foreign_keys?.length || 0) * 5),
-  })).sort((a, b) => b.score - a.score);
+  const scored = tables.map(t => {
+    const cols = t.columns || [];
+    const meaningfulNumerics = cols.filter(c =>
+      /int|float|double|decimal|numeric|real|number/i.test(c.type || '') && !ID_COL_RE.test(c.name)
+    );
+    const isSystem = SYSTEM_TABLE_RE.test(t.name || '');
+    return {
+      ...t,
+      score: (Math.log10((t.row_count || 1) + 1) * 40)
+        + ((cols.length || 0) * 2)
+        + ((t.foreign_keys?.length || 0) * 5)
+        + (meaningfulNumerics.length * 15)   // boost tables with real numeric columns
+        - (isSystem ? 200 : 0),              // heavy penalty for system/internal tables
+    };
+  }).sort((a, b) => b.score - a.score);
 
   const primary = scored[0];
   const allColumns = primary?.columns || [];
   const numericCols = allColumns.filter(c => /int|float|double|decimal|numeric|real|number/i.test(c.type || ''));
-  const dateCols    = allColumns.filter(c => /date|time|timestamp/i.test(c.type || ''));
-  const catCols     = allColumns.filter(c => /char|varchar|text|bool|enum/i.test(c.type || ''));
+  const nonIdNumerics = numericCols.filter(c => !ID_COL_RE.test(c.name));
+  const dateCols = allColumns.filter(c => /date|time|timestamp/i.test(c.type || ''));
+  const catCols = allColumns.filter(c => /char|varchar|text|bool|enum/i.test(c.type || ''));
 
   let taskFamily = 'regression', recommendedAlgo = 'xgboost';
-  let targetCol = numericCols[0]?.name || allColumns[0]?.name;
-  let featureCols = allColumns.slice(0, 6).map(c => c.name).filter(n => n !== targetCol);
+  let targetCol = pickBestTarget(nonIdNumerics.length ? nonIdNumerics : numericCols) || allColumns[0]?.name;
+  let featureCols = [];
   let reasoning = '', confidence = 87;
 
-  if (dateCols.length > 0 && numericCols.length > 0) {
+  if (dateCols.length > 0 && nonIdNumerics.length > 0) {
     taskFamily = 'timeseries'; recommendedAlgo = 'arima';
-    targetCol = numericCols[0]?.name;
+    targetCol = pickBestTarget(nonIdNumerics);
     featureCols = [dateCols[0]?.name].filter(Boolean);
     reasoning = `Detected ${dateCols.length} timestamp column(s) in "${primary.name}". Seasonal trend model will be applied.`;
     confidence = 82;
-  } else if (numericCols.length >= 2) {
+  } else if (nonIdNumerics.length >= 2) {
     taskFamily = 'regression'; recommendedAlgo = 'xgboost';
-    targetCol = numericCols[0]?.name;
-    featureCols = numericCols.slice(1, 5).map(c => c.name).concat(catCols.slice(0, 2).map(c => c.name));
-    reasoning = `"${primary.name}" has ${numericCols.length} numeric columns and ${primary.row_count?.toLocaleString() || 'many'} rows. GradientBoosting excels on tabular data.`;
+    targetCol = pickBestTarget(nonIdNumerics);
+    featureCols = nonIdNumerics.filter(c => c.name !== targetCol).slice(0, 4).map(c => c.name)
+      .concat(catCols.slice(0, 2).map(c => c.name));
+    reasoning = `"${primary.name}" has ${nonIdNumerics.length} numeric columns and ${primary.row_count?.toLocaleString() || 'many'} rows. GradientBoosting excels on tabular data.`;
     confidence = 91;
   } else if (catCols.length > 0) {
     taskFamily = 'classification'; recommendedAlgo = 'rf_clf';
     targetCol = catCols[0]?.name;
-    featureCols = numericCols.slice(0, 4).map(c => c.name).concat(catCols.slice(1, 3).map(c => c.name));
+    featureCols = nonIdNumerics.slice(0, 4).map(c => c.name).concat(catCols.slice(1, 3).map(c => c.name));
     reasoning = `Categorical target "${catCols[0]?.name}" detected in "${primary.name}". Random Forest handles mixed feature types robustly.`;
     confidence = 85;
   } else {
     taskFamily = 'clustering'; recommendedAlgo = 'kmeans';
     targetCol = null;
-    featureCols = allColumns.slice(0, 5).map(c => c.name);
+    featureCols = nonIdNumerics.slice(0, 5).map(c => c.name);
     reasoning = `No clear target column detected. K-Means can discover hidden segments in "${primary.name}".`;
     confidence = 74;
   }
@@ -159,14 +184,50 @@ function generateAISuggestion(graphData) {
   };
 }
 
+// ─── Metric display labels per family ────────────────────────────────────────
+const METRIC_LABELS = {
+  // classification
+  accuracy: 'Accuracy',
+  baseline_accuracy: 'Baseline',
+  precision: 'Precision',
+  recall: 'Recall',
+  f1: 'F1 Score',
+  n_classes: 'Classes',
+  // regression
+  R2: 'R²',
+  RMSE: 'RMSE',
+  MAE: 'MAE',
+  // clustering
+  silhouette_score: 'Silhouette',
+  n_clusters: 'Clusters',
+  inertia: 'Inertia',
+  n_noise_points: 'Noise Pts',
+  // timeseries
+  MAPE: 'MAPE',
+  trend: 'Trend',
+  monthly_growth: 'Growth/Mo',
+};
+
+// Keys shown per family (ordered)
+const FAMILY_METRIC_KEYS = {
+  classification: ['accuracy', 'baseline_accuracy', 'f1', 'precision', 'recall'],
+  regression: ['R2', 'RMSE', 'MAE'],
+  clustering: ['silhouette_score', 'n_clusters', 'inertia'],
+  timeseries: ['trend', 'MAPE', 'monthly_growth', 'RMSE'],
+};
+
 // ─── Results Panel ────────────────────────────────────────────────────────────
 function ResultsPanel({ results, onBack, onOpenDeep }) {
   const accent = FAMILY_HEX[results.family] || '#22d3ee';
   const algoName = ALGO_FAMILIES.flatMap(f => f.algos).find(a => a.id === results.algo)?.name || results.algo;
 
-  const metricEntries = Object.entries(results.metrics).filter(
-    ([k]) => !['samples', 'train_size', 'test_size', 'n_classes', 'model'].includes(k)
-  );
+  // Show family-specific metrics in a defined order, fall back to all non-internal keys
+  const preferredKeys = FAMILY_METRIC_KEYS[results.family] || [];
+  const metricEntries = preferredKeys.length > 0
+    ? preferredKeys.filter((k) => k in results.metrics).map((k) => [k, results.metrics[k]])
+    : Object.entries(results.metrics).filter(
+      ([k]) => !['samples', 'train_size', 'test_size', 'n_classes', 'model'].includes(k)
+    );
 
   return (
     <div className="p-6 space-y-5">
@@ -197,14 +258,28 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
         </button>
       </div>
 
+      {/* Data quality warnings — shown BEFORE metrics so user reads them first */}
+      {results.data_warnings?.length > 0 && (
+        <div className="space-y-1.5">
+          {results.data_warnings.map((w, i) => (
+            <div key={i} className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+              <AlertTriangle size={13} className="text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-amber-200 leading-relaxed">{w}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Metrics row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {metricEntries.map(([key, val]) => (
           <div key={key} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest font-bold leading-none mb-1">{key}</p>
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest font-bold leading-none mb-1">
+              {METRIC_LABELS[key] || key}
+            </p>
             <p className="text-lg font-black tabular-nums leading-none" style={{ color: accent }}>
               {typeof val === 'number'
-                ? (key === 'MAPE' ? `${val}%` : key.startsWith('monthly') ? `${val > 0 ? '+' : ''}${val}%` : val.toLocaleString(undefined, { maximumFractionDigits: 4 }))
+                ? (key === 'MAPE' ? `${val}%` : key === 'monthly_growth' ? `${val > 0 ? '+' : ''}${val}%` : val.toLocaleString(undefined, { maximumFractionDigits: 4 }))
                 : String(val)}
             </p>
           </div>
@@ -248,7 +323,7 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
             <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5 mb-3">
               <Activity size={11} style={{ color: accent }} />
               {results.family === 'clustering' ? 'Segment Distribution' :
-               results.family === 'classification' ? 'Class Distribution' : 'Predictions'}
+                results.family === 'classification' ? 'Class Distribution' : 'Predictions'}
             </p>
             <div className="space-y-2">
               {results.predictions.slice(0, 6).map((pred, i) => {
@@ -270,8 +345,8 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
                       style={{ color: confColor }}>
                       {typeof pred.value === 'number'
                         ? (results.family === 'clustering' || results.family === 'classification'
-                            ? `${pred.value.toFixed(1)}%`
-                            : pred.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+                          ? `${pred.value.toFixed(1)}%`
+                          : pred.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
                         : pred.value}
                     </span>
                   </div>
@@ -312,25 +387,46 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function WorkOnDataModal({ isOpen, onClose, graphData, connectionId }) {
-  const [aiSuggestion, setAiSuggestion]         = useState(null);
-  const [manualMode, setManualMode]              = useState(false);
-  const [aiLoading, setAiLoading]               = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Config selections
-  const [selectedFamily, setSelectedFamily]     = useState('regression');
-  const [selectedAlgo, setSelectedAlgo]         = useState('xgboost');
-  const [expandedFamily, setExpandedFamily]     = useState('regression');
-  const [selectedTable, setSelectedTable]       = useState('');
+  const [selectedFamily, setSelectedFamily] = useState('regression');
+  const [selectedAlgo, setSelectedAlgo] = useState('xgboost');
+  const [expandedFamily, setExpandedFamily] = useState('regression');
+  const [selectedTable, setSelectedTable] = useState('');
   const [selectedSecondaryTables, setSelectedSecondaryTables] = useState([]);
-  const [targetCol, setTargetCol]               = useState('');
-  const [featureCols, setFeatureCols]           = useState([]);
-  const [tableSearch, setTableSearch]           = useState('');
-  const [colSearch, setColSearch]               = useState('');
+  const [targetCol, setTargetCol] = useState('');
+  const [featureCols, setFeatureCols] = useState([]);
+  const [tableSearch, setTableSearch] = useState('');
+  const [colSearch, setColSearch] = useState('');
 
   // Run state
-  const [isGenerating, setIsGenerating]         = useState(false);
-  const [mlResults, setMlResults]               = useState(null);
-  const [mlError, setMlError]                   = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [mlResults, setMlResults] = useState(null);
+  const [mlError, setMlError] = useState(null);
+  const runAbortRef = useRef(null);
+
+  const ML_ERROR_MESSAGES = {
+    422: (detail) => `Check your column selection: ${detail}`,
+    504: () => 'Analysis timed out — try fewer features or a faster algorithm.',
+    503: () => 'Database connection failed — check your connection.',
+    500: () => 'Unexpected error — our team has been notified.',
+  };
+
+  const structuredMlError = (err) => {
+    const status = err?.response?.status ?? err?.status;
+    const detail = err?.response?.data?.detail ?? err?.detail ?? err?.message ?? 'Analysis failed.';
+    const builder = ML_ERROR_MESSAGES[status];
+    return builder ? builder(detail) : detail;
+  };
+
+  const handleCancelRun = useCallback(() => {
+    runAbortRef.current?.abort();
+    setIsGenerating(false);
+    setMlError(null);
+  }, []);
 
   const tables = graphData?.nodes || [];
   const activeTable = tables.find(t => t.name === selectedTable);
@@ -366,9 +462,42 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     return columnsFromSelected.filter(c => c.name.toLowerCase().includes(q));
   }, [columnsFromSelected, colSearch]);
 
-  // Generate AI suggestion when modal opens
+  // Derive which algorithm families are valid for the current column selection
+  const validFamilies = React.useMemo(() => {
+    if (!targetCol) return new Set(['classification', 'regression', 'timeseries', 'clustering']);
+    const col = columnsFromSelected.find(c => c.name === targetCol);
+    const t = col?.type || '';
+    const isNum = /int|float|double|decimal|numeric|real/i.test(t);
+    const isDate = /date|time|timestamp/i.test(t);
+    const hasDateCol = columnsFromSelected.some(c =>
+      c.name !== targetCol && /date|time|timestamp/i.test(c.type || '')
+    );
+    if (isDate) return new Set(['timeseries', 'clustering']);
+    if (isNum) return new Set(hasDateCol ? ['regression', 'timeseries', 'clustering'] : ['regression', 'clustering']);
+    /* CAT */    return new Set(['classification', 'clustering']);
+  }, [targetCol, columnsFromSelected]);
+
+  // Auto-switch family + algo when the current selection becomes incompatible
   useEffect(() => {
-    if (!isOpen || !graphData?.nodes?.length) return;
+    if (validFamilies.has(selectedFamily)) return;
+    const next = ['regression', 'classification', 'timeseries', 'clustering'].find(f => validFamilies.has(f));
+    if (!next) return;
+    setSelectedFamily(next);
+    setExpandedFamily(next);
+    const defaultAlgo = ALGO_FAMILIES.find(f => f.id === next)?.algos[0]?.id;
+    if (defaultAlgo) setSelectedAlgo(defaultAlgo);
+  }, [validFamilies, selectedFamily]);
+
+  // Track whether we've already initialized for the current modal session
+  const hasInitRef = useRef(false);
+
+  // Generate AI suggestion only when modal FIRST opens — never reset results mid-session
+  useEffect(() => {
+    if (!isOpen) { hasInitRef.current = false; return; }
+    if (!graphData?.nodes?.length) return;
+    if (hasInitRef.current) return; // already ran for this open session
+    hasInitRef.current = true;
+
     setMlResults(null);
     setMlError(null);
 
@@ -378,26 +507,26 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
     if (!connectionId || !local?.primaryTable) return;
     setAiLoading(true);
-    apiClient.post(`/ml/suggest?connection_id=${connectionId}&table=${local.primaryTable}`)
+    apiClient.get(`/ml/suggest?connection_id=${connectionId}&table=${local.primaryTable}`)
       .then(res => {
         const s = res?.suggestion || res?.data?.suggestion;
         if (!s) return;
         const enhanced = {
           ...local,
-          taskFamily:      s.family      || local.taskFamily,
-          recommendedAlgo: s.algo        || local.recommendedAlgo,
-          targetCol:       s.target      || local.targetCol,
-          featureCols:     s.features?.length ? s.features : local.featureCols,
-          confidence:      s.confidence  || local.confidence,
-          reasoning:       res?.reason   || local.reasoning,
-          fromBackend:     true,
+          taskFamily: s.family || local.taskFamily,
+          recommendedAlgo: s.algo || local.recommendedAlgo,
+          targetCol: s.target || local.targetCol,
+          featureCols: s.features?.length ? s.features : local.featureCols,
+          confidence: s.confidence || local.confidence,
+          reasoning: res?.reason || local.reasoning,
+          fromBackend: true,
         };
         setAiSuggestion(enhanced);
         if (!manualMode) applyAISuggestion(enhanced);
       })
-      .catch(() => {})
+      .catch((err) => { console.warn('[ML/suggest] failed:', err?.message || err); })
       .finally(() => setAiLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, graphData]);
 
   const applyAISuggestion = useCallback((s) => {
@@ -441,6 +570,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
   const handleRunInline = async () => {
     if (!selectedTable) return;
+    const controller = new AbortController();
+    runAbortRef.current = controller;
     setIsGenerating(true);
     setMlError(null);
     setMlResults(null);
@@ -453,18 +584,19 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
         algo: selectedAlgo,
         target: targetCol || undefined,
         features: featureCols,
-      });
+      }, { signal: controller.signal });
       setMlResults(result);
     } catch (e) {
-      setMlError(e?.message || e?.detail || 'Analysis failed. Check that the selected columns contain usable data.');
+      if (e?.name === 'CanceledError' || e?.name === 'AbortError') return;
+      setMlError(structuredMlError(e));
     } finally {
       setIsGenerating(false);
     }
   };
 
   // ── APEX Agent NL query bar ──────────────────────────────────────────────
-  const [nlQuery,      setNlQuery]      = useState('');
-  const [showAgent,    setShowAgent]    = useState(false);
+  const [nlQuery, setNlQuery] = useState('');
+  const [showAgent, setShowAgent] = useState(false);
   const { run: runAgent, cancel: cancelAgent, events: agentEvents, status: agentStatus, report: agentReport } = useAgentStream();
 
   const handleAgentQuery = useCallback(async (e) => {
@@ -688,13 +820,12 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                               {/* Primary selection (radio) */}
                               <button
                                 onClick={() => { setSelectedTable(table.name); setTargetCol(''); setFeatureCols([]); setColSearch(''); }}
-                                className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${
-                                  isPrimary
+                                className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${isPrimary
                                     ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
                                     : isSecondary
-                                    ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
-                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
-                                }`}
+                                      ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
+                                      : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                  }`}
                               >
                                 <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isPrimary ? 'border-cyan-400' : 'border-gray-600'}`}>
                                   {isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
@@ -708,9 +839,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                 <button
                                   onClick={() => toggleSecondaryTable(table.name)}
                                   title={isSecondary ? 'Remove from join' : 'Add as join table'}
-                                  className={`p-1 rounded transition-all flex-shrink-0 ${
-                                    isSecondary ? 'text-purple-400 hover:text-purple-300' : 'text-gray-600 hover:text-gray-400'
-                                  }`}
+                                  className={`p-1 rounded transition-all flex-shrink-0 ${isSecondary ? 'text-purple-400 hover:text-purple-300' : 'text-gray-600 hover:text-gray-400'
+                                    }`}
                                 >
                                   {isSecondary ? <CheckSquare size={13} /> : <Square size={13} />}
                                 </button>
@@ -745,11 +875,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                   <button
                                     key={`t-${col._table}.${col.name}`}
                                     onClick={() => setTargetCol(col.name)}
-                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${
-                                      isTarget
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${isTarget
                                         ? 'bg-green-500/15 border-green-500/40 text-green-300'
                                         : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
-                                    }`}
+                                      }`}
                                   >
                                     {col.name}
                                     <span className={`text-[9px] font-bold ${typeColor}`}>{typeLabel}</span>
@@ -802,11 +931,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                               <button
                                 key={`f-${col._table}.${col.name}`}
                                 onClick={() => toggleFeature(col.name)}
-                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${
-                                  isFeature
+                                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${isFeature
                                     ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400'
                                     : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
-                                }`}
+                                  }`}
                               >
                                 {col.name}
                                 <span className={`text-[9px] font-bold ${typeColor}`}>{typeLabel}</span>
@@ -833,7 +961,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                       <Brain size={13} className="text-purple-400" />
                       <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Algorithm</span>
                     </div>
-                    {ALGO_FAMILIES.map((family) => {
+                    {ALGO_FAMILIES.filter(family => validFamilies.has(family.id)).map((family) => {
                       const colors = COLOR_MAP[family.color];
                       const FamilyIcon = family.icon;
                       const isExpanded = expandedFamily === family.id;
@@ -868,11 +996,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                       <button
                                         key={algo.id}
                                         onClick={() => { setSelectedAlgo(algo.id); setSelectedFamily(family.id); }}
-                                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all border ${
-                                          isSelectedAlgo
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all border ${isSelectedAlgo
                                             ? `${colors.bg} ${colors.border} ${colors.text}`
                                             : 'bg-white/[0.03] border-transparent hover:bg-white/[0.06] text-gray-400'
-                                        }`}
+                                          }`}
                                       >
                                         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelectedAlgo ? 'border-current' : 'border-gray-600'}`}>
                                           {isSelectedAlgo && <div className="w-2 h-2 rounded-full bg-current" />}
@@ -925,10 +1052,17 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                 >
                   <ArrowLeft size={13} /> Reconfigure
                 </button>
+              ) : isGenerating ? (
+                <button
+                  onClick={handleCancelRun}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-xs font-semibold hover:bg-red-500/20 transition-all"
+                >
+                  <StopCircle size={13} /> Cancel
+                </button>
               ) : (
                 <>
                   <button onClick={onClose} className="px-4 py-2 text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
-                    Cancel
+                    Close
                   </button>
                   <button
                     onClick={handleOpenDeepAnalysis}
@@ -947,8 +1081,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                 {isGenerating
                   ? <><RefreshCw size={13} className="animate-spin" /> Running…</>
                   : mlResults
-                  ? <><RefreshCw size={13} /> Re-run</>
-                  : <><Zap size={13} /> Run Model</>
+                    ? <><RefreshCw size={13} /> Re-run</>
+                    : <><Zap size={13} /> Run Model</>
                 }
               </button>
             </div>
