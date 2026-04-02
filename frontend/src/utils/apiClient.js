@@ -91,8 +91,8 @@ const normalizeError = (error) => {
             code = "FORBIDDEN";
             message = "You do not have permission for this action.";
         } else if (status === 404) {
-             code = "NOT_FOUND";
-             message = "Resource not found.";
+            code = "NOT_FOUND";
+            message = "Resource not found.";
         }
     }
 
@@ -112,10 +112,10 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
     (config) => {
         activeRequests++;
-        
+
         // Skip auth for /auth/* endpoints
         const isAuthRoute = config.url && config.url.startsWith('/auth/');
-        
+
         if (!isAuthRoute) {
             const token = localStorage.getItem('token'); // Preserved existing token pattern
             if (token) {
@@ -158,17 +158,17 @@ apiClient.interceptors.response.use(
                 if (failedQueue.length >= MAX_QUEUE_SIZE) {
                     return Promise.reject({ message: 'Too many pending requests', code: 'QUEUE_FULL', status: 0 });
                 }
-                return new Promise(function(resolve, reject) {
+                return new Promise(function (resolve, reject) {
                     failedQueue.push({ resolve, reject });
                 })
-                .then(token => {
-                    originalRequest.headers.Authorization = `Bearer ${token}`;
-                    // Use apiClient so the response interceptor runs and activeRequests is decremented
-                    return apiClient(originalRequest);
-                })
-                .catch(err => {
-                    return Promise.reject(err);
-                });
+                    .then(token => {
+                        originalRequest.headers.Authorization = `Bearer ${token}`;
+                        // Use apiClient so the response interceptor runs and activeRequests is decremented
+                        return apiClient(originalRequest);
+                    })
+                    .catch(err => {
+                        return Promise.reject(err);
+                    });
             }
 
             originalRequest._retry = true;
@@ -189,7 +189,7 @@ apiClient.interceptors.response.use(
                 const refreshResponse = await axios.post(`${BASE_URL}/api/auth/refresh`, {
                     refresh_token: refreshToken
                 });
-                
+
                 const newToken = refreshResponse.data.access_token;
                 localStorage.setItem('token', newToken);
 
@@ -202,7 +202,7 @@ apiClient.interceptors.response.use(
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
 
                 processQueue(null, newToken);
-                
+
                 // Retry the original request (must use axios direct to get full response object for interceptor compat, but apiClient expects .data return)
                 const retryResponse = await axios(originalRequest);
                 return retryResponse.data;
@@ -242,6 +242,7 @@ apiClient.interceptors.response.use(
                 }
 
                 // Use apiClient so the response interceptor runs (decrements activeRequests, returns .data)
+                activeRequests++;
                 return apiClient(originalRequest);
             });
         }

@@ -435,7 +435,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     _stopPolling();
     runAbortRef.current?.abort();
     if (activeRunIdRef.current) {
-      apiClient.delete(`/ml/run/${activeRunIdRef.current}`).catch(() => {});
+      apiClient.delete(`/ml/run/${activeRunIdRef.current}`).catch(() => { });
       activeRunIdRef.current = null;
     }
     setIsGenerating(false);
@@ -547,6 +547,11 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, graphData]);
 
+  // Stop polling when modal closes mid-run
+  useEffect(() => {
+    if (!isOpen) _stopPolling();
+  }, [isOpen, _stopPolling]);
+
   const applyAISuggestion = useCallback((s) => {
     if (!s) return;
     setSelectedTable(s.primaryTable);
@@ -560,11 +565,16 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   }, []);
 
   const toggleFeature = (col) => setFeatureCols(prev =>
-    prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
+    prev.includes(col)
+      ? prev.filter(c => c !== col)
+      : prev.length >= 20 ? prev : [...prev, col]
   );
 
   const selectAllFeatures = () => {
-    const available = columnsFromSelected.filter(c => c.name !== targetCol).map(c => c.name);
+    const available = columnsFromSelected
+      .filter(c => c.name !== targetCol)
+      .map(c => c.name)
+      .slice(0, 20);
     setFeatureCols(available);
   };
 
@@ -871,10 +881,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                               <button
                                 onClick={() => { setSelectedTable(table.name); setTargetCol(''); setFeatureCols([]); setColSearch(''); }}
                                 className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${isPrimary
-                                    ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
-                                    : isSecondary
-                                      ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
-                                      : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                  ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
+                                  : isSecondary
+                                    ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
+                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
                                   }`}
                               >
                                 <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isPrimary ? 'border-cyan-400' : 'border-gray-600'}`}>
@@ -926,8 +936,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                     key={`t-${col._table}.${col.name}`}
                                     onClick={() => setTargetCol(col.name)}
                                     className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${isTarget
-                                        ? 'bg-green-500/15 border-green-500/40 text-green-300'
-                                        : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
+                                      ? 'bg-green-500/15 border-green-500/40 text-green-300'
+                                      : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
                                       }`}
                                   >
                                     {col.name}
@@ -982,8 +992,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                 key={`f-${col._table}.${col.name}`}
                                 onClick={() => toggleFeature(col.name)}
                                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border transition-all ${isFeature
-                                    ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400'
-                                    : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
+                                  ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400'
+                                  : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.08]'
                                   }`}
                               >
                                 {col.name}
@@ -1047,8 +1057,8 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                                         key={algo.id}
                                         onClick={() => { setSelectedAlgo(algo.id); setSelectedFamily(family.id); }}
                                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all border ${isSelectedAlgo
-                                            ? `${colors.bg} ${colors.border} ${colors.text}`
-                                            : 'bg-white/[0.03] border-transparent hover:bg-white/[0.06] text-gray-400'
+                                          ? `${colors.bg} ${colors.border} ${colors.text}`
+                                          : 'bg-white/[0.03] border-transparent hover:bg-white/[0.06] text-gray-400'
                                           }`}
                                       >
                                         <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelectedAlgo ? 'border-current' : 'border-gray-600'}`}>
