@@ -44,7 +44,11 @@ function useQueryParams() {
       family:          p.get('family')       || 'regression',
       algo:            p.get('algo')         || 'xgboost',
       target:          p.get('target')       || '',
-      features:        (p.get('features')    || '').split(',').filter(Boolean),
+      // Each column was encodeURIComponent'd before joining — decode each individually
+      // so column names with commas (valid in Postgres quoted identifiers) survive the round-trip
+      features:        (p.get('features') || '').split(',').filter(Boolean).map(decodeURIComponent),
+      // run_id from the modal's async job — present when opened via "Open Deep Analysis"
+      run_id:          p.get('run_id') || '',
     };
   }, []);
 }
@@ -169,16 +173,16 @@ function CorrHeatmap({ features, corrData }) {
 }
 
 // ─── 3D scatter (r3f) ──────────────────────────────────────────────────────────
-function Points3D({ data }) {
+function Points3D({ data, xCol, yCol }) {
   const pos = useMemo(() => {
     const a = new Float32Array(data.length * 3);
     data.forEach((d, i) => {
-      a[i * 3]     = (Object.values(d)[0] || 0) / 5 - 10;
+      a[i * 3]     = (parseFloat(d[xCol]) || 0) / 5 - 10;
       a[i * 3 + 1] = (d.cluster || 0) * 4 - 4;
-      a[i * 3 + 2] = (Object.values(d)[1] || 0) / 5 - 10;
+      a[i * 3 + 2] = (parseFloat(d[yCol]) || 0) / 5 - 10;
     });
     return a;
-  }, [data]);
+  }, [data, xCol, yCol]);
 
   const colors = useMemo(() => {
     const a = new Float32Array(data.length * 3);
@@ -240,6 +244,10 @@ export default function DeepAnalysisPage() {
   const [analysisError,   setAnalysisError]   = useState(null);
 
   // ── Fetch real ML results on mount
+  // If a run_id was passed from the modal, poll the cached job result instead of re-running.
+  // Falls back to a direct POST /analyze only when the page is opened cold (no run_id).
+  const pollRef = useRef(null);
+
   useEffect(() => {
     if (!params.table || !params.connectionId) {
       setAnalysisLoading(false);
@@ -249,18 +257,44 @@ export default function DeepAnalysisPage() {
     setAnalysisLoading(true);
     setAnalysisError(null);
 
-    apiClient.post('/ml/analyze', {
-      connection_id:    params.connectionId,
-      table:            params.table,
-      secondary_tables: params.secondaryTables,
-      family:           params.family,
-      algo:             params.algo,
-      target:           params.target || undefined,
-      features:         params.features,
-    }, { timeout: 120000 })
-      .then(data  => setAnalysisResult(data))
-      .catch(err  => setAnalysisError(err?.message || 'Analysis failed. Check your connection and selected columns.'))
-      .finally(() => setAnalysisLoading(false));
+    if (params.run_id) {
+      // Poll the job that the modal already started — no new training run
+      pollRef.current = setInterval(async () => {
+        try {
+          const job = await apiClient.get(`/ml/run/${params.run_id}/status`);
+          if (job.status === 'success') {
+            clearInterval(pollRef.current);
+            setAnalysisResult(job.result);
+            setAnalysisLoading(false);
+          } else if (job.status === 'failed') {
+            clearInterval(pollRef.current);
+            setAnalysisError(job.error || 'Analysis failed.');
+            setAnalysisLoading(false);
+          }
+          // status === 'running' → keep polling
+        } catch (err) {
+          clearInterval(pollRef.current);
+          setAnalysisError(err?.message || 'Failed to retrieve analysis results.');
+          setAnalysisLoading(false);
+        }
+      }, 2000);
+    } else {
+      // Cold open (e.g. bookmarked URL) — fall back to a direct analysis call
+      apiClient.post('/ml/analyze', {
+        connection_id:    params.connectionId,
+        table:            params.table,
+        secondary_tables: params.secondaryTables,
+        family:           params.family,
+        algo:             params.algo,
+        target:           params.target || undefined,
+        features:         params.features,
+      }, { timeout: 120000 })
+        .then(data  => setAnalysisResult(data))
+        .catch(err  => setAnalysisError(err?.message || 'Analysis failed. Check your connection and selected columns.'))
+        .finally(() => setAnalysisLoading(false));
+    }
+
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
@@ -790,7 +824,7 @@ export default function DeepAnalysisPage() {
                         <ambientLight intensity={0.5} />
                         <pointLight position={[10, 10, 10]} intensity={0.7} />
                         <Suspense fallback={null}>
-                          <Points3D data={scatterData.slice(0, 80)} />
+                          <Points3D data={scatterData.slice(0, 80)} xCol={chartCols.x} yCol={chartCols.y} />
                           <OrbitControls autoRotate autoRotateSpeed={0.7} enableZoom />
                         </Suspense>
                         <gridHelper args={[30, 20, '#1a2a2a', '#111f1f']} />

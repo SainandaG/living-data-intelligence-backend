@@ -406,7 +406,9 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   const [isGenerating, setIsGenerating] = useState(false);
   const [mlResults, setMlResults] = useState(null);
   const [mlError, setMlError] = useState(null);
-  const runAbortRef = useRef(null);
+  const runAbortRef = useRef(null);          // AbortController for the /run POST
+  const pollTimerRef = useRef(null);         // setInterval id for status polling
+  const activeRunIdRef = useRef(null);       // run_id being polled
 
   const ML_ERROR_MESSAGES = {
     422: (detail) => `Check your column selection: ${detail}`,
@@ -422,11 +424,20 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     return builder ? builder(detail) : detail;
   };
 
+  const _stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    activeRunIdRef.current = null;
+  }, []);
+
   const handleCancelRun = useCallback(() => {
+    _stopPolling();
     runAbortRef.current?.abort();
     setIsGenerating(false);
     setMlError(null);
-  }, []);
+  }, [_stopPolling]);
 
   const tables = graphData?.nodes || [];
   const activeTable = tables.find(t => t.name === selectedTable);
@@ -488,6 +499,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     if (defaultAlgo) setSelectedAlgo(defaultAlgo);
   }, [validFamilies, selectedFamily]);
 
+  // Always-current ref so async callbacks read the live manualMode value
+  const manualModeRef = useRef(manualMode);
+  useEffect(() => { manualModeRef.current = manualMode; }, [manualMode]);
+
   // Track whether we've already initialized for the current modal session
   const hasInitRef = useRef(false);
 
@@ -503,7 +518,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
     const local = generateAISuggestion(graphData);
     setAiSuggestion(local);
-    if (local && !manualMode) applyAISuggestion(local);
+    if (local && !manualModeRef.current) applyAISuggestion(local);
 
     if (!connectionId || !local?.primaryTable) return;
     setAiLoading(true);
@@ -522,7 +537,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
           fromBackend: true,
         };
         setAiSuggestion(enhanced);
-        if (!manualMode) applyAISuggestion(enhanced);
+        if (!manualModeRef.current) applyAISuggestion(enhanced);
       })
       .catch((err) => { console.warn('[ML/suggest] failed:', err?.message || err); })
       .finally(() => setAiLoading(false));
@@ -562,21 +577,30 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
       family: selectedFamily,
       algo: selectedAlgo,
       target: targetCol,
-      features: featureCols.join(','),
+      // Encode each column name individually to handle commas in Postgres-quoted identifiers
+      features: featureCols.map(encodeURIComponent).join(','),
     });
+    // Pass the run_id so DeepAnalysisPage can poll the cached result instead of re-running
+    if (activeRunIdRef.current) {
+      params.set('run_id', activeRunIdRef.current);
+    }
     window.open(`/deep-analysis?${params.toString()}`, '_blank');
     onClose();
   };
 
   const handleRunInline = async () => {
     if (!selectedTable) return;
+    _stopPolling();
     const controller = new AbortController();
     runAbortRef.current = controller;
     setIsGenerating(true);
     setMlError(null);
     setMlResults(null);
+
+    let runId;
     try {
-      const result = await apiClient.post('/ml/analyze', {
+      // Start the background job — returns immediately with a run_id
+      const { run_id } = await apiClient.post('/ml/run', {
         connection_id: connectionId,
         table: selectedTable,
         secondary_tables: selectedSecondaryTables,
@@ -585,13 +609,36 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
         target: targetCol || undefined,
         features: featureCols,
       }, { signal: controller.signal });
-      setMlResults(result);
+      runId = run_id;
+      activeRunIdRef.current = runId;
     } catch (e) {
       if (e?.name === 'CanceledError' || e?.name === 'AbortError') return;
       setMlError(structuredMlError(e));
-    } finally {
       setIsGenerating(false);
+      return;
     }
+
+    // Poll /ml/run/{run_id}/status every 2 seconds
+    pollTimerRef.current = setInterval(async () => {
+      if (controller.signal.aborted) { _stopPolling(); return; }
+      try {
+        const job = await apiClient.get(`/ml/run/${runId}/status`);
+        if (job.status === 'success') {
+          _stopPolling();
+          setMlResults(job.result);
+          setIsGenerating(false);
+        } else if (job.status === 'failed') {
+          _stopPolling();
+          setMlError(job.error || 'Analysis failed.');
+          setIsGenerating(false);
+        }
+        // status === 'running' → keep polling
+      } catch (e) {
+        _stopPolling();
+        setMlError(structuredMlError(e));
+        setIsGenerating(false);
+      }
+    }, 2000);
   };
 
   // ── APEX Agent NL query bar ──────────────────────────────────────────────

@@ -6,26 +6,40 @@ Introspects connected database schemas to extract tables, columns, row counts, a
 """
 import asyncio
 import logging
+import time
 from app.services.db_connector import db_connector
 from app.services.ai_classifier import ai_classifier
 from app.models.schemas import Schema, Table, Column, ForeignKey, Relationship
 from typing import Dict
+
+_SCHEMA_CACHE_TTL_SECONDS = int(600)  # 10 minutes
 
 logger = logging.getLogger(__name__)
 
 class SchemaAnalyzer:
     def __init__(self):
         self.analysis_results: Dict[str, Schema] = {}
+        self._cached_at: Dict[str, float] = {}   # connection_id → unix timestamp of last analysis
 
     def get_analysis_result(self, connection_id: str) -> Schema:
-        """Get cached analysis result"""
+        """Get cached analysis result (may be stale — callers should use analyze_schema for fresh data)."""
         return self.analysis_results.get(connection_id)
+
+    def invalidate(self, connection_id: str) -> None:
+        """Remove a cached schema so the next analyze_schema call re-fetches from the database."""
+        self.analysis_results.pop(connection_id, None)
+        self._cached_at.pop(connection_id, None)
+
+    def _is_cache_fresh(self, connection_id: str) -> bool:
+        cached_ts = self._cached_at.get(connection_id)
+        if cached_ts is None:
+            return False
+        return (time.time() - cached_ts) < _SCHEMA_CACHE_TTL_SECONDS
 
     async def analyze_schema(self, connection_id: str) -> Schema:
         """Analyze database schema"""
-        # 0. Check Cache First
-        if connection_id in self.analysis_results:
-            # print(f"⚡ Using cached schema for {connection_id}")
+        # 0. Check Cache First (respect TTL — stale schemas miss new tables/columns)
+        if connection_id in self.analysis_results and self._is_cache_fresh(connection_id):
             return self.analysis_results[connection_id]
 
         connection = db_connector.get_connection(connection_id)
@@ -71,8 +85,9 @@ class SchemaAnalyzer:
         # This ensures the schema has some meta-data immediately
         schema = ai_classifier._heuristic_classify(schema)
         
-        # Cache the result
+        # Cache the result with a timestamp for TTL enforcement
         self.analysis_results[connection_id] = schema
+        self._cached_at[connection_id] = time.time()
         
         # 2. Parallel AI & agent tasks
         # Background slow Gemini classification

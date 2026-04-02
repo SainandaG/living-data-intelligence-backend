@@ -163,7 +163,8 @@ apiClient.interceptors.response.use(
                 })
                 .then(token => {
                     originalRequest.headers.Authorization = `Bearer ${token}`;
-                    return axios(originalRequest).then(res => res.data); // Retry via new axios call to avoid interceptor loop
+                    // Use apiClient so the response interceptor runs and activeRequests is decremented
+                    return apiClient(originalRequest);
                 })
                 .catch(err => {
                     return Promise.reject(err);
@@ -233,26 +234,15 @@ apiClient.interceptors.response.use(
             // Exponential backoff: 1s → 2s
             const backoffMs = 1000 * Math.pow(2, originalRequest._retryCount - 1);
 
-            // Increment activeRequests since we are initiating a new request under the hood
-            activeRequests++;
-
             return new Promise(resolve => setTimeout(resolve, backoffMs)).then(() => {
                 // Ensure auth header is current
                 const token = localStorage.getItem('token');
                 if (token && !originalRequest.url?.startsWith('/auth/')) {
                     originalRequest.headers.Authorization = `Bearer ${token}`;
                 }
-                
-                // Re-evaluate the promise
-                return axios(originalRequest)
-                    .then(res => {
-                        activeRequests--;
-                        return res.data;
-                    })
-                    .catch(err => {
-                        activeRequests--;
-                        return Promise.reject(normalizeError(err));
-                    });
+
+                // Use apiClient so the response interceptor runs (decrements activeRequests, returns .data)
+                return apiClient(originalRequest);
             });
         }
 

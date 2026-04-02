@@ -16,6 +16,7 @@ import asyncio
 import logging
 import math
 import re
+import uuid
 from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
@@ -26,6 +27,10 @@ from pydantic import BaseModel, Field, model_validator
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ml", tags=["ml-analysis"])
+
+# In-memory store for async job results: run_id → {status, result?, error?}
+# The JSONL file in experiment_tracker is the durable store; this is the hot path.
+_pending_results: Dict[str, Dict[str, Any]] = {}
 
 VALID_ALGOS: Dict[str, set] = {
     "classification": {"rf_clf", "svm", "knn", "logreg"},
@@ -80,6 +85,7 @@ class AnalysisResult(BaseModel):
     data_warnings: List[str] = []   # populated by _check_data_quality — read these first
     scatter_sample: Optional[List[Dict]] = []
     status: str = "success"
+    run_id: Optional[str] = None    # set by /run endpoint; absent for direct /analyze calls
 
 
 # ─── Data fetching ────────────────────────────────────────────────────────────
@@ -111,6 +117,13 @@ async def _fetch_data(connection_id: str, table: str,
         from app.services.db_connector import db_connector
         conn = db_connector.get_connection(connection_id)
         db_type = conn.get("type", "").lower()
+
+        if db_type in ("mongodb", "mongo"):
+            raise NotImplementedError(
+                "MongoDB is not supported for ML analysis. "
+                "Connect to a PostgreSQL or MySQL database to use this feature."
+            )
+
         def qt(name): return _safe_quote(name, db_type)
 
         safe_table = qt(table)
@@ -719,10 +732,14 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
     residuals_train = y_train - y_trend_train
 
     # ── Weekly seasonality (period 7) via harmonic regression ──
+    # k_harm, T, coeffs_s initialised here so test-set and forecast blocks are
+    # always defined, even when len(y_train) < 14 or lstsq fails.
+    k_harm: int = 0
+    T: float = 7.0
+    coeffs_s: np.ndarray = np.zeros(0)
     seasonal_component_train = np.zeros(len(y_train))
     if len(y_train) >= 14:
-        k_harm = min(3, len(y_train) // 14)                # number of harmonics
-        T = 7.0
+        k_harm = min(3, len(y_train) // 14)
         A_train = np.column_stack(
             [np.cos(2 * np.pi * h * x_train / T) for h in range(1, k_harm + 1)] +
             [np.sin(2 * np.pi * h * x_train / T) for h in range(1, k_harm + 1)]
@@ -731,13 +748,13 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
             coeffs_s, *_ = np.linalg.lstsq(A_train, residuals_train, rcond=None)
             seasonal_component_train = A_train @ coeffs_s
         except Exception:
-            pass
+            coeffs_s = np.zeros(k_harm * 2)
 
     # ── EVALUATE ON TEST SET ──
     x_test = x[split:]
     if len(x_test) > 0:
         future_trend_test = np.polyval(coeffs, x_test)
-        if len(y_train) >= 14:
+        if k_harm > 0 and len(coeffs_s) > 0:
             A_test = np.column_stack(
                 [np.cos(2 * np.pi * h * x_test / T) for h in range(1, k_harm + 1)] +
                 [np.sin(2 * np.pi * h * x_test / T) for h in range(1, k_harm + 1)]
@@ -761,8 +778,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
     x_future = np.arange(n, n + 30, dtype=float)
     future_trend = np.polyval(coeffs, x_future)
 
-    if len(y_train) >= 14:
-        T = 7.0
+    if k_harm > 0 and len(coeffs_s) > 0:
         A_future = np.column_stack(
             [np.cos(2 * np.pi * h * x_future / T) for h in range(1, k_harm + 1)] +
             [np.sin(2 * np.pi * h * x_future / T) for h in range(1, k_harm + 1)]
@@ -1030,13 +1046,144 @@ async def run_ml_analysis(req: AnalysisRequest):
 
     except HTTPException:
         raise
-    except ValueError as exc:
+    except (ValueError, NotImplementedError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except ConnectionError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:
         logger.error("ML analysis failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error during ML analysis.")
+
+
+# ─── Async job endpoints (/run + /run/{run_id}/status) ───────────────────────
+
+async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
+    """Background coroutine that runs the full ML pipeline and stores the result."""
+    try:
+        features = req.features or []
+        target = req.target
+
+        all_cols = list(dict.fromkeys(([target] if target else []) + features))
+        rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
+        if req.secondary_tables:
+            rows = await _merge_secondary_tables(req.connection_id, rows, req.secondary_tables)
+        row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
+
+        data_warnings = _check_data_quality(rows, features, target)
+
+        from app.services.ml.experiment_tracker import experiment_tracker
+        run = await experiment_tracker.start_run(
+            experiment=f"{req.table}_{req.family}",
+            algo=req.algo, family=req.family,
+            connection_id=req.connection_id, table=req.table,
+            hyperparams={},
+        )
+
+        bg_loop = asyncio.get_running_loop()
+
+        async def _run_ml():
+            if req.family == "timeseries":
+                return await bg_loop.run_in_executor(
+                    None, _run_timeseries, rows, features, target, req.algo
+                )
+            X, y, feature_names = await bg_loop.run_in_executor(
+                None, _preprocess, rows, features, target, req.family
+            )
+            if X is None or len(X) == 0:
+                raise ValueError(
+                    "No usable data after preprocessing. "
+                    "Ensure the selected feature and target columns contain non-null values."
+                )
+            if req.family == "classification":
+                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
+                    None, _run_classification, X, y, req.algo, feature_names
+                )
+            elif req.family == "regression":
+                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
+                    None, _run_regression, X, y, req.algo, feature_names
+                )
+            else:
+                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
+                    None, _run_clustering, X, req.algo, feature_names
+                )
+            return metrics, fi, predictions
+
+        try:
+            metrics, fi, predictions = await asyncio.wait_for(_run_ml(), timeout=120.0)
+            await experiment_tracker.finish_run(
+                run, metrics=metrics,
+                feature_importances=[f.__dict__ for f in fi],
+            )
+        except asyncio.TimeoutError:
+            await experiment_tracker.finish_run(run, metrics={}, status="timeout")
+            _pending_results[run_id] = {
+                "status": "failed",
+                "error": "ML analysis timed out. Try fewer features or a faster algorithm.",
+            }
+            return
+        except Exception as exc:
+            await experiment_tracker.finish_run(run, metrics={}, status="failed")
+            raise exc
+
+        insights = _build_insights(req.family, req.algo, req.table, target, fi, metrics, row_count)
+
+        required_cols = set(([target] if target else []) + list(features))
+        scatter_sample = []
+        for row in rows[:80]:
+            entry = {k: v for k, v in row.items() if isinstance(v, (int, float, str, type(None)))}
+            for col in required_cols:
+                if col not in entry:
+                    entry[col] = None
+            scatter_sample.append(entry)
+
+        result = AnalysisResult(
+            algo=req.algo, family=req.family, table=req.table,
+            row_count=row_count, metrics=metrics, feature_importances=fi,
+            predictions=predictions, insights=insights, data_warnings=data_warnings,
+            scatter_sample=scatter_sample, status="success", run_id=run_id,
+        )
+        _pending_results[run_id] = {"status": "success", "result": result.model_dump()}
+
+    except ConnectionError as exc:
+        _pending_results[run_id] = {"status": "failed", "error": str(exc)}
+    except ValueError as exc:
+        _pending_results[run_id] = {"status": "failed", "error": str(exc)}
+    except Exception as exc:
+        logger.error("Background ML job %s failed: %s", run_id, exc, exc_info=True)
+        _pending_results[run_id] = {"status": "failed", "error": "Internal server error during ML analysis."}
+
+
+@router.post("/run", status_code=202)
+async def start_ml_run(req: AnalysisRequest):
+    """
+    Start an ML analysis job asynchronously.
+
+    Returns a run_id immediately; poll GET /run/{run_id}/status for progress.
+    The job runs in the background — no timeout risk on the HTTP connection.
+
+    Responses:
+    - 202: Job accepted; run_id returned
+    """
+    run_id = str(uuid.uuid4())
+    _pending_results[run_id] = {"status": "running"}
+    asyncio.create_task(_run_analysis_background(run_id, req))
+    return {"run_id": run_id, "status": "running"}
+
+
+@router.get("/run/{run_id}/status")
+async def get_run_status(run_id: str):
+    """
+    Poll the status of an async ML job started with POST /run.
+
+    Responses:
+    - 200: {status: "running"} while in progress; {status: "success", result: AnalysisResult}
+           when done; {status: "failed", error: str} on failure
+    - 404: Unknown run_id (not yet started or expired)
+    """
+    job = _pending_results.get(run_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+    return job
 
 
 # ─── Suggest endpoint ─────────────────────────────────────────────────────────

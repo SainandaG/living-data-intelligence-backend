@@ -58,6 +58,8 @@ class ExperimentTracker:
         self._lock = threading.Lock()          # serialises concurrent writes (H3)
         self._mlflow_available = self._probe_mlflow()
         self._validate_dir_writable()
+        # Hot-path cache: run_id → latest run dict (O(1) lookup; JSONL is the durable store)
+        self._run_cache: Dict[str, Dict[str, Any]] = {}
 
     def _validate_dir_writable(self) -> None:
         """T5-1: Warn at startup if the experiments directory is not writable."""
@@ -167,9 +169,16 @@ class ExperimentTracker:
 
     # ── Internals ─────────────────────────────────────────────────────────────
 
+    def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """O(1) lookup by run_id from the in-memory cache."""
+        return self._run_cache.get(run_id)
+
     def _write_locked(self, run: MLRun) -> None:
         """Thread-safe append with log rotation (H1, H2, H3)."""
+        run_dict = asdict(run)
         with self._lock:
+            # Update hot-path cache before touching disk
+            self._run_cache[run.run_id] = run_dict
             try:
                 # Rotate when file exceeds _MAX_LOG_BYTES
                 if self._log_path.exists() and self._log_path.stat().st_size >= _MAX_LOG_BYTES:
@@ -178,7 +187,7 @@ class ExperimentTracker:
                     self._log_path.rename(bak)
                     logger.info("experiment_tracker: rotated runs.jsonl → runs.jsonl.bak")
                 with open(self._log_path, "a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(asdict(run)) + "\n")
+                    fh.write(json.dumps(run_dict) + "\n")
             except Exception as exc:
                 logger.warning("experiment_tracker write failed: %s", exc)
 
