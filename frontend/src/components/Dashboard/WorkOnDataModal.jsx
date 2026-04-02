@@ -57,7 +57,6 @@ const ALGO_FAMILIES = [
     description: 'Forecast temporal patterns',
     algos: [
       { id: 'arima', name: 'ARIMA', tag: 'Classic', tagColor: 'teal', best_for: 'Stationary time series, seasonal data' },
-      { id: 'prophet', name: 'Prophet', tag: 'Robust', tagColor: 'blue', best_for: 'Business time series, holidays, trends' },
     ],
   },
   {
@@ -435,6 +434,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   const handleCancelRun = useCallback(() => {
     _stopPolling();
     runAbortRef.current?.abort();
+    if (activeRunIdRef.current) {
+      apiClient.delete(`/ml/run/${activeRunIdRef.current}`).catch(() => {});
+      activeRunIdRef.current = null;
+    }
     setIsGenerating(false);
     setMlError(null);
   }, [_stopPolling]);
@@ -522,7 +525,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
     if (!connectionId || !local?.primaryTable) return;
     setAiLoading(true);
-    apiClient.get(`/ml/suggest?connection_id=${connectionId}&table=${local.primaryTable}`)
+    apiClient.get('/ml/suggest', { params: { connection_id: connectionId, table: local.primaryTable } })
       .then(res => {
         const s = res?.suggestion || res?.data?.suggestion;
         if (!s) return;

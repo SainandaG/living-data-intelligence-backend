@@ -57,7 +57,7 @@ const ALGO_DISPLAY = {
   xgboost: 'XGBoost',  rf_clf: 'Random Forest', svm: 'SVM',
   knn: 'KNN',          logreg: 'Logistic Regression',
   linear: 'Linear Regression', ridge: 'Ridge', lasso: 'Lasso',
-  arima: 'ARIMA',      prophet: 'Prophet',
+  arima: 'ARIMA',
   kmeans: 'K-Means',   dbscan: 'DBSCAN',
 };
 
@@ -259,7 +259,7 @@ export default function DeepAnalysisPage() {
 
     if (params.run_id) {
       // Poll the job that the modal already started — no new training run
-      pollRef.current = setInterval(async () => {
+      const checkStatus = async () => {
         try {
           const job = await apiClient.get(`/ml/run/${params.run_id}/status`);
           if (job.status === 'success') {
@@ -277,7 +277,9 @@ export default function DeepAnalysisPage() {
           setAnalysisError(err?.message || 'Failed to retrieve analysis results.');
           setAnalysisLoading(false);
         }
-      }, 2000);
+      };
+      checkStatus(); // fire immediately, no 2 s dead wait
+      pollRef.current = setInterval(checkStatus, 2000);
     } else {
       // Cold open (e.g. bookmarked URL) — fall back to a direct analysis call
       apiClient.post('/ml/analyze', {

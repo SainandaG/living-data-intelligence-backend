@@ -127,7 +127,7 @@ apiClient.interceptors.request.use(
         return config;
     },
     (error) => {
-        activeRequests--;
+        activeRequests = Math.max(0, activeRequests - 1);
         logger.error('[API] Request Error:', error);
         return Promise.reject(error);
     }
@@ -140,7 +140,7 @@ apiClient.interceptors.response.use(
         return response.data; // Return data directly
     },
     async (error) => {
-        activeRequests--;
+        activeRequests = Math.max(0, activeRequests - 1);
         const originalRequest = error.config;
         const normalizedError = normalizeError(error);
 

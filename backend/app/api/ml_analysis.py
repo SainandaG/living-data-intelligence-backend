@@ -28,15 +28,40 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ml", tags=["ml-analysis"])
 
-# In-memory store for async job results: run_id → {status, result?, error?}
+# In-memory store for async job results: run_id → {status, result?, error?, _ts}
 # The JSONL file in experiment_tracker is the durable store; this is the hot path.
 _pending_results: Dict[str, Dict[str, Any]] = {}
+_PENDING_TTL_S = 3600       # evict completed/failed entries after 1 hour
+_PENDING_MAX   = 500        # hard cap — oldest entries dropped first
+
+def _pending_set(run_id: str, value: Dict[str, Any]) -> None:
+    """Write to _pending_results with a timestamp, enforcing TTL and size cap."""
+    import time as _time
+    now = _time.monotonic()
+    value["_ts"] = now
+
+    # Evict expired entries first
+    expired = [k for k, v in _pending_results.items()
+               if v.get("status") != "running" and now - v.get("_ts", now) > _PENDING_TTL_S]
+    for k in expired:
+        del _pending_results[k]
+
+    # If still over cap, drop oldest non-running entries
+    if len(_pending_results) >= _PENDING_MAX:
+        candidates = sorted(
+            ((k, v.get("_ts", 0)) for k, v in _pending_results.items() if v.get("status") != "running"),
+            key=lambda x: x[1],
+        )
+        for k, _ in candidates[:max(1, len(candidates) - _PENDING_MAX // 2)]:
+            del _pending_results[k]
+
+    _pending_results[run_id] = value
 
 VALID_ALGOS: Dict[str, set] = {
     "classification": {"rf_clf", "svm", "knn", "logreg"},
     "regression":     {"linear", "ridge", "lasso", "xgboost"},
     "clustering":     {"kmeans", "dbscan"},
-    "timeseries":     {"arima", "prophet"},
+    "timeseries":     {"arima"},
 }
 
 
@@ -1116,10 +1141,10 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
             )
         except asyncio.TimeoutError:
             await experiment_tracker.finish_run(run, metrics={}, status="timeout")
-            _pending_results[run_id] = {
+            _pending_set(run_id, {
                 "status": "failed",
                 "error": "ML analysis timed out. Try fewer features or a faster algorithm.",
-            }
+            })
             return
         except Exception as exc:
             await experiment_tracker.finish_run(run, metrics={}, status="failed")
@@ -1142,15 +1167,15 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
             predictions=predictions, insights=insights, data_warnings=data_warnings,
             scatter_sample=scatter_sample, status="success", run_id=run_id,
         )
-        _pending_results[run_id] = {"status": "success", "result": result.model_dump()}
+        _pending_set(run_id, {"status": "success", "result": result.model_dump()})
 
     except ConnectionError as exc:
-        _pending_results[run_id] = {"status": "failed", "error": str(exc)}
+        _pending_set(run_id, {"status": "failed", "error": str(exc)})
     except ValueError as exc:
-        _pending_results[run_id] = {"status": "failed", "error": str(exc)}
+        _pending_set(run_id, {"status": "failed", "error": str(exc)})
     except Exception as exc:
         logger.error("Background ML job %s failed: %s", run_id, exc, exc_info=True)
-        _pending_results[run_id] = {"status": "failed", "error": "Internal server error during ML analysis."}
+        _pending_set(run_id, {"status": "failed", "error": "Internal server error during ML analysis."})
 
 
 @router.post("/run", status_code=202)
@@ -1165,7 +1190,7 @@ async def start_ml_run(req: AnalysisRequest):
     - 202: Job accepted; run_id returned
     """
     run_id = str(uuid.uuid4())
-    _pending_results[run_id] = {"status": "running"}
+    _pending_set(run_id, {"status": "running"})
     asyncio.create_task(_run_analysis_background(run_id, req))
     return {"run_id": run_id, "status": "running"}
 
@@ -1508,39 +1533,6 @@ async def best_experiment(
     if not best:
         raise HTTPException(status_code=404, detail="No completed runs found.")
     return best
-
-
-# ─── Run status / cancellation endpoints (T4-1, T4-2) ────────────────────────
-
-@router.get("/run/{run_id}/status")
-async def get_run_status(run_id: str, tenant_id: str = "default"):
-    """
-    Return the current status and a metrics preview for a specific run.
-
-    Used by the frontend to poll for completion instead of fake timeouts.
-
-    Responses:
-    - 200: Run found; returns status, algo, family, duration_s, metrics_preview
-    - 404: Run not found for this tenant
-    """
-    from app.services.ml.experiment_tracker import experiment_tracker
-    runs = experiment_tracker.get_runs(tenant_id=tenant_id, limit=200)
-    run = next((r for r in runs if r.get("run_id") == run_id), None)
-    if not run:
-        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
-
-    metrics = run.get("metrics", {})
-    metrics_preview = {k: v for k, v in metrics.items()
-                       if k in ("accuracy", "f1", "R2", "RMSE", "silhouette_score", "MAPE", "trend")}
-    return {
-        "run_id":          run_id,
-        "status":          run.get("status"),
-        "algo":            run.get("algo"),
-        "family":          run.get("family"),
-        "table":           run.get("table"),
-        "duration_s":      run.get("duration_s"),
-        "metrics_preview": metrics_preview,
-    }
 
 
 @router.delete("/run/{run_id}")
