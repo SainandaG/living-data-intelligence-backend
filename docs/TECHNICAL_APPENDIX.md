@@ -19,12 +19,21 @@
 
 ## Repository Structure
 
-```
-living-data-intelligence-backend/
+``living-data-intelligence-backend/
 ├── backend/                          # Python FastAPI backend
 │   ├── app/                          # Main application package
-│   │   ├── api/                      # API route handlers (19 files)
-│   │   ├── services/                 # Business logic (42 services)
+│   │   ├── api/                      # API route handlers (30 files)
+│   │   │   ├── ml_analysis.py        # ML Analysis API (76KB)
+│   │   │   ├── ml.py                 # Basic ML API
+│   │   │   ├── vitals.py             # System vitals
+│   │   │   └── ...
+│   │   ├── services/                 # Business logic (51 services)
+│   │   │   ├── ml/                   # ML specialized services
+│   │   │   │   ├── experiment_tracker.py # ML history tracking
+│   │   │   │   └── explainer.py      # SHAP interpretability
+│   │   │   ├── analysis_engine.py    # Analytics orchestration
+│   │   │   ├── vitals_service.py     # Health monitoring
+│   │   │   └── ...
 │   │   ├── models/                   # Data models
 │   │   ├── config/                   # Configuration
 │   │   ├── agents/                   # AI agent modules
@@ -34,45 +43,32 @@ living-data-intelligence-backend/
 │   │   ├── shared/                   # Shared utilities
 │   │   ├── utils/                    # Utility functions
 │   │   └── visualization/            # Visualization helpers
-│   ├── config/                       # Backend configuration
-│   ├── docs/                         # Backend documentation
-│   ├── events/                       # Event definitions
-│   ├── explainability/               # XAI modules
-│   ├── ml/                           # Machine learning models
-│   ├── neural_state/                 # Neural core state
-│   ├── static/                       # Static files
-│   ├── tests/                        # Unit tests
-│   ├── visualization/                # Visualization services
-│   ├── main.py                       # Application entry (203 lines)
+│   ├── main.py                       # Application entry
 │   ├── requirements.txt              # Python dependencies
 │   └── .env.example                  # Environment template
 ├── frontend/                         # React frontend
 │   ├── src/                          # Source code
-│   │   ├── components/               # React components (31 files)
-│   │   │   ├── Dashboard/            # Dashboard components (16)
-│   │   │   ├── Evolution/            # Evolution features (4)
-│   │   │   ├── Layout/               # Layout components (3)
-│   │   │   ├── Voice/                # Voice control (2)
-│   │   │   ├── WindowManager/        # Window system (3)
-│   │   │   ├── UI/                   # UI utilities (1)
-│   │   │   └── Apps/                 # App components (2)
-│   │   ├── agents/                   # Frontend agents (8 files)
-│   │   ├── audio/                    # Audio system (4 files)
-│   │   ├── context/                  # React contexts (2 files)
-│   │   ├── hooks/                    # Custom hooks (4 files)
-│   │   ├── services/                 # API services (3 files)
-│   │   ├── utils/                    # Utilities (5 files)
-│   │   ├── 3d/                       # 3D utilities (2 files)
-│   │   ├── App.jsx                   # Main app (635 lines)
-│   │   ├── main.jsx                  # Entry point
-│   │   └── index.css                 # Global styles
-│   ├── public/                       # Public assets
+│   │   ├── components/               # React components (31+ files)
+│   │   │   ├── Dashboard/            # Dashboard components
+│   │   │   │   ├── WorkOnDataModal.jsx # ML configuration
+│   │   │   │   ├── PerspectiveLineageView.jsx # Lineage visualization
+│   │   │   │   └── ...
+│   │   │   ├── Evolution/            # Evolution features
+│   │   │   │   └── NodeFormationSimulation.jsx # Birth effects
+│   │   │   └── ...
+│   │   ├── services/                 # API services
+│   │   ├── App.jsx                   # Main app
+│   │   └── main.jsx                  # Entry point
 │   ├── package.json                  # Dependencies
-│   ├── vite.config.js                # Vite configuration
-│   └── tailwind.config.js            # Tailwind config
-├── shared/                           # Shared TypeScript definitions
-│   └── command-definitions.ts        # Command types
+│   └── vite.config.js                # Vite configuration
+├── shared/                           # Shared TS definitions
 ├── scripts/                          # Utility scripts
+├── docs/                             # Documentation
+│   ├── TECHNICAL_APPENDIX.md         # This document
+│   └── ...
+├── README.md                         # Main readme
+└── start_production.ps1              # Production startup
+              # Utility scripts
 ├── docs/                             # Documentation
 ├── tests/                            # Integration tests
 ├── README.md                         # Main readme
@@ -89,23 +85,48 @@ living-data-intelligence-backend/
 
 ### Intelligence Layer Services
 
-#### 1. neural_core.py (512 lines)
+#### 1. data_intelligence_analyzer.py (20028 lines)
+**Purpose:** Core Data Intelligence engine  
+**Key Features:**
+- Statistical profile generation for columns.
+- Semantic correlation detection between disparate data points.
+- Trend identification and anomalies within table data.
+- Automated business context derivation.
+
+#### 2. neural_core.py (512 lines)
 **Purpose:** Active Schema Intelligence engine  
 **Key Features:**
 - Multi-connection state management
 - Real-time schema analysis
 - Relationship prediction using name similarity
-- Column-level intelligence calculation
 - Gravity weight persistence
 - Learning state tracking (Initializing → Learning → Optimized)
 
-**Key Methods:**
-- `initialize()` - Prepare core for analysis
-- `update_schema_context()` - Receive schema snapshot
-- `process_signal()` - Advance analysis cursor
-- `save_snapshot()` - Persist neural state
-- `predict_links()` - Identify potential relationships
-- `get_column_intelligence()` - Granular column analysis
+#### 3. intelligent_engine.py (2782 lines) / intelligence_engine.py
+**Purpose:** Global State Projection  
+**Key Features:**
+- Project current system state across all nodes.
+- Multi-dimensional scoring (Vitality, Revenue, Risk).
+- Strategic insight generation for the Intelligence Hub.
+
+#### 4. predictive_engine.py (19784 lines)
+**Purpose:** Future State Forecasting  
+**Key Features:**
+- 30/60/90-day growth projections for tables and databases.
+- Capacity planning insights based on ingestion rates.
+- Risk level assessment for rapid growth tables.
+
+#### 5. data_quality_engine.py (11497 lines)
+**Purpose:** Data Integrity Assessment  
+- Quality scoring (Completeness, Accuracy, Consistency, Timeliness).
+- Duplicate detection and format inconsistency identification.
+- Automated data cleanup recommendations.
+
+#### 6. root_cause_analyzer.py (7980 lines)
+**Purpose:** Impact Cascade Tracking  
+- Traces the "blast radius" of anomalies through foreign key relationships.
+- Identifies primary failure points (Root Causes).
+- Visualizes impact paths for risk mitigation.
 
 #### 2. agent_service.py (275 lines)
 **Purpose:** Autonomous AI agent orchestration  
@@ -156,13 +177,47 @@ living-data-intelligence-backend/
 - Counts foreign keys vs primary keys
 - Generates confidence scores
 
-#### 6. analysis_engine.py (7184 lines)
-**Purpose:** Data analysis orchestration  
+#### 6. ml_analysis.py (1796 lines)
+**Purpose:** Advanced ML Analysis Subsystem (Work on Data)  
 **Key Features:**
-- Coordinate multiple analysis services
-- Generate comprehensive insights
-- Pattern aggregation
-- Report generation
+- **Classification & Regression**: RandomForest, SVM, KNN, LogisticRegression, Ridge, Lasso, GradientBoosting.
+- **Clustering**: KMeans (auto-k) and DBSCAN (auto-eps) with silhouette scoring.
+- **Time Series**: Trend + Weekly Seasonal decomposition using pure NumPy.
+- **SHAP Integration**: Automatic model interpretability with natural language insights.
+- **Multi-Table Joins**: Schema-aware left joins (FK and Heuristic) for multi-table analysis.
+- **Asynchronous Execution**: Polling-based job architecture with worker-driven status updates.
+- **Data Quality Pre-flight**: Automated checks for target leakage, constant features, and small datasets.
+
+**Key Methods:**
+- `_fetch_data()` - Safe SQL query execution with injection protection.
+- `_merge_secondary_tables()` - Joins related tables via foreign key relationships.
+- `_run_classification()` - Trains classification models and computes metrics (Accuracy, F1, Baseline).
+- `_run_regression()` - Trains regression models (R2, RMSE, MAE).
+- `_run_clustering()` - Executes KMeans/DBSCAN with auto-tuning.
+- `_run_timeseries()` - Produces 30-day forecast based on historical trends.
+
+#### 7. ml/experiment_tracker.py (400+ lines)
+**Purpose:** ML run persistence and history  
+**Key Features:**
+- JSONL-based durable storage for analytical runs.
+- Best-run tracking by performance metric (e.g., F1 Score).
+- Tenant-scoped isolation for organizational security.
+- Automatic result cleanup (TTL).
+
+#### 8. ml/explainer.py (250+ lines)
+**Purpose:** SHAP-based Model Interpretability  
+**Key Features:**
+- KernelSHAP proxy for all sci-kit learn models.
+- Automatic feature contribution calculation.
+- Natural language generation for SHAP values.
+- Directional impact analysis (positive vs negative impact).
+
+#### 9. analysis_engine.py (11433 lines)
+**Purpose:** Strategic Analytics Orchestration  
+**Key Features:**
+- Aggregate insights from anomaly detection and ML runs.
+- Cross-component pattern recognition.
+- High-level business metric derivation.
 
 #### 7. anomaly_detector.py (9155 lines)
 **Purpose:** Statistical anomaly detection  
@@ -585,24 +640,29 @@ outliers = data < (Q1 - 1.5*IQR) or data > (Q3 + 1.5*IQR)
 - Context loss recovery
 - Responsive canvas management
 
-**View Modes:**
-- `galaxy` - Standard force-directed layout
-- `internal` - Orbiting satellite view (drill-down)
+#### 3. DeepAnalysisPage.jsx (50965 lines)
+**Purpose:** Comprehensive Analytical Workspace  
+**Key Features:**
+- Multi-view data diagnostics.
+- Advanced charting for metrics (TPS, Health, Latency).
+- Interactive tables with quality filtering.
+- Scenario simulation and impact previews.
 
-**Semantic Column Clustering:**
-- **Cyan (#00d4ff)**: Identity cluster (Primary Keys, IDs)
-- **Gold (#ffd700)**: Temporal cluster (Dates, timestamps)
-- **Purple (#bf00ff)**: Reference cluster (Foreign keys)
-- **Green (#00ff88)**: Numeric cluster (Quantities, amounts)
-- **Red (#ff6b6b)**: Text cluster (Names, descriptions)
-- **Orange (#ff9500)**: Flags cluster (Booleans, status flags)
+#### 4. NodeXRayPanel.jsx (49848 lines)
+**Purpose:** Structural Deep Dive  
+**Key Features:**
+- High-fidelity inspection of individual tables.
+- Visual mapping of column distributions.
+- Relationship explorer with strength indicators.
+- Live telemetry for specific database entities.
 
-**Visual Elements:**
-- Intelligent color-coded satellites by semantic type
-- Cluster-based positioning and grouping
-- Nebula starfield background
-- Bloom post-processing
-- API-driven clustering via `/api/internal-node/clusters`
+#### 5. PerspectiveLineageView.jsx (43142 lines)
+**Purpose:** Advanced Data Lineage Visualization  
+**Key Features:**
+- Hierarchical "waterfall" view of data flows.
+- Connection frequency heatmaps.
+- Interactive tracers for specific data points.
+- Force-directed layout for complex dependencies.
 
 #### 3. ChatInterface.jsx
 **Purpose:** AI chat component  
@@ -818,6 +878,31 @@ outliers = data < (Q1 - 1.5*IQR) or data > (Q3 + 1.5*IQR)
 - Z-index management
 - Close button
 
+### Advanced Analysis Components
+
+#### 29. WorkOnDataModal.jsx
+**Purpose:** Main ML Analysis Configuration Interface  
+**Key Features:**
+- Target and Feature selection via schema introspection.
+- Algorithm selection (Classification/Regression/Clustering/TS).
+- Multi-table join configuration.
+- Real-time job progress polling.
+- "AI Suggest" mode for automated parameter selection.
+
+#### 30. PerspectiveLineageView.jsx
+**Purpose:** Advanced Relationship Visualization  
+**Key Features:**
+- Force-directed lineage graph.
+- Relationship frequency distributions.
+- Impact analysis across tables.
+
+#### 31. NodeFormationSimulation.jsx
+**Purpose:** Schema Evolution Visualization  
+**Key Features:**
+- Real-time node "birth" animations.
+- Geometric growth effects.
+- Visual feedback for schema discovery.
+
 ### UI Components
 
 #### 29. CollapsiblePanel.jsx
@@ -1029,16 +1114,19 @@ data: {"tps": 1250, "health": 85, "alerts": 2}
 }
 ```
 
-#### GET /api/hierarchy/{table_name}
-**Purpose:** Get hierarchical structure  
-**Response:**
-```json
-{
-  "root": "customers",
-  "children": [...],
-  "depth": 3
-}
-```
+#### GET /api/hub/{connection_id}
+**Purpose:** Unified Intelligence Hub (The CNS)  
+**Description:** Aggregates Health, Diagnostics, Patterns, Risks, Forecasts, Impact, and Action Plans into a single strategic view.
+
+#### GET /api/semantic-search/{connection_id}
+**Purpose:** Intelligent Entity Discovery  
+- Filter tables by importance (Gravity), Type (Fact/Dim), or semantic name match.
+- Enables discovery of critical nodes in large schemas.
+
+#### GET /api/latent/projection
+**Purpose:** Latent Space Coordination  
+- Returns 3D coordinates derived from semantic embeddings of the schema.
+- Powers the "Galaxy" and "Latent" visualization modes.
 
 ### Drill-Down & Exploration Endpoints
 
@@ -1208,6 +1296,31 @@ data: {"tps": 1250, "health": 85, "alerts": 2}
   }
 }
 ```
+
+### ML Analysis & Work on Data Endpoints
+
+#### POST /api/ml/analyze
+**Purpose:** Trigger synchronous ML analysis (Small datasets only)  
+**Request Body:** `AnalysisRequest` (table, family, algo, target, features, secondary_tables)
+
+#### POST /api/ml/run
+**Purpose:** Trigger asynchronous ML analysis (Recommended for production)  
+**Response:** `{"run_id": "uuid", "status": "running"}`
+
+#### GET /api/ml/status/{run_id}
+**Purpose:** Poll job status and retrieve results upon completion.
+
+#### GET /api/ml/experiments
+**Purpose:** List historical ML runs for a tenant. Supports filtering by `connection_id`.
+
+#### GET /api/ml/run/{run_id}/pdf
+**Purpose:** Generate and download a professional PDF Analytics Report.
+
+#### GET /api/ml/health
+**Purpose:** Operational health of the ML subsystem (Storage, last run, total runs).
+
+#### DELETE /api/ml/run/{run_id}
+**Purpose:** Cancel a running ML job or mark it as cancelled in history.
 
 ---
 
@@ -1476,7 +1589,7 @@ export default {
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** February 9, 2026  
-**Total Files Analyzed:** 100+  
-**Total Lines of Code:** ~150,000+
+**Document Version:** 1.2  
+**Last Updated:** April 3, 2026  
+**Total Files Analyzed:** 130+  
+**Total Lines of Code:** ~180,000+

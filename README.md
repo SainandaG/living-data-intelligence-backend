@@ -7,8 +7,9 @@ Transform database schemas into interactive 3D visualizations with real-time tra
 - **3D Graph Visualization**: Interactive Three.js-based database schema visualization
 - **Real-time Monitoring**: Live TPS tracking and performance metrics
 - **AI Chat**: Natural language queries powered by Google Gemini
+- **Work on Data (New!)**: Advanced ML analysis with Classification, Regression, Clustering, and Time Series Forecasting
 - **Neural Core**: Intelligent schema analysis and relationship discovery
-- **Multi-Database Support**: MySQL, PostgreSQL, and more
+- **Multi-Database Support**: MySQL, PostgreSQL, Neon, and more
 - **Dual Clustering Methods**: Choose between heuristic or graph-theory-based clustering
 
 ### Clustering Options
@@ -45,6 +46,17 @@ POST /api/optimize
   "method": "networkx"
 }
 ```
+
+### 🧠 Work on Data (Advanced ML Analysis)
+
+The platform now features a production-grade ML subsystem for deep data exploration:
+
+- **Predictive Analytics**: Classification and Regression models (RandomForest, GradientBoosting) to predict business outcomes.
+- **Explainable AI (SHAP)**: Understand *why* the model makes decisions with integrated SHAP interpretability and natural language insights.
+- **Schema-Aware Intelligence**: Automatically joins related tables for multi-dimensional analysis using discovered foreign key relationships.
+- **Time Series Forecasting**: Project future trends based on historical data using seasonal decomposition.
+- **Professional Reporting**: Generate and download comprehensive PDF Analytics Reports with one click.
+- **Asynchronous Architecture**: High-performance background job processing for large-scale datasets.
 
 ## 📋 Prerequisites
 
@@ -132,15 +144,17 @@ If you haven't set up the database yet:
 ### Backend
 - **FastAPI**: Modern Python web framework with async support
 - **Uvicorn**: Lightning-fast ASGI server
-- **psycopg2**: PostgreSQL adapter
-- **pymysql**: MySQL connector
-- **pymongo**: MongoDB driver
+- **ML Stack**: Scikit-Learn, Pandas, NumPy for high-performance analysis
+- **SHAP**: Game-theoretic approach to explain model outputs
+- **ReportLab**: Professional PDF generation engine
+- **psycopg2/pymysql**: High-performance database adapters
 - **WebSocket**: Real-time bidirectional communication
 
 ### Frontend
 - **Three.js**: 3D graphics library for WebGL
-- **Vanilla JavaScript**: No framework overhead
-- **Modern CSS**: Glassmorphism and gradient aesthetics
+- **React**: Modern component-based UI
+- **Framer Motion**: Fluid micro-animations and transitions
+- **Tailwind CSS**: Sleek, modern styling with glassmorphism effects
 
 ## 📊 How It Works
 
@@ -232,6 +246,15 @@ MIT License - feel free to use this project for any purpose.
 - Three.js community for amazing 3D graphics library
 - FastAPI team for the excellent Python framework
 - The open-source community
+
+## 🛡️ Security & Production Roadmap
+
+The following areas have been identified for immediate hardening as part of the production readiness phase:
+
+- **Secret Management**: Transition all DB and AI keys to secure environment variables (ensure `.env` is never committed).
+- **Service Hardening**: Implement SQL injection protection for all AI-to-SQL conduit services.
+- **Authentication**: Implementation of JWT-based authentication layer (Planned).
+- **Concurrency**: Hardening of the asynchronous ML analysis pipeline for multi-user support.
 
 ---
 
