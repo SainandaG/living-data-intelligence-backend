@@ -113,12 +113,13 @@ class Explainer:
             sample = X[: min(200, len(X))]
             sv = self._explainer(sample)
             values = sv.values if hasattr(sv, "values") else sv
-            if values.ndim == 3:          # multi-class output
-                values = np.abs(values).mean(axis=2)
+            if values.ndim == 3:          # multi-class output — keep sign for direction
+                values = values.mean(axis=2)
             mean_abs = np.abs(values).mean(axis=0)
+            mean_vals = values.mean(axis=0)   # signed mean — used for direction only
             total = mean_abs.sum() or 1.0
             pairs = sorted(
-                zip(self.feature_names, mean_abs),
+                zip(self.feature_names, mean_abs, mean_vals),
                 key=lambda x: x[1], reverse=True,
             )[:top_n]
             return [
@@ -126,9 +127,9 @@ class Explainer:
                     "name": name,
                     "importance": round(float(imp / total), 4),
                     "shap_mean_abs": round(float(imp), 6),
-                    "direction": "positive" if float(imp) >= 0 else "negative",
+                    "direction": "positive" if float(signed) >= 0 else "negative",
                 }
-                for name, imp in pairs
+                for name, imp, signed in pairs
             ]
         except Exception as exc:
             logger.warning("shap importances failed, falling back: %s", exc)

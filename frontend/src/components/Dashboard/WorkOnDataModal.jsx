@@ -16,10 +16,11 @@ import {
   Database, Columns, RefreshCw, Zap, FlaskConical, TrendingUp,
   GitBranch, Clock, Layers, ExternalLink, AlertTriangle,
   ArrowLeft, BarChart2, Lightbulb, Activity, Search, CheckSquare, Square,
-  Send, StopCircle, Loader2,
+  Send, StopCircle, Loader2, History, Download
 } from 'lucide-react';
 import apiClient from '../../utils/apiClient';
 import { useAgentStream } from '../../hooks/useAgentStream';
+import RecentRunsSidebar from './RecentRunsSidebar';
 
 // ─── Algorithm Catalogue ───────────────────────────────────────────────────────
 const ALGO_FAMILIES = [
@@ -246,7 +247,9 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
             {results.family}
           </span>
           <span className="text-[10px] text-gray-500 font-mono">{results.table}</span>
-          <span className="text-[10px] text-gray-600">· {results.row_count.toLocaleString()} rows</span>
+          {results.row_count > 0 && (
+            <span className="text-[10px] text-gray-600">· {results.row_count.toLocaleString()} rows</span>
+          )}
         </div>
         <button
           onClick={onOpenDeep}
@@ -254,6 +257,28 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
           style={{ color: accent, borderColor: `${accent}40`, background: `${accent}10` }}
         >
           <ExternalLink size={11} /> Deep Analysis
+        </button>
+        <button
+          onClick={() => {
+            apiClient.get(`/ml/run/${results.run_id}/pdf`, { responseType: 'blob' })
+              .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ML_Report_${results.run_id.slice(0, 8)}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => window.URL.revokeObjectURL(url), 250);
+              })
+              .catch((err) => {
+                console.error('[PDF download failed]', err);
+                alert('PDF download failed. The report may not be available for this run.');
+              });
+          }}
+          className="ml-2 flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-lg border border-amber-500/40 text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 transition-all font-semibold"
+        >
+          <Download size={11} /> Download Report
         </button>
       </div>
 
@@ -310,6 +335,11 @@ function ResultsPanel({ results, onBack, onOpenDeep }) {
                       style={{ background: accent }}
                     />
                   </div>
+                  {fi.insight && (
+                    <p className={`mt-1 text-[10px] italic leading-tight ${fi.direction === 'positive' ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                      {fi.insight}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -409,6 +439,28 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   const pollTimerRef = useRef(null);         // setInterval id for status polling
   const activeRunIdRef = useRef(null);       // run_id being polled
 
+  // History state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [historyRuns, setHistoryRuns] = useState([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  const fetchRunHistory = useCallback(async () => {
+    if (!connectionId) return;
+    setIsHistoryLoading(true);
+    try {
+      const res = await apiClient.get('/ml/experiments', { params: { connection_id: connectionId, limit: 20 } });
+      setHistoryRuns(res.runs || []);
+    } catch (e) {
+      console.warn('[ML/history] failed:', e);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [connectionId]);
+
+  useEffect(() => {
+    if (isOpen && connectionId) fetchRunHistory();
+  }, [isOpen, connectionId, fetchRunHistory]);
+
   const ML_ERROR_MESSAGES = {
     422: (detail) => `Check your column selection: ${detail}`,
     504: () => 'Analysis timed out — try fewer features or a faster algorithm.',
@@ -432,11 +484,11 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   }, []);
 
   const handleCancelRun = useCallback(() => {
+    const runId = activeRunIdRef.current;  // capture before _stopPolling clears it
     _stopPolling();
     runAbortRef.current?.abort();
-    if (activeRunIdRef.current) {
-      apiClient.delete(`/ml/run/${activeRunIdRef.current}`).catch(() => { });
-      activeRunIdRef.current = null;
+    if (runId) {
+      apiClient.delete(`/ml/run/${runId}`).catch(() => { });
     }
     setIsGenerating(false);
     setMlError(null);
@@ -527,7 +579,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     setAiLoading(true);
     apiClient.get('/ml/suggest', { params: { connection_id: connectionId, table: local.primaryTable } })
       .then(res => {
-        const s = res?.suggestion || res?.data?.suggestion;
+        const s = res?.suggestion;
         if (!s) return;
         const enhanced = {
           ...local,
@@ -640,6 +692,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
           _stopPolling();
           setMlResults(job.result);
           setIsGenerating(false);
+          fetchRunHistory(); // Refresh history after a successful run
         } else if (job.status === 'failed') {
           _stopPolling();
           setMlError(job.error || 'Analysis failed.');
@@ -712,10 +765,33 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                 </p>
               </div>
             </div>
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-[11px] font-bold ${isSidebarOpen ? 'bg-amber-500/20 border-amber-500/50 text-amber-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}
+            >
+              <History size={14} /> History
+            </button>
             <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
               <X size={18} className="text-gray-400" />
             </button>
           </div>
+          <RecentRunsSidebar 
+            isOpen={isSidebarOpen} 
+            onClose={() => setIsSidebarOpen(false)} 
+            runs={historyRuns}
+            isLoading={isHistoryLoading}
+            onSelectRun={(run) => {
+              setMlResults({
+                ...run,
+                row_count: run.row_count ?? 0,
+                predictions: run.predictions ?? [],
+                insights: run.insights ?? [],
+                data_warnings: run.data_warnings ?? [],
+                status: 'success',
+              });
+              setIsSidebarOpen(false);
+            }}
+          />
 
           {/* ── APEX NL Query Bar ── */}
           <div className="px-6 pt-4 pb-3 border-b border-white/[0.06] bg-[#0a1212] shrink-0">

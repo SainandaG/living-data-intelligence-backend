@@ -88,6 +88,8 @@ class AnalysisRequest(BaseModel):
 class FeatureImportance(BaseModel):
     name: str
     importance: float
+    direction: Optional[str] = None
+    insight: Optional[str] = None
 
 
 class Prediction(BaseModel):
@@ -186,36 +188,61 @@ async def _fetch_row_count(connection_id: str, table: str) -> int:
 
 async def _merge_secondary_tables(
     connection_id: str,
+    primary_table: str,
     primary_rows: List[Dict],
     secondary_tables: List[str],
 ) -> List[Dict]:
-    """Left-join secondary tables into primary rows on shared ID columns."""
+    """Left-join secondary tables into primary rows using defined FK relations or shared ID columns."""
+    from app.services.schema_analyzer import schema_analyzer
+    schema = schema_analyzer.get_analysis_result(connection_id)
+
     for sec_table in secondary_tables:
         try:
             sec_rows = await _fetch_data(connection_id, sec_table, [], n=max(len(primary_rows) * 2, 2000))
             if not sec_rows or not primary_rows:
                 continue
+            
             p_keys = set(primary_rows[0].keys())
             s_keys = set(sec_rows[0].keys())
             shared = p_keys & s_keys
-            # Prefer columns that look like IDs for joining
-            join_col = next(
-                (k for k in shared if re.search(r"(^id$|_id$)", k, re.IGNORECASE)),
-                next(iter(shared), None),
-            )
-            if not join_col:
-                logger.debug("No join column found between primary and %s — skipping", sec_table)
+
+            join_col_p = None
+            join_col_s = None
+
+            # 1. Check formal schema relationships
+            if schema and hasattr(schema, "relationships"):
+                for rel in schema.relationships:
+                    if rel.from_table.lower() == primary_table.lower() and rel.to_table.lower() == sec_table.lower():
+                        if rel.from_column in p_keys and rel.to_column in s_keys:
+                            join_col_p, join_col_s = rel.from_column, rel.to_column
+                            break
+                    elif rel.from_table.lower() == sec_table.lower() and rel.to_table.lower() == primary_table.lower():
+                        if rel.to_column in p_keys and rel.from_column in s_keys:
+                            join_col_p, join_col_s = rel.to_column, rel.from_column
+                            break
+
+            # 2. Fallback to heuristic if no formal FK
+            if not join_col_p:
+                fallback_col = next(
+                    (k for k in shared if re.search(r"(^id$|_id$)", k, re.IGNORECASE)),
+                    next(iter(shared), None),
+                )
+                join_col_p, join_col_s = fallback_col, fallback_col
+
+            if not join_col_p or not join_col_s:
+                logger.debug("No join column found between %s and %s — skipping", primary_table, sec_table)
                 continue
+
             lookup: Dict = {}
             for r in sec_rows:
-                key = r.get(join_col)
+                key = r.get(join_col_s)
                 if key is not None and key not in lookup:
                     lookup[key] = r
             primary_rows = [
-                {**r, **{k: v for k, v in lookup.get(r.get(join_col), {}).items() if k not in r}}
+                {**r, **{k: v for k, v in lookup.get(r.get(join_col_p), {}).items() if k not in r}}
                 for r in primary_rows
             ]
-            logger.debug("Merged secondary table %s via join col %s", sec_table, join_col)
+            logger.debug("Merged secondary table %s via %s=%s", sec_table, join_col_p, join_col_s)
         except Exception as exc:
             logger.debug("Secondary table merge failed for %s: %s", sec_table, exc)
     return primary_rows
@@ -477,7 +504,25 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
         "n_classes":         int(len(unique_classes)),
     }
 
-    fi = _normalize_fi(feature_names, importances)
+    try:
+        from app.services.ml.explainer import Explainer
+        exp = Explainer(model, X_tr, feature_names, "classification")
+        shap_fi = exp.feature_importances(X_tr)
+        fi = []
+        for s in shap_fi:
+            direction = s.get("direction", "positive")
+            pct = round(s.get("shap_mean_abs", s["importance"]) * 100, 1)
+            action = "increased" if direction == "positive" else "decreased"
+            insight = f"Higher {s['name']} {action} the probability of the target outcome by ~{pct}%."
+            fi.append(FeatureImportance(
+                name=s["name"], 
+                importance=s["importance"],
+                direction=direction,
+                insight=insight
+            ))
+    except Exception as e:
+        logger.warning("SHAP classification explainer failed: %s", e)
+        fi = _normalize_fi(feature_names, importances)
 
     # Predictions = predicted class distribution
     counts = Counter(y_pred.tolist())
@@ -566,7 +611,25 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
         "test_size":  int(len(X_te)),
     }
 
-    fi = _normalize_fi(feature_names, importances)
+    try:
+        from app.services.ml.explainer import Explainer
+        exp = Explainer(model, X_tr, feature_names, "regression")
+        shap_fi = exp.feature_importances(X_tr)
+        fi = []
+        for s in shap_fi:
+            direction = s.get("direction", "positive")
+            pct = round(s.get("shap_mean_abs", s["importance"]), 2)
+            action = "increased" if direction == "positive" else "decreased"
+            insight = f"Higher {s['name']} {action} the predicted value by an average of {pct} units."
+            fi.append(FeatureImportance(
+                name=s["name"], 
+                importance=s["importance"],
+                direction=direction,
+                insight=insight
+            ))
+    except Exception as e:
+        logger.warning("SHAP regression explainer failed: %s", e)
+        fi = _normalize_fi(feature_names, importances)
 
     # Predictions: actual test-set samples (actual vs predicted)
     std_val = float(np.std(y_pred - y_te))
@@ -980,7 +1043,7 @@ async def run_ml_analysis(req: AnalysisRequest):
         all_cols = list(dict.fromkeys(([target] if target else []) + features))
         rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
         if req.secondary_tables:
-            rows = await _merge_secondary_tables(req.connection_id, rows, req.secondary_tables)
+            rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
         row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
 
         # Run all trustworthiness checks before touching the model
@@ -1028,7 +1091,7 @@ async def run_ml_analysis(req: AnalysisRequest):
             metrics, fi, predictions = await asyncio.wait_for(_run_ml(), timeout=120.0)
             await experiment_tracker.finish_run(
                 run, metrics=metrics,
-                feature_importances=[f.__dict__ for f in fi],
+                feature_importances=[f.model_dump() for f in fi],
             )
         except asyncio.TimeoutError:
             await experiment_tracker.finish_run(run, metrics={}, status="timeout")
@@ -1091,7 +1154,7 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
         all_cols = list(dict.fromkeys(([target] if target else []) + features))
         rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
         if req.secondary_tables:
-            rows = await _merge_secondary_tables(req.connection_id, rows, req.secondary_tables)
+            rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
         row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
 
         data_warnings = _check_data_quality(rows, features, target)
@@ -1137,7 +1200,7 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
             metrics, fi, predictions = await asyncio.wait_for(_run_ml(), timeout=120.0)
             await experiment_tracker.finish_run(
                 run, metrics=metrics,
-                feature_importances=[f.__dict__ for f in fi],
+                feature_importances=[f.model_dump() for f in fi],
             )
         except asyncio.TimeoutError:
             await experiment_tracker.finish_run(run, metrics={}, status="timeout")
@@ -1253,7 +1316,7 @@ async def suggest_analysis(connection_id: str, table: str):
 
         def _pick_target(candidates):
             preferred = [c for c in candidates if _pref_re.search(c.name)]
-            return (preferred[0] or (candidates[0] if candidates else None))
+            return preferred[0] if preferred else (candidates[0] if candidates else None)
 
         if dates and non_id_numeric:
             family, algo = "timeseries", "arima"
@@ -1432,7 +1495,7 @@ async def run_automl(req: AutoMLRequest):
                 metrics, fi, preds, trained_model, X_bg = await _run_candidate()
                 score = metrics.get("f1", metrics.get("R2", metrics.get("silhouette_score", 0.0)))
                 await experiment_tracker.finish_run(run, metrics=metrics,
-                                              feature_importances=[f.__dict__ for f in fi])
+                                              feature_importances=[f.model_dump() for f in fi])
                 results.append({
                     "algo_id":       cand.algo_id,
                     "score":         round(float(score), 4),
@@ -1515,9 +1578,9 @@ async def list_experiments(
     Results are sorted newest-first and capped at `limit` (max 50).
     """
     from app.services.ml.experiment_tracker import experiment_tracker
-    runs = experiment_tracker.get_runs(tenant_id=tenant_id, limit=limit)
+    runs = experiment_tracker.get_runs(tenant_id=tenant_id, limit=limit if not connection_id else 500)
     if connection_id:
-        runs = [r for r in runs if r.get("connection_id") == connection_id]
+        runs = [r for r in runs if r.get("connection_id") == connection_id][:limit]
     return {"runs": runs, "total": len(runs)}
 
 
@@ -1571,6 +1634,130 @@ async def cancel_run(run_id: str, tenant_id: str = "default"):
     await experiment_tracker.finish_run(run_obj, metrics=existing.get("metrics", {}), status="cancelled")
     return {"run_id": run_id, "status": "cancelled"}
 
+
+# ─── PDF Report endpoint ────────────────────────────────────────────────────────
+@router.get("/run/{run_id}/pdf")
+async def download_run_pdf(run_id: str, tenant_id: str = "default"):
+    """Download a professional PDF report containing ML insights and SHAP values."""
+    from app.services.ml.experiment_tracker import experiment_tracker
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    # Primary: check in-memory job store (the run_id from POST /run maps here)
+    run_data = None
+    job = _pending_results.get(run_id)
+    if job and job.get("status") == "success" and job.get("result"):
+        run_data = job["result"]
+
+    # Fallback: experiment tracker (used for sidebar history runs whose run_id
+    # comes from the tracker's own UUID, not from POST /run)
+    if not run_data:
+        run_data = experiment_tracker.get_run(run_id)
+    if not run_data:
+        runs = experiment_tracker.get_runs(tenant_id=tenant_id, limit=500)
+        run_data = next((r for r in runs if r.get("run_id") == run_id), None)
+
+    if not run_data:
+        raise HTTPException(status_code=404, detail="Run not found.")
+    
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+        
+        styles = getSampleStyleSheet()
+        title_style = styles['Heading1']
+        title_style.textColor = colors.HexColor("#1e3a8a") 
+        h2 = styles['Heading2']
+        normal = styles['Normal']
+
+        story = []
+        story.append(Paragraph("AI Analytics Report", title_style))
+        story.append(Spacer(1, 12))
+        
+        date_str = "Unknown"
+        import time
+        if "created_at" in run_data:
+            from datetime import datetime
+            date_str = datetime.fromtimestamp(run_data["created_at"]).strftime("%Y-%m-%d %H:%M:%S")
+
+        story.append(Paragraph(f"<b>Table:</b> {run_data.get('table', 'Unknown')} | <b>Algorithm:</b> {run_data.get('algo', 'Unknown')} | <b>Date:</b> {date_str}", normal))
+        story.append(Spacer(1, 24))
+        
+        story.append(Paragraph("<b>Model Performance Metrics</b>", h2))
+        story.append(Spacer(1, 12))
+        metrics = run_data.get('metrics', {})
+        metrics_data = [["Metric", "Value"]]
+        for k, v in metrics.items():
+            metrics_data.append([str(k).upper(), str(v)])
+        
+        if len(metrics_data) > 1:
+            t = Table(metrics_data, colWidths=[200, 200])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (1,0), colors.HexColor("#f3f4f6")),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor("#111827")),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 12),
+                ('BACKGROUND', (0,1), (-1,-1), colors.white),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 24))
+        
+        story.append(Paragraph("<b>Advanced Feature Impact (SHAP)</b>", h2))
+        story.append(Spacer(1, 12))
+        fis = run_data.get('feature_importances', [])
+        
+        if not fis:
+            story.append(Paragraph("No feature importance data available.", normal))
+        else:
+            for fi_idx, fi in enumerate(fis[:15]):  # show top 15 features
+                name = fi.get("name", "Unknown")
+                imp = fi.get("importance", 0.0)
+                insight_str = fi.get("insight") or f"This feature contributed {round(imp*100, 1)}% to the model's overall decisions."
+                
+                bg_color = colors.HexColor("#f9fafb")
+                dir_color = colors.HexColor("#374151")
+                if fi.get("direction") == "positive":
+                    bg_color = colors.HexColor("#f0fdf4")
+                    dir_color = colors.HexColor("#166534")
+                elif fi.get("direction") == "negative":
+                    bg_color = colors.HexColor("#fef2f2")
+                    dir_color = colors.HexColor("#991b1b")
+                
+                p_style = ParagraphStyle(
+                    f'fi_{run_id[:8]}_{fi_idx}',  # globally unique — avoids ReportLab registry collision
+                    parent=normal,
+                    leftIndent=10,
+                    rightIndent=10,
+                    spaceBefore=5,
+                    spaceAfter=5,
+                    textColor=dir_color,
+                    backColor=bg_color,
+                    borderWidth=1,
+                    borderColor=colors.HexColor("#e5e7eb"),
+                    borderPadding=10
+                )
+                story.append(Paragraph(f"<b>{name}</b> ({round(imp*100, 1)}% impact)", styles['Heading3']))
+                story.append(Paragraph(f"<i>{insight_str}</i>", p_style))
+                story.append(Spacer(1, 12))
+
+        doc.build(story)
+        buffer.seek(0)
+        
+        headers = {
+            'Content-Disposition': f'attachment; filename="ML_Report_{run_id[:8]}.pdf"'
+        }
+        return StreamingResponse(buffer, media_type="application/pdf", headers=headers)
+        
+    except Exception as e:
+        logger.error(f"PDF generation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not generate PDF report.")
 
 # ─── Health endpoint (T5-4) ───────────────────────────────────────────────────
 

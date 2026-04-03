@@ -38,3 +38,9 @@ slowapi==0.1.9
 
 # System Monitoring
 psutil>=5.9.0
+
+# ML Interpretability
+shap>=0.44.0
+
+# Reporting
+reportlab>=4.0.0
