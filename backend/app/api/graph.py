@@ -7,10 +7,15 @@ from app.services.graph_generator import graph_generator
 from app.models.schemas import ErrorResponse, StatusResponse
 from typing import Dict, Any
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ── Simple in-memory cache for pk-distribution (expensive SQL) ───────────────
+_pk_dist_cache: Dict[str, tuple] = {}  # key → (timestamp, result)
+_PK_DIST_TTL = 120  # seconds — invalidate after 2 minutes
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -330,25 +335,42 @@ async def get_node_frequency(connection_id: str, table_name: str):
 
     try:
         # 1. Get the schema for this table (cached)
-        schema = await schema_analyzer.get_schema(connection_id)
-        table = next((t for t in schema.tables if t.name == table_name), None)
+        # Support both get_schema() and analyze_schema() spellings across versions
+        try:
+            schema = await schema_analyzer.get_schema(connection_id)
+        except AttributeError:
+            schema = await schema_analyzer.analyze_schema(connection_id)
+        table = next((t for t in (getattr(schema, "tables", None) or []) if t.name == table_name), None)
         if not table:
             raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
 
-        fk_columns = [col.name for col in table.columns if col.is_fk]
-        fk_meta = {fk.column: {"referenced_table": fk.referenced_table, "referenced_column": fk.referenced_column}
-                   for fk in table.foreign_keys}
+        columns = getattr(table, "columns", []) or []
+        foreign_keys = getattr(table, "foreign_keys", []) or []
+
+        fk_columns = [c.name for c in columns if getattr(c, "is_fk", False)]
+        fk_meta = {
+            fk.column: {
+                "referenced_table": fk.referenced_table,
+                "referenced_column": fk.referenced_column,
+            }
+            for fk in foreign_keys
+        }
 
         if not fk_columns:
             return {"table": table_name, "total_rows": 0, "fk_stats": []}
 
-        # 2. Build a single aggregate query for all FK columns at once
+        # 2. Build a single aggregate query using positional aliases (nn0, dc0 …)
+        #    to avoid identifier-quoting issues with double-underscores in aliases.
         safe_table = f'"{table_name}"'
-        select_parts = ['COUNT(*) AS total_rows']
-        for col in fk_columns:
-            safe_col = f'"{col}"'
-            select_parts.append(f'COUNT({safe_col}) AS {col}__non_null')
-            select_parts.append(f'COUNT(DISTINCT {safe_col}) AS {col}__distinct')
+        select_parts = ["COUNT(*) AS total_rows"]
+        alias_map: Dict[str, Dict[str, str]] = {}
+        for idx, col_name in enumerate(fk_columns):
+            safe_col = f'"{col_name}"'
+            nn_alias   = f"nn{idx}"
+            dist_alias = f"dc{idx}"
+            alias_map[col_name] = {"non_null": nn_alias, "distinct": dist_alias}
+            select_parts.append(f"COUNT({safe_col}) AS {nn_alias}")
+            select_parts.append(f"COUNT(DISTINCT {safe_col}) AS {dist_alias}")
 
         sql = f"SELECT {', '.join(select_parts)} FROM {safe_table};"
         rows = await db_connector.query(connection_id, sql)
@@ -358,13 +380,14 @@ async def get_node_frequency(connection_id: str, table_name: str):
 
         # 3. Assemble per-FK stats
         fk_stats = []
-        for col in fk_columns:
-            non_null = int(row.get(f"{col}__non_null", 0))
-            distinct = int(row.get(f"{col}__distinct", 0))
+        for col_name in fk_columns:
+            aliases = alias_map[col_name]
+            non_null = int(row.get(aliases["non_null"], 0))
+            distinct = int(row.get(aliases["distinct"], 0))
             fill_rate = round((non_null / total_rows * 100), 1) if total_rows > 0 else 0.0
-            meta = fk_meta.get(col, {})
+            meta = fk_meta.get(col_name, {})
             fk_stats.append({
-                "column": col,
+                "column": col_name,
                 "referenced_table": meta.get("referenced_table", ""),
                 "referenced_column": meta.get("referenced_column", ""),
                 "total_rows": total_rows,
@@ -380,3 +403,150 @@ async def get_node_frequency(connection_id: str, table_name: str):
     except Exception as e:
         logger.error(f"node-frequency failed for {table_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to compute node frequency: {str(e)}")
+
+
+@router.get(
+    "/graph/{connection_id}/pk-distribution/{table_name}/{pk_column}",
+    response_model=Dict[str, Any],
+    responses={500: {"model": ErrorResponse}},
+)
+async def get_pk_distribution(connection_id: str, table_name: str, pk_column: str):
+    """
+    PK → FK distribution for single-node inspector PK hover view.
+
+    When a PK column is hovered in the inspector, this endpoint returns:
+      - A sample of distinct PK values from the table (up to 20)
+      - For each PK value, how many FK references it has in every referencing table
+        (i.e. tables that have a FK pointing to this PK column)
+      - The percentage share each PK value holds across all FK references per
+        referencing table — this drives the FK node sizes in the frontend
+
+    Example: customers.customer_id is PK.
+      orders.customer_id is FK → customers.customer_id.
+      If there are 10 orders total:
+        customer_1 → 3 orders (30%), customer_2 → 3 (30%), customer_3 → 4 (40%)
+      Returns pk_values = [
+        { value: "1", ref_counts: { orders: 3 }, ref_pcts: { orders: 30.0 } },
+        ...
+      ]
+    """
+    from app.services.db_connector import db_connector
+    from app.services.schema_analyzer import schema_analyzer
+
+    cache_key = f"{connection_id}::{table_name}::{pk_column}"
+    now = time.time()
+    if cache_key in _pk_dist_cache:
+        ts, cached = _pk_dist_cache[cache_key]
+        if now - ts < _PK_DIST_TTL:
+            return cached
+
+    try:
+        # Support both get_schema() and analyze_schema() spellings across versions
+        try:
+            schema = await schema_analyzer.get_schema(connection_id)
+        except AttributeError:
+            schema = await schema_analyzer.analyze_schema(connection_id)
+
+        # 1. Find tables that reference this table's PK column via a FK
+        # Deduplicate by (table, fk_column) — some schema analyzers return the same FK twice
+        seen_refs: set = set()
+        referencing = []  # [ { table, fk_column } ]
+        for tbl in schema.tables:
+            for fk in (tbl.foreign_keys or []):
+                if fk.referenced_table == table_name and fk.referenced_column == pk_column:
+                    key = (tbl.name, fk.column)
+                    if key not in seen_refs:
+                        seen_refs.add(key)
+                        referencing.append({"table": tbl.name, "fk_column": fk.column})
+
+        # 2. Sample up to 20 distinct PK values from the source table
+        safe_table  = f'"{table_name}"'
+        safe_pk_col = f'"{pk_column}"'
+        # Cap at 12 values — each value spawns one node × N ref-tables = many 3D objects.
+        # 12 × 3 tables = 36 FK-dist nodes, which renders smoothly. 20 × 3 = 60 is too heavy.
+        sample_sql  = (
+            f"SELECT DISTINCT {safe_pk_col} AS pk_val "
+            f"FROM {safe_table} "
+            f"WHERE {safe_pk_col} IS NOT NULL "
+            f"ORDER BY {safe_pk_col} "
+            f"LIMIT 12;"
+        )
+        sample_rows = await db_connector.query(connection_id, sample_sql)
+        pk_values   = [str(r["pk_val"]) for r in sample_rows]
+
+        if not pk_values or not referencing:
+            return {
+                "table": table_name,
+                "pk_column": pk_column,
+                "pk_values": [],
+                "referencing_tables": referencing,
+                "pk_distribution": [],
+            }
+
+        # 3. Count FK hits per PK value — run ALL referencing-table queries in parallel.
+        #    Previously these were sequential (one round-trip per table). Now asyncio.gather
+        #    fires them all at once, so total wait = slowest single query, not sum of all.
+        import asyncio
+
+        val_index = {val: idx for idx, val in enumerate(pk_values)}
+
+        async def _query_one_ref(ref: dict):
+            ref_table  = ref["table"]
+            ref_col    = ref["fk_column"]
+            safe_ref_t = f'"{ref_table}"'
+            safe_ref_c = f'"{ref_col}"'
+            case_parts = [
+                f"COUNT(CASE WHEN CAST({safe_ref_c} AS TEXT) = '{val.replace(chr(39), chr(39)*2)}' THEN 1 END) AS pv{val_index[val]}"
+                for val in pk_values
+            ]
+            sql = f"SELECT COUNT(*) AS total_fk, {', '.join(case_parts)} FROM {safe_ref_t};"
+            rows = await db_connector.query(connection_id, sql)
+            row  = rows[0] if rows else {}
+            total_fk = int(row.get("total_fk", 0))
+            per_val = {}
+            for val in pk_values:
+                count = int(row.get(f"pv{val_index[val]}", 0))
+                per_val[val] = {
+                    "count": count,
+                    "pct":   round(count / total_fk * 100, 1) if total_fk > 0 else 0.0,
+                    "total_fk": total_fk,
+                }
+            return ref_table, per_val
+
+        ref_results = await asyncio.gather(*[_query_one_ref(r) for r in referencing])
+
+        distribution: Dict[str, Dict[str, dict]] = {v: {} for v in pk_values}
+        for ref_table, per_val in ref_results:
+            for val, stats in per_val.items():
+                distribution[val][ref_table] = stats
+
+        # 4. Assemble response
+        pk_distribution = []
+        for val in pk_values:
+            ref_counts = {}
+            ref_pcts   = {}
+            for ref in referencing:
+                rt = ref["table"]
+                ref_counts[rt] = distribution[val].get(rt, {}).get("count", 0)
+                ref_pcts[rt]   = distribution[val].get(rt, {}).get("pct", 0.0)
+            pk_distribution.append({
+                "value":      val,
+                "ref_counts": ref_counts,
+                "ref_pcts":   ref_pcts,
+            })
+
+        result = {
+            "table":              table_name,
+            "pk_column":          pk_column,
+            "pk_values":          pk_values,
+            "referencing_tables": referencing,
+            "pk_distribution":    pk_distribution,
+        }
+        _pk_dist_cache[cache_key] = (time.time(), result)
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"pk-distribution failed for {table_name}.{pk_column}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to compute PK distribution: {str(e)}")

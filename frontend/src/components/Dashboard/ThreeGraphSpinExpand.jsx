@@ -22,6 +22,18 @@ const TABLE_COLORS = [
     { color: '#4f46e5', glow: '#818cf8' },
 ];
 
+// Column node palette — excludes gold (PK) and blue (FK) to keep type identity clear
+const REGULAR_COLUMN_COLORS = [
+    { color: '#16a34a', glow: '#4ade80' },   // green
+    { color: '#9333ea', glow: '#c084fc' },   // purple
+    { color: '#dc2626', glow: '#f87171' },   // red
+    { color: '#c026d3', glow: '#e879f9' },   // fuchsia
+    { color: '#ea580c', glow: '#fb923c' },   // orange
+    { color: '#059669', glow: '#34d399' },   // emerald
+    { color: '#7c3aed', glow: '#a78bfa' },   // violet
+    { color: '#e11d48', glow: '#fb7185' },   // rose
+];
+
 function getTableColor(index) {
     return TABLE_COLORS[index % TABLE_COLORS.length];
 }
@@ -706,8 +718,8 @@ function HoverFKConnections({ bridges, hoveredTableId, tables, targetPositions =
 
     return (
         <group>
-            {connections.map((conn) => (
-                <MemoDirectFKLine key={conn.key} {...conn} />
+            {connections.map(({ key, ...connProps }) => (
+                <MemoDirectFKLine key={key} {...connProps} />
             ))}
         </group>
     );
@@ -809,35 +821,38 @@ function NeuralCore({ tables }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SINGLE NODE INSPECTOR — exact Spin & Expand clone for a table's columns
-// Each column = its own ellipsoid node, identical look to TableEllipsoid.
-// Hover dims non-connected, FK columns pull their referenced-table phantom
-// node toward them — exactly like the main scene hover-spread behaviour.
+// SINGLE NODE INSPECTOR
+// Shows a table's columns as orbital nodes around a center core.
+//
+// PK HOVER MODE: hover a PK node →
+//   • Small equal-size "PK value" satellite nodes appear around it
+//     (customer_id_1, customer_id_2, …) — all same tiny size
+//   • Each PK value node connects via arc to FK nodes in referencing tables
+//   • FK node SIZE is proportional to distribution %
+//     (customer ordered 4/10 = 40% → larger FK node)
+//
+// FK HOVER MODE: hover a FK node → phantom ref-table nodes spread out (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Build column-node + FK-bridge structures that mirror transformGraphData output
+// Build column-node + FK-bridge structures
 function transformNodeColumns(node, allTables = []) {
     const rawCols = node.columns || [];
-    const rawFKs  = node.foreign_keys || [];
+    const rawFKs = node.foreign_keys || [];
 
-    // FK lookup: colName → {table, col}
     const fkMeta = new Map();
     rawFKs.forEach(fk => fkMeta.set(fk.column, { table: fk.referenced_table, col: fk.referenced_column }));
 
-    // Assign a unique color to every referenced table.
-    // FK column nodes will share this color with their phantom — making the visual bond obvious.
     const rawRefTableIds = [...new Set(rawFKs.map(fk => fk.referenced_table))];
     const refColorMap = new Map();
     rawRefTableIds.forEach((tableId, idx) => {
         const td = allTables.find(t => t.id === tableId || t.label === tableId);
-        const paletteEntry = TABLE_COLORS[(idx + 2) % TABLE_COLORS.length]; // +2 offset avoids clash with center node
+        const paletteEntry = TABLE_COLORS[(idx + 2) % TABLE_COLORS.length];
         refColorMap.set(tableId, {
             color: td?.color || paletteEntry.color,
-            glow:  td?.glow  || paletteEntry.glow,
+            glow: td?.glow || paletteEntry.glow,
         });
     });
 
-    // Sort: PKs → FKs → regular (alpha)
     const sorted = [...rawCols].sort((a, b) => {
         if (a.is_pk !== b.is_pk) return a.is_pk ? -1 : 1;
         if (a.is_fk !== b.is_fk) return a.is_fk ? -1 : 1;
@@ -848,32 +863,34 @@ function transformNodeColumns(node, allTables = []) {
     const phi = Math.PI * (3 - Math.sqrt(5));
     const radius = Math.max(8, Math.min(22, 6 + n * 0.55));
 
-    // PK → gold   FK → unique color per referenced table   COL → palette
     const colNodes = sorted.map((col, i) => {
         let color, glow;
         if (col.is_pk) {
+            // PK: always gold — unmistakable, badge + ring confirm type
             color = '#d97706'; glow = '#fbbf24';
         } else if (col.is_fk) {
+            // FK: color = the referenced table's unique color (semantic link)
+            // The "FK" badge + blue ring on the node still identifies it as FK.
+            // This also visually connects each FK node to its matching REF phantom node.
             const ref = fkMeta.get(col.name);
             const refColors = ref ? (refColorMap.get(ref.table) || {}) : {};
-            color = refColors.color || '#1d4ed8';
-            glow  = refColors.glow  || '#60a5fa';
+            color = refColors.color || '#2563eb';
+            glow = refColors.glow || '#60a5fa';
         } else {
-            const p = TABLE_COLORS[i % TABLE_COLORS.length];
+            // Regular columns: distinct palette that excludes gold (PK)
+            const p = REGULAR_COLUMN_COLORS[i % REGULAR_COLUMN_COLORS.length];
             color = p.color; glow = p.glow;
         }
 
         const y = n <= 1 ? 0 : 1 - (i / (n - 1)) * 2;
         const r = Math.sqrt(Math.max(0, 1 - y * y));
         const theta = phi * i;
-
         const scale = col.is_pk ? 1.5 : col.is_fk ? 1.25 : 1.0;
         const badge = col.is_pk ? 'PK' : col.is_fk ? 'FK' : null;
 
         return {
-            id:           col.name,
-            label:        col.name,
-            displayCount: (col.type || 'col').toLowerCase(),
+            id: col.name,
+            label: col.name,
             badge,
             color, glow, scale,
             position: [
@@ -886,9 +903,7 @@ function transformNodeColumns(node, allTables = []) {
         };
     });
 
-    // Phantom referenced-table nodes at ~1.9× radius — one per unique ref table.
-    // freqPct defaults to equal split; SingleNodeInspector replaces it with
-    // real-time fill_rate data fetched live from the backend.
+    // Phantom ref-table nodes (for FK hover)
     const phantomMap = new Map();
     const phantomRadius = radius * 1.9;
     const refCount = rawRefTableIds.length;
@@ -898,15 +913,14 @@ function transformNodeColumns(node, allTables = []) {
         if (!phantomMap.has(pid)) {
             const seed = cn.fkRef.table.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
             const pTheta = (seed * 2.399963) % (Math.PI * 2);
-            const pPhi   = Math.acos(2 * ((seed * 0.3183) % 1) - 1);
+            const pPhi = Math.acos(2 * ((seed * 0.3183) % 1) - 1);
             const colors = refColorMap.get(cn.fkRef.table) || { color: '#334155', glow: '#64748b' };
             phantomMap.set(pid, {
                 id: pid,
                 label: cn.fkRef.table,
-                displayCount: `→ ${cn.fkRef.col}`,
                 color: colors.color,
-                glow:  colors.glow,
-                freqPct: Math.round(100 / Math.max(1, refCount)), // equal-split placeholder
+                glow: colors.glow,
+                freqPct: Math.round(100 / Math.max(1, refCount)),
                 scale: 0.8,
                 position: [
                     Math.sin(pPhi) * Math.cos(pTheta) * phantomRadius,
@@ -920,27 +934,25 @@ function transformNodeColumns(node, allTables = []) {
     });
     const phantomNodes = Array.from(phantomMap.values());
 
-    // FK bridges: FK column → phantom ref node
     const bridges = colNodes
         .filter(cn => cn.fkRef)
         .map(cn => {
             const pid = `__ref__${cn.fkRef.table}`;
             const phantom = phantomMap.get(pid);
             return {
-                id:          `fk-${cn.id}-${pid}`,
-                sourceId:    cn.id,
-                sourcePos:   cn.position,
+                id: `fk-${cn.id}-${pid}`,
+                sourceId: cn.id,
+                sourcePos: cn.position,
                 sourceColor: cn.color,
-                targetId:    pid,
-                targetPos:   phantom.position,
+                targetId: pid,
+                targetPos: phantom.position,
                 targetColor: phantom.glow,
-                label:       `${cn.fkRef.table}.${cn.fkRef.col}`,
-                fkColumn:    cn.fkRef.col,
-                hubSize:     0.45,
+                label: `${cn.fkRef.table}.${cn.fkRef.col}`,
+                fkColumn: cn.fkRef.col,
+                hubSize: 0.45,
             };
         });
 
-    // Connectivity: colId / phantomId → [connected ids]
     const connectivity = {};
     bridges.forEach(b => {
         if (!connectivity[b.sourceId]) connectivity[b.sourceId] = [];
@@ -952,93 +964,594 @@ function transformNodeColumns(node, allTables = []) {
     return { colNodes, phantomNodes, bridges, connectivity };
 }
 
-// Column ellipsoid — pixel-perfect copy of TableEllipsoid adapted for columns
-function ColumnEllipsoid({ col, isHighlighted, onHover }) {
-    const meshRef  = useRef(null);
-    const groupRef = useRef(null);
-    const currentPos = useRef(new THREE.Vector3(...col.position));
-    const [hovered, setHovered] = useState(false);
+// ── Distinct colors for PK value satellite nodes (one per unique PK value) ─────
+const PK_VALUE_COLORS = [
+    { color: '#f97316', glow: '#fb923c' },   // orange
+    { color: '#a855f7', glow: '#c084fc' },   // violet
+    { color: '#06b6d4', glow: '#22d3ee' },   // cyan
+    { color: '#84cc16', glow: '#a3e635' },   // lime
+    { color: '#f43f5e', glow: '#fb7185' },   // rose
+    { color: '#3b82f6', glow: '#60a5fa' },   // blue
+    { color: '#10b981', glow: '#34d399' },   // emerald
+    { color: '#eab308', glow: '#facc15' },   // yellow
+    { color: '#8b5cf6', glow: '#a78bfa' },   // purple
+    { color: '#ef4444', glow: '#f87171' },   // red
+    { color: '#0ea5e9', glow: '#38bdf8' },   // sky
+    { color: '#d946ef', glow: '#e879f9' },   // fuchsia
+];
 
-    useFrame((state, delta) => {
-        if (!meshRef.current || !groupRef.current) return;
-        const t = state.clock.elapsedTime;
-        currentPos.current.lerp(new THREE.Vector3(...col.position), delta * 5);
-        groupRef.current.position.copy(currentPos.current);
-        const freqScale = col.scale || 1.0;
-        const pulse = 1 + Math.sin(t * 1.2 + col.position[0] * 0.5) * 0.04;
-        const s = freqScale * (hovered ? 1.08 : 1) * pulse;
-        meshRef.current.scale.set(s * 1.6, s, s * 0.7);
+// Mix two hex colors 50/50 — used to tint FK nodes as blend of PK-val color + ref-table color
+function mixColors(hexA, hexB) {
+    const parse = h => [
+        parseInt(h.slice(1, 3), 16),
+        parseInt(h.slice(3, 5), 16),
+        parseInt(h.slice(5, 7), 16),
+    ];
+    const [r1, g1, b1] = parse(hexA);
+    const [r2, g2, b2] = parse(hexB);
+    const r = Math.round((r1 + r2) / 2).toString(16).padStart(2, '0');
+    const g = Math.round((g1 + g2) / 2).toString(16).padStart(2, '0');
+    const b = Math.round((b1 + b2) / 2).toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`;
+}
+
+// ── Build PK distribution scene nodes from backend data ──────────────────────
+// Layout:
+//   • PK column node sits at center (pkColNode.position — already placed by InspectorScene)
+//   • Ring 1 (radius PK_RING_R): one node per distinct PK value — all same size, each a unique color
+//   • Ring 2 (radius FK_RING_R): one node per (pk_value × ref_table) pair — size ∝ distribution %
+//     color = 50% pk-value-color + 50% ref-table-color
+//   • Spoke connector: PK col node → each PK value node (thin, pk-value-colored)
+//   • Arc connector:   each PK value node → its FK dist node (two-tone, animated)
+function buildPKDistributionNodes(pkColNode, pkDistData) {
+    if (!pkDistData?.pk_values?.length) return { pkValueNodes: [], refTableNodes: [], fkDistNodes: [], pkFkBridges: [] };
+
+    const { pk_values, pk_distribution } = pkDistData;
+    // Deduplicate referencing_tables by (table, fk_column) — backend may return duplicates
+    const seen = new Set();
+    const referencing_tables = (pkDistData.referencing_tables || []).filter(ref => {
+        const key = `${ref.table}::${ref.fk_column}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+    const [cx, cy, cz] = pkColNode.position;
+    const nVals = pk_values.length;
+    const nRefs = referencing_tables.length;
+
+    // ── Radii ──────────────────────────────────────────────────────────────
+    // Ring 1 (PK values): tight orbit around the PK column node
+    const PK_RING_R = Math.max(6, 3.5 + nVals * 0.5);
+    // Ring 2 (ref table nodes): clearly outside Ring 1
+    const REFTABLE_R = Math.max(20, PK_RING_R + 10 + nRefs * 2);
+    // Sub-cluster (FK dist nodes): small orbit around each ref table node
+    const FK_SUB_R = Math.max(4.5, 2.5 + nVals * 0.22);
+
+    // ── Ring 1: PK value nodes ─────────────────────────────────────────────
+    // Flat circle in XZ plane — all same size, all at same Y, each a distinct color
+    const pkValueNodes = pk_values.map((val, i) => {
+        const angle = (i / nVals) * Math.PI * 2 - Math.PI / 2;
+        const palette = PK_VALUE_COLORS[i % PK_VALUE_COLORS.length];
+        return {
+            id: `__pkval__${val}`,
+            label: val,
+            value: val,
+            color: palette.color,
+            glow: palette.glow,
+            colorIdx: i,
+            scale: 1.0,
+            position: [
+                cx + Math.cos(angle) * PK_RING_R,
+                cy,
+                cz + Math.sin(angle) * PK_RING_R,
+            ],
+        };
     });
 
-    const isDimmed = col.isDimmed;
+    const pkValMap = new Map(pkValueNodes.map(n => [n.value, n]));
+
+    // ── Ring 2: Ref table nodes ────────────────────────────────────────────
+    // One node per referencing table — evenly spaced in an outer ring.
+    // This is the "orders" / "payments" table node the user can see clearly.
+    const refTableNodes = referencing_tables.map((ref, refIdx) => {
+        const angle = (refIdx / nRefs) * Math.PI * 2 - Math.PI / 2;
+        const refPalette = TABLE_COLORS[(refIdx + 2) % TABLE_COLORS.length];
+        return {
+            id: `__reftable__${ref.table}`,
+            label: ref.table,
+            fkColumn: ref.fk_column || '',
+            color: refPalette.color,
+            glow: refPalette.glow,
+            position: [
+                cx + Math.cos(angle) * REFTABLE_R,
+                cy,
+                cz + Math.sin(angle) * REFTABLE_R,
+            ],
+        };
+    });
+
+    const refTableMap = new Map(refTableNodes.map(n => [n.label, n]));
+
+    // ── Global max pct for scale normalisation ─────────────────────────────
+    let globalMaxPct = 0;
+    pk_distribution.forEach(e => {
+        referencing_tables.forEach(ref => {
+            const p = e.ref_pcts?.[ref.table] ?? 0;
+            if (p > globalMaxPct) globalMaxPct = p;
+        });
+    });
+    if (globalMaxPct === 0) globalMaxPct = 100;
+
+    // ── Sub-cluster: FK dist nodes around each ref table node ─────────────
+    // For each referencing table, its FK dist nodes form a small ring around
+    // that table's node — so you can clearly see "these are orders for customer X".
+    const fkDistNodes = [];
+    const pkFkBridges = [];
+
+    referencing_tables.forEach((ref, refIdx) => {
+        const refPalette = TABLE_COLORS[(refIdx + 2) % TABLE_COLORS.length];
+        const refNode = refTableMap.get(ref.table);
+        if (!refNode) return;
+
+        const [rx, ry, rz] = refNode.position;
+        const validEntries = pk_distribution.filter(e => (e.ref_counts?.[ref.table] ?? 0) > 0);
+        const nLocal = validEntries.length;
+        if (nLocal === 0) return;
+
+        validEntries.forEach((pkEntry, localIdx) => {
+            const pct = pkEntry.ref_pcts?.[ref.table] ?? 0;
+            const count = pkEntry.ref_counts?.[ref.table] ?? 0;
+
+            // Spread FK nodes in a flat ring around the ref table node
+            const angle = (localIdx / nLocal) * Math.PI * 2 - Math.PI / 2;
+            const normPct = pct / globalMaxPct;
+            // Scale: 0.55 (smallest %) → 1.55 (largest %) — size encodes row share
+            const fkScale = 0.55 + normPct * 1.0;
+            // Slight Y stagger so nodes at same angle don't sit exactly flat
+            const yStagger = (localIdx % 2 === 0 ? 0.7 : -0.7);
+
+            const fkPos = [
+                rx + Math.cos(angle) * FK_SUB_R,
+                ry + yStagger,
+                rz + Math.sin(angle) * FK_SUB_R,
+            ];
+
+            // Color = 50% PK value color + 50% ref-table color
+            const pkValNode = pkValMap.get(pkEntry.value);
+            const blendColor = pkValNode ? mixColors(pkValNode.color, refPalette.color) : refPalette.color;
+            const blendGlow  = pkValNode ? mixColors(pkValNode.glow,  refPalette.glow)  : refPalette.glow;
+
+            const fkNodeId = `__fkdist__${ref.table}__${pkEntry.value}`;
+            fkDistNodes.push({
+                id: fkNodeId,
+                pkLabel: pkEntry.value,
+                pctLabel: `${pct.toFixed(1)}%`,
+                countLabel: `${count} ${ref.table}`,
+                pct, count,
+                scale: fkScale,
+                color: blendColor, glow: blendGlow,
+                refColor: refPalette.color, refGlow: refPalette.glow,
+                pkColor: pkValNode?.color || '#fbbf24',
+                pkGlow:  pkValNode?.glow  || '#fde68a',
+                position: fkPos,
+                refTable: ref.table,
+                pkValue: pkEntry.value,
+            });
+
+            // Arc: PK value node → FK dist node (crosses the scene — shows the connection)
+            const srcPos = pkValNode?.position || [cx, cy, cz];
+            pkFkBridges.push({
+                id: `bridge-${fkNodeId}`,
+                sourcePos: srcPos,
+                targetPos: fkPos,
+                sourceColor: pkValNode?.glow || '#fbbf24',
+                targetColor: blendGlow,
+                pct,
+            });
+        });
+    });
+
+    return { pkValueNodes, refTableNodes, fkDistNodes, pkFkBridges };
+}
+
+// ── PK Value satellite node ────────────────────────────────────────────────────
+// Each unique PK value → distinct color, all same size, label = value name
+function PKValueNode({ node: n }) {
+    const groupRef = useRef(null);
+    const sphereRef = useRef(null);
+    const ringRef = useRef(null);
+    const currentPos = useRef(new THREE.Vector3(...n.position));
+
+    useFrame((state, delta) => {
+        if (!groupRef.current || !sphereRef.current) return;
+        currentPos.current.lerp(new THREE.Vector3(...n.position), delta * 7);
+        groupRef.current.position.copy(currentPos.current);
+        const t = state.clock.elapsedTime;
+        const breath = 1 + Math.sin(t * 1.8 + n.colorIdx * 0.9) * 0.05;
+        sphereRef.current.scale.setScalar(breath);
+        if (ringRef.current) ringRef.current.rotation.y = t * 0.6 + n.colorIdx * 0.4;
+    });
+
+    const BASE = 0.65; // fixed sphere radius — all same size
 
     return (
         <group ref={groupRef}>
-            {isHighlighted && (
-                <mesh scale={[1.65, 1.02, 0.72]}>
-                    <sphereGeometry args={[1, 32, 32]} />
-                    <meshBasicMaterial color={col.glow} transparent opacity={0.55} depthWrite={false} />
+            {/* outer glow corona */}
+            <mesh>
+                <sphereGeometry args={[BASE * 2.4, 12, 12]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.07} depthWrite={false} />
+            </mesh>
+            <mesh>
+                <sphereGeometry args={[BASE * 1.55, 12, 12]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.13} depthWrite={false} />
+            </mesh>
+            {/* main sphere */}
+            <mesh ref={sphereRef}>
+                <sphereGeometry args={[BASE, 40, 40]} />
+                <meshStandardMaterial
+                    color={n.color} emissive={n.glow}
+                    emissiveIntensity={0.55}
+                    roughness={0.10} metalness={0.0} />
+            </mesh>
+            {/* specular */}
+            <mesh position={[BASE * 0.35, BASE * 0.45, BASE * 0.72]}>
+                <sphereGeometry args={[BASE * 0.22, 8, 8]} />
+                <meshBasicMaterial color="#ffffff" transparent opacity={0.60} depthWrite={false} />
+            </mesh>
+            {/* spinning orbit ring — signals "this is a PK value" */}
+            <mesh ref={ringRef} rotation={[Math.PI / 3, 0, 0]}>
+                <torusGeometry args={[BASE * 1.35, BASE * 0.055, 8, 48]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.50} depthWrite={false} />
+            </mesh>
+
+            {/* Label floats above sphere — no background box */}
+            <Html position={[0, BASE * 2.2, 0]} center distanceFactor={42} style={{ pointerEvents: 'none' }}>
+                <div style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    textAlign: 'center', whiteSpace: 'nowrap',
+                    fontSize: 9, fontWeight: 700,
+                    color: n.glow,
+                    textShadow: `0 0 10px ${n.glow}, 0 0 20px ${n.glow}80`,
+                }}>{n.label}</div>
+            </Html>
+        </group>
+    );
+}
+
+// ── FK Distribution node ───────────────────────────────────────────────────────
+// Size ∝ distribution %, color = 50% pk-val-color + 50% ref-table-color
+// Label top: pk value name   Label bottom: %  (orders count)
+function FKDistNode({ node: n }) {
+    const groupRef = useRef(null);
+    const sphereRef = useRef(null);
+    const currentPos = useRef(new THREE.Vector3(...n.position));
+    const [hovered, setHovered] = useState(false);
+
+    useFrame((state, delta) => {
+        if (!groupRef.current || !sphereRef.current) return;
+        currentPos.current.lerp(new THREE.Vector3(...n.position), delta * 6);
+        groupRef.current.position.copy(currentPos.current);
+        const t = state.clock.elapsedTime;
+        const breath = 1 + Math.sin(t * 1.3 + n.position[0] * 0.4) * 0.04;
+        sphereRef.current.scale.setScalar(n.scale * breath * (hovered ? 1.15 : 1.0));
+    });
+
+    const BASE = 0.75;
+    const ei = hovered ? 1.6 : 0.9;
+
+    return (
+        <group ref={groupRef}
+            onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }}
+            onPointerOut={() => setHovered(false)}>
+
+            {/* outer glow corona — dual color */}
+            <mesh>
+                <sphereGeometry args={[BASE * n.scale * 2.8, 14, 14]} />
+                <meshBasicMaterial color={n.refGlow} transparent
+                    opacity={hovered ? 0.10 : 0.04} depthWrite={false} />
+            </mesh>
+            <mesh>
+                <sphereGeometry args={[BASE * n.scale * 2.0, 14, 14]} />
+                <meshBasicMaterial color={n.pkGlow} transparent
+                    opacity={hovered ? 0.14 : 0.06} depthWrite={false} />
+            </mesh>
+
+            {/* ── Two-tone hemisphere sphere ──────────────────────────────── */}
+            {/* Left half = ref-table color (e.g. blue for orders) */}
+            <mesh ref={sphereRef} rotation={[0, -Math.PI / 2, 0]}>
+                <sphereGeometry args={[BASE, 32, 32, 0, Math.PI]} />
+                <meshStandardMaterial
+                    color={n.refColor} emissive={n.refGlow}
+                    emissiveIntensity={ei} roughness={0.12} metalness={0.4}
+                    side={THREE.FrontSide} />
+            </mesh>
+            {/* Right half = PK value color (orange/violet/cyan — whichever PK value connects) */}
+            <mesh rotation={[0, Math.PI / 2, 0]}>
+                <sphereGeometry args={[BASE, 32, 32, 0, Math.PI]} />
+                <meshStandardMaterial
+                    color={n.pkColor} emissive={n.pkGlow}
+                    emissiveIntensity={ei} roughness={0.12} metalness={0.4}
+                    side={THREE.FrontSide} />
+            </mesh>
+            {/* Divider ring at the equator — white line between the two colors */}
+            <mesh rotation={[0, Math.PI / 2, 0]}>
+                <torusGeometry args={[BASE, 0.04, 8, 48]} />
+                <meshBasicMaterial color="#ffffff" transparent
+                    opacity={hovered ? 0.90 : 0.55} depthWrite={false} />
+            </mesh>
+
+            {/* Size ring — ref-table color, thickness = % share */}
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[BASE * n.scale * 1.12, BASE * 0.05, 6, 32]} />
+                <meshBasicMaterial color={n.refGlow} transparent
+                    opacity={hovered ? 0.80 : 0.45} depthWrite={false} />
+            </mesh>
+
+            {/* specular */}
+            <mesh position={[BASE * 0.3, BASE * 0.42, BASE * 0.72]}>
+                <sphereGeometry args={[BASE * 0.18, 8, 8]} />
+                <meshBasicMaterial color="#ffffff" transparent
+                    opacity={hovered ? 0.80 : 0.45} depthWrite={false} />
+            </mesh>
+
+            {/* % floats above — colored half-and-half in the label too */}
+            <Html position={[0, BASE * n.scale * 2.4 + 0.4, 0]} center distanceFactor={42} style={{ pointerEvents: 'none' }}>
+                <div style={{ fontFamily: "'Inter', system-ui, sans-serif", textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <div style={{
+                        fontSize: 13, fontWeight: 900, lineHeight: 1,
+                        background: `linear-gradient(90deg, ${n.refGlow}, ${n.pkGlow})`,
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        filter: `drop-shadow(0 0 6px ${n.refGlow}80)`,
+                    }}>{n.pctLabel}</div>
+                    {hovered && (
+                        <div style={{ marginTop: 3 }}>
+                            <div style={{ fontSize: 8, fontWeight: 700, color: n.pkGlow, textShadow: `0 0 8px ${n.pkGlow}` }}>{n.pkLabel}</div>
+                            <div style={{ fontSize: 8, fontWeight: 600, color: n.refGlow, textShadow: `0 0 6px ${n.refGlow}` }}>{n.countLabel}</div>
+                        </div>
+                    )}
+                </div>
+            </Html>
+        </group>
+    );
+}
+
+// ── Two-tone animated arc: PK value node → FK dist node ───────────────────────
+function PKFKBridge({ from, to, fromColor, toColor, pct }) {
+    const linesRef = useRef(null);
+    const lineObjs = useMemo(() => {
+        const vFrom = new THREE.Vector3(...from);
+        const vTo = new THREE.Vector3(...to);
+        // Bow the arc outward by 20% of distance so arcs don't intersect nodes
+        const dist = vFrom.distanceTo(vTo);
+        const mid = new THREE.Vector3().addVectors(vFrom, vTo).multiplyScalar(0.5);
+        mid.y += dist * 0.20;
+        const curve = new THREE.QuadraticBezierCurve3(vFrom, mid, vTo);
+        const pts = curve.getPoints(48);
+        const half = Math.floor(pts.length / 2);
+        const geoA = new THREE.BufferGeometry().setFromPoints(pts.slice(0, half + 1));
+        const geoB = new THREE.BufferGeometry().setFromPoints(pts.slice(half));
+        // Line width proportional to pct (thicker = bigger FK share)
+        const matA = new THREE.LineBasicMaterial({ color: fromColor, transparent: true, opacity: 0.6 });
+        const matB = new THREE.LineBasicMaterial({ color: toColor, transparent: true, opacity: 0.6 });
+        return [new THREE.Line(geoA, matA), new THREE.Line(geoB, matB)];
+    }, [from[0], from[1], from[2], to[0], to[1], to[2], fromColor, toColor]);
+
+    // Pulsing opacity — faster pulse for higher pct (more important connection)
+    useFrame((state) => {
+        const speed = 1.8 + (pct / 100) * 1.5;
+        const base = 0.25 + (pct / 100) * 0.30;
+        const pulse = base + Math.sin(state.clock.elapsedTime * speed) * 0.18;
+        lineObjs[0].material.opacity = pulse;
+        lineObjs[1].material.opacity = pulse;
+    });
+
+    return (
+        <>
+            <primitive object={lineObjs[0]} />
+            <primitive object={lineObjs[1]} />
+        </>
+    );
+}
+
+// ── Thin spoke: PK column center → PK value node ─────────────────────────────
+function PKValueConnector({ from, to, color }) {
+    const lineObj = useMemo(() => {
+        const geo = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(...from), new THREE.Vector3(...to),
+        ]);
+        const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.30 });
+        return new THREE.Line(geo, mat);
+    }, [from[0], from[1], from[2], to[0], to[1], to[2], color]);
+
+    useFrame((state) => {
+        lineObj.material.opacity = 0.20 + Math.sin(state.clock.elapsedTime * 1.2) * 0.10;
+    });
+
+    return <primitive object={lineObj} />;
+}
+
+// ── Referencing table node (shown in PK distribution mode) ───────────────────
+// Represents "orders" / "payments" etc — the table that holds the FK column.
+// Larger than FK dist nodes, solid color, clearly labelled with table name + FK col.
+function RefTableNode({ node: n }) {
+    const groupRef = useRef(null);
+    const sphereRef = useRef(null);
+    const ring1Ref = useRef(null);
+    const ring2Ref = useRef(null);
+    const currentPos = useRef(new THREE.Vector3(...n.position));
+
+    useFrame((state, delta) => {
+        if (!groupRef.current || !sphereRef.current) return;
+        currentPos.current.lerp(new THREE.Vector3(...n.position), delta * 5);
+        groupRef.current.position.copy(currentPos.current);
+        const t = state.clock.elapsedTime;
+        const pulse = 1 + Math.sin(t * 1.4) * 0.06;
+        sphereRef.current.scale.setScalar(pulse);
+        if (ring1Ref.current) ring1Ref.current.rotation.y = t * 0.4;
+        if (ring2Ref.current) ring2Ref.current.rotation.set(t * 0.2, 0, t * 0.3);
+    });
+
+    const BASE = 1.4;
+
+    return (
+        <group ref={groupRef}>
+            {/* outer glow */}
+            <mesh>
+                <sphereGeometry args={[BASE * 2.6, 16, 16]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.06} depthWrite={false} />
+            </mesh>
+            <mesh>
+                <sphereGeometry args={[BASE * 1.7, 16, 16]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.12} depthWrite={false} />
+            </mesh>
+            {/* main sphere */}
+            <mesh ref={sphereRef}>
+                <sphereGeometry args={[BASE, 48, 48]} />
+                <meshStandardMaterial
+                    color={n.color} emissive={n.glow}
+                    emissiveIntensity={1.2} roughness={0.15} metalness={0.6}
+                    transparent opacity={0.92} />
+            </mesh>
+            {/* specular */}
+            <mesh position={[BASE * 0.35, BASE * 0.45, BASE * 0.68]}>
+                <sphereGeometry args={[BASE * 0.2, 8, 8]} />
+                <meshBasicMaterial color="#ffffff" transparent opacity={0.55} depthWrite={false} />
+            </mesh>
+            {/* orbit rings signal "this is a table node" */}
+            <mesh ref={ring1Ref}>
+                <torusGeometry args={[BASE * 1.5, BASE * 0.04, 8, 48]} />
+                <meshBasicMaterial color={n.glow} transparent opacity={0.55} depthWrite={false} />
+            </mesh>
+            <mesh ref={ring2Ref}>
+                <torusGeometry args={[BASE * 1.9, BASE * 0.025, 8, 48]} />
+                <meshBasicMaterial color={n.color} transparent opacity={0.30} depthWrite={false} />
+            </mesh>
+
+            {/* Table name floats above sphere — no background box */}
+            <Html position={[0, BASE * 2.8, 0]} center distanceFactor={45} style={{ pointerEvents: 'none' }}>
+                <div style={{ fontFamily: "'Inter', system-ui, sans-serif", textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <div style={{
+                        fontSize: 12, fontWeight: 900,
+                        color: '#ffffff',
+                        textShadow: `0 0 16px ${n.glow}, 0 0 32px ${n.glow}50`,
+                        letterSpacing: 0.5,
+                    }}>{n.label}</div>
+                    {n.fkColumn && (
+                        <div style={{
+                            fontSize: 8, fontWeight: 700, marginTop: 1,
+                            color: n.glow,
+                            textShadow: `0 0 8px ${n.glow}`,
+                        }}>FK · {n.fkColumn}</div>
+                    )}
+                </div>
+            </Html>
+        </group>
+    );
+}
+
+// ── Column ellipsoid node in the single-node inspector ───────────────────────
+// Props: col (colNode shape from transformNodeColumns), isHighlighted, onHover
+function ColumnEllipsoid({ col, isHighlighted, onHover }) {
+    const groupRef = useRef(null);
+    const sphereRef = useRef(null);
+    const currentPos = useRef(new THREE.Vector3(...col.position));
+
+    useFrame((state, delta) => {
+        if (!groupRef.current || !sphereRef.current) return;
+        currentPos.current.lerp(new THREE.Vector3(...col.position), delta * 7);
+        groupRef.current.position.copy(currentPos.current);
+
+        const t = state.clock.elapsedTime;
+        const breath = 1 + Math.sin(t * 1.8 + col.position[0] * 0.7) * 0.04;
+        const highlight = isHighlighted ? 1.18 : 1.0;
+        const dimFactor = col.isDimmed ? 0.55 : 1.0;
+        sphereRef.current.scale.setScalar(col.scale * breath * highlight * dimFactor);
+    });
+
+    const baseR = 0.72;
+    const isPK = col.badge === 'PK';
+    const isFK = col.badge === 'FK';
+    // Ring color: PK=gold always, FK=always blue (type identity), regular=node's own glow
+    const ringColor = isPK ? '#fbbf24' : isFK ? '#60a5fa' : col.glow;
+
+    return (
+        <group ref={groupRef}
+            onPointerOver={(e) => { e.stopPropagation(); onHover && onHover(col); }}
+            onPointerOut={() => onHover && onHover(null)}>
+
+            {/* outer glow halo */}
+            <mesh>
+                <sphereGeometry args={[baseR * col.scale * 2.2, 14, 14]} />
+                <meshBasicMaterial color={col.glow} transparent
+                    opacity={isHighlighted ? 0.13 : col.isDimmed ? 0.02 : 0.06}
+                    depthWrite={false} />
+            </mesh>
+
+            {/* inner glow */}
+            <mesh>
+                <sphereGeometry args={[baseR * col.scale * 1.4, 14, 14]} />
+                <meshBasicMaterial color={col.glow} transparent
+                    opacity={isHighlighted ? 0.20 : col.isDimmed ? 0.03 : 0.09}
+                    depthWrite={false} />
+            </mesh>
+
+            {/* main sphere */}
+            <mesh ref={sphereRef}>
+                <sphereGeometry args={[baseR, 40, 40]} />
+                <meshStandardMaterial
+                    color={col.isDimmed ? '#1e293b' : col.color}
+                    emissive={col.isDimmed ? '#0f172a' : col.glow}
+                    emissiveIntensity={isHighlighted ? 0.65 : col.isDimmed ? 0.05 : 0.28}
+                    roughness={0.12} metalness={0.0} />
+            </mesh>
+
+            {/* specular highlight dot */}
+            <mesh position={[baseR * 0.28, baseR * 0.38, baseR * 0.7]}>
+                <sphereGeometry args={[baseR * 0.18, 8, 8]} />
+                <meshBasicMaterial color="#ffffff" transparent
+                    opacity={col.isDimmed ? 0.08 : isHighlighted ? 0.75 : 0.40}
+                    depthWrite={false} />
+            </mesh>
+
+            {/* badge ring (PK = gold, FK = colored) */}
+            {col.badge && (
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                    <torusGeometry args={[baseR * col.scale * 1.08, baseR * 0.075, 8, 32]} />
+                    <meshBasicMaterial color={ringColor} transparent
+                        opacity={isHighlighted ? 0.95 : col.isDimmed ? 0.10 : 0.80}
+                        depthWrite={false} />
                 </mesh>
             )}
-            <mesh scale={[2.8, 1.7, 1.2]}>
-                <sphereGeometry args={[1, 32, 32]} />
-                <meshBasicMaterial color={col.glow} transparent
-                    opacity={isHighlighted ? 0.35 : isDimmed ? 0.0 : 0.07} depthWrite={false} />
-            </mesh>
-            <mesh scale={[2.2, 1.35, 0.95]}>
-                <sphereGeometry args={[1, 32, 32]} />
-                <meshBasicMaterial color={col.glow} transparent
-                    opacity={isHighlighted ? 0.45 : isDimmed ? 0.0 : 0.10} depthWrite={false} />
-            </mesh>
-            <mesh
-                ref={meshRef}
-                onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(col); }}
-                onPointerOut={() => { setHovered(false); onHover(null); }}
-            >
-                <sphereGeometry args={[1, 48, 48]} />
-                <meshStandardMaterial
-                    color={isDimmed ? '#111111' : col.color}
-                    emissive={isDimmed ? '#000000' : col.color}
-                    emissiveIntensity={hovered ? 2.0 : isHighlighted ? 1.2 : isDimmed ? 0.0 : 0.85}
-                    roughness={0.2} metalness={0.5}
-                    transparent opacity={hovered ? 1.0 : isHighlighted ? 1.0 : isDimmed ? 0.06 : 0.82}
-                    depthWrite={false}
-                />
-            </mesh>
+
+            {/* label */}
             <Html center distanceFactor={40} style={{ pointerEvents: 'none' }}>
                 <div style={{
-                    color: 'white', textAlign: 'center',
                     fontFamily: "'Inter', system-ui, sans-serif",
-                    textShadow: `0 0 20px ${col.color}, 0 0 40px ${col.color}, 0 2px 8px rgba(0,0,0,0.8)`,
-                    whiteSpace: 'nowrap', pointerEvents: 'none',
-                    opacity: isDimmed ? 0.15 : 1.0, transition: 'opacity 0.2s',
+                    textAlign: 'center', whiteSpace: 'nowrap',
+                    opacity: col.isDimmed ? 0.3 : 1,
+                    transition: 'opacity 0.2s',
                 }}>
                     {col.badge && (
                         <div style={{
-                            fontSize: 8, fontWeight: 900, letterSpacing: 2,
-                            color: col.badge === 'PK' ? '#fbbf24' : '#60a5fa',
-                            background: col.badge === 'PK' ? 'rgba(251,191,36,0.12)' : 'rgba(96,165,250,0.12)',
-                            border: `1px solid ${col.badge === 'PK' ? '#fbbf24' : '#60a5fa'}50`,
-                            borderRadius: 10, padding: '1px 6px',
-                            display: 'inline-block', marginBottom: 3,
+                            fontSize: 9, fontWeight: 900, letterSpacing: '0.12em',
+                            color: '#ffffff',
+                            textTransform: 'uppercase',
+                            marginBottom: 3,
+                            // PK: dark amber bg. FK: always dark navy bg (blue ring = FK identity).
+                            background: isPK ? 'rgba(90,45,0,0.90)' : 'rgba(0,10,60,0.90)',
+                            border: `1px solid ${ringColor}`,
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            boxShadow: `0 0 8px ${ringColor}80`,
+                            display: 'inline-block',
                         }}>{col.badge}</div>
                     )}
-                    <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.5 }}>{col.label}</div>
                     <div style={{
-                        fontSize: 11, fontWeight: 800, marginTop: 3,
-                        color: col.color, background: 'rgba(0,0,0,0.6)',
-                        padding: '2px 8px', borderRadius: 20, display: 'inline-block',
-                        border: `1px solid ${col.color}60`,
-                    }}>{col.displayCount}</div>
-                    {col.statNumber && (
-                        <div style={{
-                            fontSize: 11, fontWeight: 900, marginTop: 2,
-                            color: col.badge === 'PK' ? '#fbbf24' : '#22c55e',
-                            background: 'rgba(0,0,0,0.55)',
-                            padding: '1px 7px', borderRadius: 20, display: 'inline-block',
-                            border: `1px solid ${col.badge === 'PK' ? '#fbbf2440' : '#22c55e40'}`,
-                        }}>{col.statNumber}</div>
-                    )}
+                        fontSize: 10, fontWeight: 700,
+                        color: '#ffffff',
+                        textShadow: `0 0 10px ${col.glow}, 0 1px 4px rgba(0,0,0,0.95)`,
+                    }}>{col.label}</div>
                 </div>
             </Html>
         </group>
@@ -1046,80 +1559,86 @@ function ColumnEllipsoid({ col, isHighlighted, onHover }) {
 }
 const MemoColumnEllipsoid = React.memo(ColumnEllipsoid);
 
-// Phantom referenced-table node — dimmer, ghostly version of ColumnEllipsoid
-function PhantomRefNode({ phantom, isHighlighted, targetPosition }) {
-    const groupRef   = useRef(null);
-    const meshRef    = useRef(null);
-    const currentPos = useRef(new THREE.Vector3(...phantom.position));
+// ── Phantom referenced-table node (shown during FK hover) ─────────────────────
+// Props: phantom (phantomNode shape), isHighlighted, targetPosition
+function PhantomRefNode({ phantom: ph, isHighlighted, targetPosition }) {
+    const groupRef = useRef(null);
+    const sphereRef = useRef(null);
+    const currentPos = useRef(new THREE.Vector3(...ph.position));
 
     useFrame((state, delta) => {
-        if (!groupRef.current || !meshRef.current) return;
+        if (!groupRef.current || !sphereRef.current) return;
         const dest = targetPosition
             ? new THREE.Vector3(...targetPosition)
-            : new THREE.Vector3(...phantom.position);
-        currentPos.current.lerp(dest, delta * 5);
+            : new THREE.Vector3(...ph.position);
+        currentPos.current.lerp(dest, delta * 6);
         groupRef.current.position.copy(currentPos.current);
-        const freqScale = phantom.scale || 0.8;
-        const pulse = 1 + Math.sin(state.clock.elapsedTime * 1.0 + phantom.position[0]) * 0.04;
-        meshRef.current.scale.set(1.4 * freqScale * pulse, 0.88 * freqScale * pulse, 0.62 * freqScale * pulse);
+
+        const t = state.clock.elapsedTime;
+        const breath = 1 + Math.sin(t * 1.3 + ph.position[2] * 0.5) * 0.04;
+        sphereRef.current.scale.setScalar(ph.scale * breath * (isHighlighted ? 1.15 : 1.0));
     });
 
-    const displayRows = phantom.distinctCount >= 1000000 ? `${(phantom.distinctCount / 1000000).toFixed(1)}M`
-        : phantom.distinctCount >= 1000 ? `${(phantom.distinctCount / 1000).toFixed(1)}k`
-        : phantom.distinctCount > 0 ? String(phantom.distinctCount) : null;
+    const baseR = 0.8;
 
     return (
         <group ref={groupRef}>
-            {isHighlighted && (
-                <mesh scale={[1.65, 1.02, 0.72]}>
-                    <sphereGeometry args={[1, 24, 24]} />
-                    <meshBasicMaterial color={phantom.glow} transparent opacity={0.45} depthWrite={false} />
-                </mesh>
-            )}
-            <mesh scale={[2.5, 1.5, 1.1]}>
-                <sphereGeometry args={[1, 24, 24]} />
-                <meshBasicMaterial color={phantom.glow} transparent
-                    opacity={isHighlighted ? 0.25 : 0.10} depthWrite={false} />
+            {/* outer glow — boosted so color is visible even without hover */}
+            <mesh>
+                <sphereGeometry args={[baseR * ph.scale * 2.5, 14, 14]} />
+                <meshBasicMaterial color={ph.glow} transparent
+                    opacity={isHighlighted ? 0.25 : 0.12} depthWrite={false} />
             </mesh>
-            <mesh ref={meshRef}>
-                <sphereGeometry args={[1, 32, 32]} />
+            <mesh>
+                <sphereGeometry args={[baseR * ph.scale * 1.5, 14, 14]} />
+                <meshBasicMaterial color={ph.glow} transparent
+                    opacity={isHighlighted ? 0.35 : 0.18} depthWrite={false} />
+            </mesh>
+
+            {/* main sphere — visible color so each REF table is distinguishable */}
+            <mesh ref={sphereRef}>
+                <sphereGeometry args={[baseR, 40, 40]} />
                 <meshStandardMaterial
-                    color={phantom.color}
-                    emissive={phantom.glow}
-                    emissiveIntensity={isHighlighted ? 1.4 : 0.55}
-                    roughness={0.3} metalness={0.4}
-                    transparent opacity={isHighlighted ? 0.92 : 0.58}
-                    depthWrite={false}
-                />
+                    color={ph.color} emissive={ph.glow}
+                    emissiveIntensity={isHighlighted ? 1.0 : 0.65}
+                    roughness={0.15} metalness={0.3}
+                    transparent opacity={isHighlighted ? 0.95 : 0.88} />
             </mesh>
+
+            {/* specular */}
+            <mesh position={[baseR * 0.28, baseR * 0.38, baseR * 0.72]}>
+                <sphereGeometry args={[baseR * 0.17, 8, 8]} />
+                <meshBasicMaterial color="#ffffff" transparent
+                    opacity={isHighlighted ? 0.75 : 0.50} depthWrite={false} />
+            </mesh>
+
+            {/* outer glow ring — thicker to distinguish from regular column nodes */}
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[baseR * ph.scale * 1.12, baseR * 0.07, 8, 32]} />
+                <meshBasicMaterial color={ph.glow} transparent
+                    opacity={isHighlighted ? 0.90 : 0.60} depthWrite={false} />
+            </mesh>
+
             <Html center distanceFactor={40} style={{ pointerEvents: 'none' }}>
                 <div style={{
-                    textAlign: 'center', fontFamily: "'Inter', system-ui, sans-serif",
-                    whiteSpace: 'nowrap', pointerEvents: 'none',
-                    textShadow: `0 0 14px ${phantom.glow}`,
-                    transition: 'all 0.3s',
+                    fontFamily: "'Inter', system-ui, sans-serif",
+                    textAlign: 'center', whiteSpace: 'nowrap',
                 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 3, textTransform: 'uppercase',
-                        color: phantom.glow, marginBottom: 2,
-                    }}>ref table</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{phantom.label}</div>
-                    {phantom.freqPct > 0 && (
-                        <div style={{
-                            fontSize: 11, fontWeight: 900, marginTop: 3,
-                            color: phantom.glow,
-                            background: `${phantom.color}28`,
-                            padding: '2px 9px', borderRadius: 20, display: 'inline-block',
-                            border: `1px solid ${phantom.glow}70`,
-                        }}>{phantom.freqPct}%</div>
-                    )}
-                    {displayRows && (
-                        <div style={{
-                            fontSize: 10, fontWeight: 600, marginTop: 2,
-                            color: '#94a3b8', background: 'rgba(0,0,0,0.55)',
-                            padding: '1px 7px', borderRadius: 20, display: 'inline-block',
-                            border: '1px solid #33415550',
-                        }}>{displayRows} uniq</div>
-                    )}
+                    <div style={{
+                        fontSize: 8, fontWeight: 900, letterSpacing: '0.15em',
+                        color: ph.glow,
+                        textShadow: `0 0 8px ${ph.glow}`,
+                        textTransform: 'uppercase', marginBottom: 2,
+                        background: 'rgba(0,0,0,0.6)',
+                        padding: '1px 6px',
+                        borderRadius: 3,
+                        border: `1px solid ${ph.glow}60`,
+                    }}>REF</div>
+                    <div style={{
+                        fontSize: 9, fontWeight: 700,
+                        color: isHighlighted ? '#ffffff' : ph.glow,
+                        textShadow: `0 0 10px ${ph.glow}, 0 1px 4px rgba(0,0,0,0.9)`,
+                    }}>{ph.label}</div>
                 </div>
             </Html>
         </group>
@@ -1127,35 +1646,40 @@ function PhantomRefNode({ phantom, isHighlighted, targetPosition }) {
 }
 const MemoPhantomRefNode = React.memo(PhantomRefNode);
 
-// Full inspector 3D scene — mirrors Scene exactly
-function InspectorScene({ node, tableColor, tableGlow, colNodes, phantomNodes, bridges, connectivity, showPKs, showFKs }) {
+// ── Full inspector 3D scene ───────────────────────────────────────────────────
+function InspectorScene({
+    node, tableColor, tableGlow,
+    colNodes, phantomNodes, bridges, connectivity,
+    showPKs, showFKs,
+    pkDistData,
+    hoveredPKColId,
+    onHoverColNode,
+    camParams,
+}) {
     const [hoveredId, setHoveredId] = useState(null);
     const hoverClearTimer = useRef(null);
+    const controlsRef = useRef(null);
 
-    // Apply Key Visibility filtering
     const visibleColNodes = useMemo(() => colNodes.filter(c => {
         if (c.badge === 'PK' && !showPKs) return false;
         if (c.badge === 'FK' && !showFKs) return false;
         return true;
     }), [colNodes, showPKs, showFKs]);
 
-    const visibleBridges = useMemo(() =>
-        showFKs ? bridges : [], [bridges, showFKs]);
-
-    const visiblePhantomNodes = useMemo(() =>
-        showFKs ? phantomNodes : [], [phantomNodes, showFKs]);
+    const visibleBridges = useMemo(() => showFKs ? bridges : [], [bridges, showFKs]);
+    const visiblePhantomNodes = useMemo(() => showFKs ? phantomNodes : [], [phantomNodes, showFKs]);
 
     const connectedToHovered = useMemo(() => {
         if (!hoveredId || !connectivity) return [];
         return connectivity[hoveredId] || [];
     }, [hoveredId, connectivity]);
 
-    // When hovering a FK column, spread its phantom ref node out around it
+    // FK hover spread
     const targetPositions = useMemo(() => {
         if (!hoveredId || connectedToHovered.length === 0) return {};
-        const hovered = [...visibleColNodes, ...visiblePhantomNodes].find(n => n.id === hoveredId);
-        if (!hovered) return {};
-        const [hx, hy, hz] = hovered.position;
+        const hov = [...visibleColNodes, ...visiblePhantomNodes].find(n => n.id === hoveredId);
+        if (!hov) return {};
+        const [hx, hy, hz] = hov.position;
         const count = connectedToHovered.length;
         const phi = Math.PI * (3 - Math.sqrt(5));
         const spreadR = 10;
@@ -1170,27 +1694,61 @@ function InspectorScene({ node, tableColor, tableGlow, colNodes, phantomNodes, b
         return result;
     }, [hoveredId, connectedToHovered, visibleColNodes, visiblePhantomNodes]);
 
+    // PK distribution nodes (built when a PK col is hovered + data is ready)
+    const hoveredPKColNode = useMemo(
+        () => hoveredPKColId ? visibleColNodes.find(c => c.id === hoveredPKColId) : null,
+        [hoveredPKColId, visibleColNodes]
+    );
+
+    const hoveredTargetY = hoveredPKColNode ? hoveredPKColNode.position[1] : 0;
+
+    const { pkValueNodes, refTableNodes, fkDistNodes, pkFkBridges } = useMemo(() => {
+        if (!hoveredPKColNode || !pkDistData) return { pkValueNodes: [], refTableNodes: [], fkDistNodes: [], pkFkBridges: [] };
+        return buildPKDistributionNodes(hoveredPKColNode, pkDistData);
+    }, [hoveredPKColNode, pkDistData]);
+
+    const handleColHover = useCallback((c) => {
+        if (c?.id) {
+            if (hoverClearTimer.current) { clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; }
+            setHoveredId(c.id);
+            if (onHoverColNode) onHoverColNode(c);
+        } else {
+            if (!hoverClearTimer.current) {
+                hoverClearTimer.current = setTimeout(() => {
+                    setHoveredId(null);
+                    hoverClearTimer.current = null;
+                    if (onHoverColNode) onHoverColNode(null);
+                }, 500);
+            }
+        }
+    }, [onHoverColNode]);
+
     return (
         <>
-            <ambientLight intensity={0.15} />
-            <pointLight position={[10, 12, 10]} intensity={0.8} color="#ffffff" />
-            <pointLight position={[-8, -4, -8]} intensity={0.5} color={tableColor} />
-            <pointLight position={[8, -6, 5]} intensity={0.4} color="#22c55e" />
-            <pointLight position={[0, 8, -5]} intensity={0.3} color="#f59e0b" />
-            <pointLight position={[0, -8, 3]} intensity={0.3} color="#60a5fa" />
-            <pointLight position={[0, 1, 0]} intensity={1.2} color={tableGlow} distance={20} decay={2} />
+            <InspectorCameraRig
+                targetPosition={[0, camParams.y + (hoveredTargetY * 0.5), camParams.camZ]}
+                lookAt={[0, hoveredTargetY, 0]}
+                fov={camParams.fov}
+                controlsRef={controlsRef}
+            />
+            {/* Spline-style studio lighting */}
+            <ambientLight intensity={0.55} color="#e8eeff" />
+            <directionalLight position={[8, 14, 10]} intensity={1.8} color="#ffffff" />
+            <directionalLight position={[-10, -4, 6]} intensity={0.7} color="#b8d4ff" />
+            <pointLight position={[0, -10, -8]} intensity={1.4} color={tableGlow} distance={60} decay={2} />
+            <pointLight position={[0, 2, 0]} intensity={0.9} color={tableGlow} distance={22} decay={2} />
 
             <Stars radius={60} depth={60} count={3000} factor={3} saturation={0.3} fade speed={0.3} />
 
-            {/* Table core — same NeuralCore style */}
-            <NeuralCoreInspector tableColor={tableColor} tableGlow={tableGlow}
+            <NeuralCoreInspector
+                tableColor={tableColor} tableGlow={tableGlow}
                 label={node.name || node.id}
                 rowCount={node.row_count || 0}
                 colCount={visibleColNodes.length}
             />
 
-            {/* FK arcs — only while something is hovered */}
-            {hoveredId && visibleBridges
+            {/* FK arcs for FK hover mode */}
+            {hoveredId && !hoveredPKColId && visibleBridges
                 .filter(b => b.sourceId === hoveredId || b.targetId === hoveredId)
                 .map(b => (
                     <MemoDirectFKLine key={b.id}
@@ -1203,33 +1761,33 @@ function InspectorScene({ node, tableColor, tableGlow, colNodes, phantomNodes, b
                 ))
             }
 
-            {/* Column ellipsoids */}
-            {visibleColNodes.map((col) => (
+            {/* Column ellipsoids — hidden in PK distribution mode so rings have clean space */}
+            {!hoveredPKColNode && visibleColNodes.map((col) => (
                 <MemoColumnEllipsoid
                     key={col.id}
                     col={{
                         ...col,
-                        isDimmed: hoveredId && hoveredId !== col.id && !connectedToHovered.includes(col.id),
+                        isDimmed: hoveredId &&
+                            hoveredId !== col.id &&
+                            !connectedToHovered.includes(col.id),
                     }}
                     isHighlighted={connectedToHovered.includes(col.id)}
-                    onHover={(c) => {
-                        if (c?.id) {
-                            if (hoverClearTimer.current) { clearTimeout(hoverClearTimer.current); hoverClearTimer.current = null; }
-                            setHoveredId(c.id);
-                        } else {
-                            if (!hoverClearTimer.current) {
-                                hoverClearTimer.current = setTimeout(() => {
-                                    setHoveredId(null);
-                                    hoverClearTimer.current = null;
-                                }, 500);
-                            }
-                        }
-                    }}
+                    onHover={handleColHover}
                 />
             ))}
 
-            {/* Phantom ref-table nodes — only visible when a FK column is hovered */}
-            {visiblePhantomNodes.map((ph) => (
+            {/* When PK mode active: show only the hovered PK column node — everything else hides */}
+            {hoveredPKColNode && (
+                <MemoColumnEllipsoid
+                    key={hoveredPKColNode.id}
+                    col={{ ...hoveredPKColNode, isDimmed: false }}
+                    isHighlighted={true}
+                    onHover={handleColHover}
+                />
+            )}
+
+            {/* Phantom ref-table nodes — only in FK hover mode, hidden during PK mode */}
+            {!hoveredPKColId && visiblePhantomNodes.map((ph) => (
                 <MemoPhantomRefNode
                     key={ph.id}
                     phantom={ph}
@@ -1238,14 +1796,72 @@ function InspectorScene({ node, tableColor, tableGlow, colNodes, phantomNodes, b
                 />
             ))}
 
-            <OrbitControls enableDamping dampingFactor={0.05} minDistance={5} maxDistance={120} />
+            {/* ── PK HOVER MODE: PK value satellites + FK distribution nodes ── */}
+            {hoveredPKColNode && pkDistData && (
+                <>
+                    {/* Extra fill lights so all PK/FK nodes are well-lit at any orbit angle */}
+                    <pointLight position={[20, 10, 0]} intensity={1.2} color="#ffffff" distance={80} decay={2} />
+                    <pointLight position={[-20, 10, 0]} intensity={1.2} color="#ffffff" distance={80} decay={2} />
+                    <pointLight position={[0, 10, 20]} intensity={1.2} color="#ffffff" distance={80} decay={2} />
+                    <pointLight position={[0, 10, -20]} intensity={1.2} color="#ffffff" distance={80} decay={2} />
+
+                    {/* Spokes: PK col center → each PK value node */}
+                    {pkValueNodes.map(vn => (
+                        <PKValueConnector key={`conn-${vn.id}`}
+                            from={hoveredPKColNode.position}
+                            to={vn.position}
+                            color={vn.glow}
+                        />
+                    ))}
+
+                    {/* PK value satellite nodes — Ring 1 */}
+                    {pkValueNodes.map(vn => (
+                        <PKValueNode key={vn.id} node={vn} />
+                    ))}
+
+                    {/* Ref table nodes — Ring 2 (orders, payments, etc.) */}
+                    {refTableNodes.map(rn => (
+                        <RefTableNode key={rn.id} node={rn} />
+                    ))}
+
+                    {/* Arcs: PK value node → FK distribution node */}
+                    {pkFkBridges.map(b => (
+                        <PKFKBridge key={b.id}
+                            from={b.sourcePos}
+                            to={b.targetPos}
+                            fromColor={b.sourceColor}
+                            toColor={b.targetColor}
+                            pct={b.pct}
+                        />
+                    ))}
+
+                    {/* FK distribution nodes — Ring 2, size ∝ % */}
+                    {fkDistNodes.map(fn => (
+                        <FKDistNode key={fn.id} node={fn} />
+                    ))}
+                </>
+            )}
+
+            <OrbitControls
+                ref={controlsRef}
+                enableDamping
+                dampingFactor={0.05}
+                minDistance={2}
+                maxDistance={300}
+                onStart={() => {
+                    if (controlsRef.current) controlsRef.current._interacting = true;
+                }}
+                onEnd={() => {
+                    if (controlsRef.current) controlsRef.current._interacting = false;
+                }}
+            />
         </>
     );
 }
 
 // Minimal neural-core styled center node — shows the table identity
 function NeuralCoreInspector({ tableColor, tableGlow, label, rowCount, colCount }) {
-    const coreRef  = useRef(null);
+    const coreRef = useRef(null);
     const ring1Ref = useRef(null);
     const ring2Ref = useRef(null);
 
@@ -1258,7 +1874,7 @@ function NeuralCoreInspector({ tableColor, tableGlow, label, rowCount, colCount 
 
     const displayRows = rowCount >= 1000000 ? `${(rowCount / 1000000).toFixed(1)}M`
         : rowCount >= 1000 ? `${(rowCount / 1000).toFixed(1)}k`
-        : rowCount > 0 ? String(rowCount) : '—';
+            : rowCount > 0 ? String(rowCount) : '—';
 
     return (
         <group position={[0, 0, 0]}>
@@ -1304,10 +1920,10 @@ function NeuralCoreInspector({ tableColor, tableGlow, label, rowCount, colCount 
 function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = true, showFKs = true }) {
     const tableData = tables.find(t => t.id === node.id);
     const color = tableData?.color || '#2563eb';
-    const glow  = tableData?.glow  || '#60a5fa';
+    const glow = tableData?.glow || '#60a5fa';
 
-    // ── Real-time FK fill-rate fetch ────────────────────────────────────────
-    const [freqData, setFreqData]       = useState(null);
+    // ── Real-time FK fill-rate fetch ─────────────────────────────────────────
+    const [freqData, setFreqData] = useState(null);
     const [freqLoading, setFreqLoading] = useState(false);
 
     useEffect(() => {
@@ -1319,35 +1935,95 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
             .catch(() => setFreqLoading(false));
     }, [connectionId, node.id]);
 
+    // ── PK distribution state — fetched when user hovers a PK column ─────────
+    const [hoveredPKColId, setHoveredPKColId] = useState(null);
+    const [lockedPKColId, setLockedPKColId] = useState(null);
+    const [pkDistData, setPkDistData] = useState(null);
+    const [pkDistLoading, setPkDistLoading] = useState(false);
+    const pkFetchRef = useRef(null);
+    const pkDistLoadingRef = useRef(false);       // ref copy — readable inside timeouts
+    const pkDistCache = useRef(new Map());         // cache by colNode.id — avoids re-fetch
+
+    const handleColNodeHover = useCallback((colNode) => {
+        if (!colNode || colNode.badge !== 'PK') {
+            if (lockedPKColId && !colNode) return;
+
+            if (pkFetchRef.current) clearTimeout(pkFetchRef.current);
+            pkFetchRef.current = setTimeout(() => {
+                // Don't revert while data is still loading — prevents scene flicker
+                if (pkDistLoadingRef.current) return;
+                if (!lockedPKColId) {
+                    setHoveredPKColId(null);
+                    setPkDistData(null);
+                } else {
+                    setHoveredPKColId(lockedPKColId);
+                }
+            }, 600);
+            return;
+        }
+
+        if (pkFetchRef.current) clearTimeout(pkFetchRef.current);
+
+        // Already showing this PK col — do nothing
+        if (hoveredPKColId === colNode.id && pkDistData) return;
+
+        // Debounce: wait 350ms before committing to PK scene so fast mouse-overs
+        // don't trigger the expensive scene rebuild + fetch.
+        pkFetchRef.current = setTimeout(() => {
+            pkFetchRef.current = null;
+            _triggerPKFetch(colNode);
+        }, 350);
+        return;
+    }, [connectionId, node.id, lockedPKColId, hoveredPKColId, pkDistData]);
+
+    const _triggerPKFetch = useCallback((colNode) => {
+        setHoveredPKColId(colNode.id);
+        if (!connectionId) return;
+
+        // Cache hit — show instantly, no fetch needed
+        if (pkDistCache.current.has(colNode.id)) {
+            setPkDistData(pkDistCache.current.get(colNode.id));
+            return;
+        }
+
+        setPkDistLoading(true);
+        pkDistLoadingRef.current = true;
+        fetch(`/api/graph/${connectionId}/pk-distribution/${encodeURIComponent(node.id)}/${encodeURIComponent(colNode.id)}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (d) pkDistCache.current.set(colNode.id, d);
+                setPkDistData(d);
+                setPkDistLoading(false);
+                pkDistLoadingRef.current = false;
+            })
+            .catch(() => {
+                setPkDistLoading(false);
+                pkDistLoadingRef.current = false;
+            });
+    }, [connectionId, node.id]);
+
     const { colNodes, phantomNodes, bridges, connectivity } = useMemo(
         () => transformNodeColumns(node, tables), [node, tables]
     );
 
-    // Inject stat numbers into column nodes:
-    //   FK  → fill_rate% (how populated is this FK column)
-    //   PK  → row count of the table
+    // Enrich column nodes with live stats
     const enrichedColNodes = useMemo(() => {
         const fillMap = new Map();
-        if (freqData?.fk_stats) {
-            freqData.fk_stats.forEach(stat => fillMap.set(stat.column, stat));
-        }
+        if (freqData?.fk_stats) freqData.fk_stats.forEach(stat => fillMap.set(stat.column, stat));
         const rowCount = node.row_count || 0;
         const pkDisplay = rowCount >= 1000000 ? `${(rowCount / 1000000).toFixed(1)}M`
             : rowCount >= 1000 ? `${(rowCount / 1000).toFixed(1)}k`
-            : rowCount > 0 ? String(rowCount) : null;
+                : rowCount > 0 ? String(rowCount) : null;
         return colNodes.map(col => {
             if (col.badge === 'FK') {
                 const stat = fillMap.get(col.id);
                 if (stat) return { ...col, statNumber: `${Math.round(stat.fill_rate)}%` };
             }
-            if (col.badge === 'PK' && pkDisplay) {
-                return { ...col, statNumber: pkDisplay };
-            }
+            if (col.badge === 'PK' && pkDisplay) return { ...col, statNumber: pkDisplay };
             return col;
         });
     }, [colNodes, freqData, node.row_count]);
 
-    // Override phantom nodes with live fill_rate + distinct_count from backend
     const enrichedPhantomNodes = useMemo(() => {
         if (!freqData?.fk_stats?.length) return phantomNodes;
         const fillMap = new Map();
@@ -1359,34 +2035,30 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
             const stat = fillMap.get(p.label);
             if (!stat) return p;
             return {
-                ...p,
-                freqPct:      stat.fill_rate,
-                scale:        0.7 + (stat.fill_rate / 100) * 0.65,
-                distinctCount: stat.distinct_count,
-                fillRate:     stat.fill_rate,
+                ...p, freqPct: stat.fill_rate, scale: 0.7 + (stat.fill_rate / 100) * 0.65,
+                distinctCount: stat.distinct_count, fillRate: stat.fill_rate
             };
         });
     }, [phantomNodes, freqData]);
 
-    // Summary legend — sorted descending by fill rate
     const refFrequencies = useMemo(() =>
-        [...enrichedPhantomNodes]
-            .sort((a, b) => b.freqPct - a.freqPct)
+        [...enrichedPhantomNodes].sort((a, b) => b.freqPct - a.freqPct)
             .map(p => ({
-                id:            p.id,
-                label:         p.label,
-                color:         p.color,
-                glow:          p.glow,
-                freqPct:       Math.round(p.freqPct),
-                distinctCount: p.distinctCount || 0,
+                id: p.id, label: p.label, color: p.color, glow: p.glow,
+                freqPct: Math.round(p.freqPct), distinctCount: p.distinctCount || 0
             })),
         [enrichedPhantomNodes]
     );
 
-    const pkCount  = enrichedColNodes.filter(c => c.badge === 'PK').length;
-    const fkCount  = enrichedColNodes.filter(c => c.badge === 'FK').length;
+    const pkCount = enrichedColNodes.filter(c => c.badge === 'PK').length;
+    const fkCount = enrichedColNodes.filter(c => c.badge === 'FK').length;
     const regCount = enrichedColNodes.length - pkCount - fkCount;
-    const camZ     = colNodes.length > 25 ? 38 : colNodes.length > 12 ? 28 : 20;
+    // PK mode: pull back to fit PK ring + ref table ring + FK sub-cluster
+    // REFTABLE_R = max(20, PK_RING_R + 10 + nRefs*2), FK_SUB_R ≈ 4–7
+    // so total scene radius ≈ REFTABLE_R + FK_SUB_R ≈ 25–35 units → camZ 55–70
+    const camZ = hoveredPKColId && pkDistData
+        ? Math.max(55, 40 + (pkDistData.pk_values?.length || 0) * 1.5 + (pkDistData.referencing_tables?.length || 0) * 3)
+        : colNodes.length > 25 ? 38 : colNodes.length > 12 ? 28 : 20;
 
     return (
         <div style={{ position: 'absolute', inset: 0, zIndex: 50 }}>
@@ -1411,37 +2083,136 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                 <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.25em', color: glow, textTransform: 'uppercase' }}>
                     Node Inspector · {node.name || node.id}
                 </span>
+                {pkDistLoading && (
+                    <span style={{ fontSize: 7, color: '#f59e0b', letterSpacing: 1, marginLeft: 4 }}>● PK LOADING…</span>
+                )}
             </div>
 
+            {/* PK distribution mode — top banner + ref-table legend */}
+            {hoveredPKColId && pkDistData && (() => {
+                const refTables = pkDistData.referencing_tables || [];
+                return (
+                    <>
+                        {/* Top banner */}
+                        <div style={{
+                            position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)',
+                            zIndex: 100, pointerEvents: 'none',
+                            background: 'rgba(0,0,0,0.82)', border: '1px solid #fbbf2455',
+                            borderRadius: 12, padding: '6px 18px', backdropFilter: 'blur(10px)',
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            boxShadow: '0 0 24px rgba(251,191,36,0.12)',
+                        }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 8px #fbbf24' }} />
+                            <span style={{ fontSize: 9, color: '#fbbf24', fontWeight: 800, letterSpacing: '0.2em', textTransform: 'uppercase' }}>
+                                PK · {hoveredPKColId}
+                            </span>
+                            <span style={{ fontSize: 9, color: '#475569', fontWeight: 600 }}>|</span>
+                            
+                            {/* NEW: Lock Toggle Button */}
+                            <button 
+                                onClick={() => {
+                                    if (lockedPKColId === hoveredPKColId) setLockedPKColId(null);
+                                    else setLockedPKColId(hoveredPKColId);
+                                }}
+                                style={{
+                                    pointerEvents: 'auto',
+                                    background: lockedPKColId === hoveredPKColId ? '#d97706' : 'transparent',
+                                    border: `1px solid ${lockedPKColId === hoveredPKColId ? '#fbbf24' : '#fbbf2460'}`,
+                                    color: lockedPKColId === hoveredPKColId ? '#fff' : '#fbbf24',
+                                    fontSize: '8px',
+                                    fontWeight: 900,
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.1em',
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}
+                            >
+                                <span>{lockedPKColId === hoveredPKColId ? '📌 Locked' : '📍 Lock View'}</span>
+                            </button>
+
+                            <span style={{ fontSize: 9, color: '#475569', fontWeight: 600 }}>|</span>
+                            <span style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600 }}>
+                                {pkDistData.pk_values?.length} values
+                            </span>
+                            <span style={{ fontSize: 9, color: '#475569' }}>→</span>
+                            <span style={{ fontSize: 9, color: '#cbd5e1', fontWeight: 700 }}>
+                                FK row frequency distribution
+                            </span>
+                        </div>
+
+                        {/* Right side: ref-table color legend + how to read */}
+                        {refTables.length > 0 && (
+                            <div style={{
+                                position: 'absolute', top: 90, right: 16, zIndex: 100,
+                                pointerEvents: 'none', minWidth: 200,
+                                background: 'rgba(0,0,0,0.80)', border: '1px solid #1e293b',
+                                borderRadius: 10, padding: '10px 14px', backdropFilter: 'blur(10px)',
+                            }}>
+                                <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2em', color: '#475569', textTransform: 'uppercase', marginBottom: 8 }}>
+                                    Referencing Tables
+                                </div>
+                                {refTables.map((ref, i) => {
+                                    const palette = TABLE_COLORS[(i + 2) % TABLE_COLORS.length];
+                                    return (
+                                        <div key={ref.table} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: palette.color, boxShadow: `0 0 6px ${palette.glow}`, flexShrink: 0 }} />
+                                            <span style={{ fontSize: 10, color: '#e2e8f0', fontWeight: 700 }}>{ref.table}</span>
+                                            <span style={{ fontSize: 8, color: '#475569', marginLeft: 'auto' }}>FK → {ref.fk_column || hoveredPKColId}</span>
+                                        </div>
+                                    );
+                                })}
+                                <div style={{ borderTop: '1px solid #1e293b', marginTop: 8, paddingTop: 8 }}>
+                                    <div style={{ fontSize: 7, color: '#334155', lineHeight: 1.5 }}>
+                                        Node size = row share %<br />
+                                        Color = ½ PK value + ½ table
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Bottom-left: how to read the rings */}
+                        <div style={{
+                            position: 'absolute', bottom: 88, left: 16, zIndex: 100,
+                            pointerEvents: 'none',
+                            background: 'rgba(0,0,0,0.75)', border: '1px solid #1e293b',
+                            borderRadius: 8, padding: '7px 12px', backdropFilter: 'blur(8px)',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', border: '1.5px solid #fbbf24', background: '#d97706' }} />
+                                <span style={{ fontSize: 8, color: '#fbbf24', fontWeight: 700 }}>Inner ring — PK values (same size)</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <div style={{ width: 12, height: 12, borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#f97316)', opacity: 0.9 }} />
+                                <span style={{ fontSize: 8, color: '#94a3b8', fontWeight: 700 }}>Outer ring — FK rows (size = %)</span>
+                            </div>
+                        </div>
+                    </>
+                );
+            })()}
+
             {/* FK Fill Rate Panel */}
-            {refFrequencies.length > 0 && (
+            {refFrequencies.length > 0 && !hoveredPKColId && (
                 <div style={{
                     position: 'absolute', bottom: 88, right: 16, zIndex: 100,
                     pointerEvents: 'none', width: 240,
-                    background: 'rgba(0,0,0,0.72)', border: '1px solid #1e293b',
-                    borderRadius: 10, padding: '8px 12px', backdropFilter: 'blur(10px)',
+                    background: 'rgba(0,0,0,0.96)', border: '1px solid #1e293b',
+                    borderRadius: 10, padding: '8px 12px',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, color: '#64748b', textTransform: 'uppercase' }}>
-                            FK Fill Rate
-                        </div>
-                        {freqLoading && (
-                            <div style={{ fontSize: 7, color: '#475569', letterSpacing: 1 }}>LOADING…</div>
-                        )}
-                        {!freqLoading && freqData && (
-                            <div style={{ fontSize: 7, color: '#22c55e', letterSpacing: 1 }}>● LIVE</div>
-                        )}
+                        <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, color: '#64748b', textTransform: 'uppercase' }}>FK Fill Rate</div>
+                        {freqLoading && <div style={{ fontSize: 7, color: '#475569', letterSpacing: 1 }}>LOADING…</div>}
+                        {!freqLoading && freqData && <div style={{ fontSize: 7, color: '#22c55e', letterSpacing: 1 }}>● LIVE</div>}
                     </div>
-                    {/* Stacked fill-rate bar */}
                     <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', height: 7, marginBottom: 8 }}>
                         {refFrequencies.map(ref => (
-                            <div key={ref.id} style={{
-                                width: `${ref.freqPct}%`, minWidth: ref.freqPct > 0 ? 3 : 0,
-                                background: ref.color, transition: 'width 0.5s',
-                            }} />
+                            <div key={ref.id} style={{ width: `${ref.freqPct}%`, minWidth: ref.freqPct > 0 ? 3 : 0, background: ref.color, transition: 'width 0.5s' }} />
                         ))}
                     </div>
-                    {/* Legend rows */}
                     {refFrequencies.map(ref => (
                         <div key={ref.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1450,9 +2221,7 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                                 <span style={{ fontSize: 10, fontWeight: 800, color: ref.glow }}>{ref.freqPct}%</span>
-                                {ref.distinctCount > 0 && (
-                                    <span style={{ fontSize: 8, color: '#475569' }}>{ref.distinctCount.toLocaleString()} uniq</span>
-                                )}
+                                {ref.distinctCount > 0 && <span style={{ fontSize: 8, color: '#475569' }}>{ref.distinctCount.toLocaleString()} uniq</span>}
                             </div>
                         </div>
                     ))}
@@ -1470,31 +2239,33 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                 {[
                     { label: 'PK', count: pkCount, color: '#fbbf24' },
                     { label: 'FK', count: fkCount, color: '#60a5fa' },
-                    { label: 'COL', count: regCount, color },
+                    { label: 'COLS', count: regCount, color: '#94a3b8' },
                 ].map(({ label, count, color: c }) => (
                     <div key={label} style={{
-                        background: 'rgba(0,0,0,0.75)', border: `1px solid ${c}40`,
-                        borderRadius: 8, padding: '5px 12px', textAlign: 'center',
-                        backdropFilter: 'blur(8px)',
+                        background: 'rgba(0,0,0,0.96)', border: `1px solid ${c}50`,
+                        borderRadius: 8, padding: '5px 14px', textAlign: 'center',
+                        minWidth: 52,
                     }}>
-                        <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, color: c, textTransform: 'uppercase' }}>{label}</div>
+                        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.5, color: c, textTransform: 'uppercase' }}>{label}</div>
                         <div style={{ fontSize: 16, fontWeight: 900, color: '#fff' }}>{count}</div>
                     </div>
                 ))}
                 <div style={{
-                    background: 'rgba(0,0,0,0.75)', border: '1px solid #334155',
+                    background: 'rgba(0,0,0,0.96)', border: '1px solid #334155',
                     borderRadius: 8, padding: '5px 12px', textAlign: 'center',
-                    backdropFilter: 'blur(8px)',
                 }}>
-                    <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 2, color: '#64748b', textTransform: 'uppercase' }}>hover</div>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginTop: 2 }}>FK node to see refs</div>
+                    <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: 1.5, color: '#64748b', textTransform: 'uppercase' }}>
+                        {pkCount > 0 ? 'hover PK' : 'hover FK'}
+                    </div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', marginTop: 2 }}>
+                        {pkCount > 0 ? 'to see distribution' : 'to see refs'}
+                    </div>
                 </div>
             </div>
 
             <Canvas
-                camera={{ position: [0, 4, camZ], fov: 50 }}
                 gl={{ antialias: true, alpha: false }}
-                style={{ background: 'hsl(220, 25%, 3%)' }}
+                style={{ background: hoveredPKColId ? 'hsl(220, 28%, 2%)' : 'hsl(220, 25%, 3%)', transition: 'background 0.8s ease' }}
             >
                 <InspectorScene
                     node={node}
@@ -1505,10 +2276,85 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                     connectivity={connectivity}
                     showPKs={showPKs}
                     showFKs={showFKs}
+                    pkDistData={pkDistData}
+                    hoveredPKColId={hoveredPKColId}
+                    onHoverColNode={handleColNodeHover}
+                    camParams={{
+                        camZ,
+                        fov: hoveredPKColId ? 55 : 50,
+                        y: hoveredPKColId ? 8 : 4
+                    }}
                 />
             </Canvas>
         </div>
     );
+}
+
+
+// ─── Camera Rigs ────────────────────────────────────────────────────────────
+function InspectorCameraRig({ targetPosition, lookAt, fov, controlsRef }) {
+    const { camera } = useThree();
+    const tPos = useMemo(() => new THREE.Vector3(...targetPosition), [targetPosition[0], targetPosition[1], targetPosition[2]]);
+    const tLook = useMemo(() => new THREE.Vector3(...lookAt), [lookAt[0], lookAt[1], lookAt[2]]);
+
+    const lastRigPos = useRef(new THREE.Vector3());
+    const isTransitioning = useRef(false);
+    // Once the user manually moves the camera (scroll/drag) the rig backs off
+    // permanently for this scene. Only resets when targetPosition/fov truly changes
+    // (i.e. switching to a different PK column or leaving PK mode).
+    const userOverride = useRef(false);
+
+    useEffect(() => {
+        isTransitioning.current = true;
+        userOverride.current = false;   // fresh scene — rig may animate once
+        if (controlsRef.current) controlsRef.current._interacting = false;
+        lastRigPos.current.copy(camera.position);
+    }, [targetPosition[0], targetPosition[1], targetPosition[2], lookAt[1], fov]);
+
+    useFrame((state, delta) => {
+        // Rig is idle — OrbitControls has full control
+        if (!isTransitioning.current || userOverride.current || !controlsRef.current) return;
+
+        // Drag / pan detected → give control to user permanently
+        if (controlsRef.current._interacting) {
+            userOverride.current = true;
+            isTransitioning.current = false;
+            return;
+        }
+
+        // Scroll-wheel zoom detected (camera drifted from where rig last placed it)
+        // Use a generous threshold so tiny floating-point drift doesn't false-fire.
+        const drift = camera.position.distanceToSquared(lastRigPos.current);
+        if (drift > 0.25) {
+            userOverride.current = true;
+            isTransitioning.current = false;
+            return;
+        }
+
+        const camDist = camera.position.distanceTo(tPos);
+        const lookDist = controlsRef.current.target.distanceTo(tLook);
+        const fovDiff = Math.abs(camera.fov - fov);
+
+        // Animation complete — snap to exact target and hand off to OrbitControls
+        if (camDist < 0.1 && lookDist < 0.1 && fovDiff < 0.1) {
+            isTransitioning.current = false;
+            camera.position.copy(tPos);
+            controlsRef.current.target.copy(tLook);
+            camera.fov = fov;
+            camera.updateProjectionMatrix();
+            controlsRef.current.update();
+            lastRigPos.current.copy(camera.position);
+            return;
+        }
+
+        camera.position.lerp(tPos, delta * 3.5);
+        controlsRef.current.target.lerp(tLook, delta * 3.5);
+        camera.fov = THREE.MathUtils.lerp(camera.fov, fov, delta * 3.5);
+        camera.updateProjectionMatrix();
+        controlsRef.current.update();
+        lastRigPos.current.copy(camera.position);
+    });
+    return null;
 }
 
 // ─── Camera Controller ──────────────────────────────────────────────────────
