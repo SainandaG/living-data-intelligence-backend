@@ -63,8 +63,8 @@ def _load_sessions() -> None:
             try:
                 sess = json.loads(line)
                 _sessions[sess["session_id"]] = sess
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("apex_agent: skipping corrupt session line: %s", e)
         logger.info("apex_agent: loaded %d sessions from disk", len(_sessions))
     except Exception as exc:
         logger.error("apex_agent: session load failed: %s", exc)

@@ -105,11 +105,6 @@ async def _hydrate_nodes(connection_id: str, nodes: List[Dict]) -> List[Dict]:
     from app.services.neural_core import neural_core
     
     hydrated_nodes = []
-    
-    # Pre-fetch schema context for graph topology if needed (NeuralCore manages this internally)
-    # Ensure NeuralCore has context
-    # NeuralCore manages context internally; no blocking pre-fetch needed here
-    pass
 
     for node in nodes:
         # 1. Structural Truth (Neural Core - PageRank/Centrality)
@@ -324,10 +319,13 @@ async def get_business_insights(connection_id: str, table_name: str):
         # HYDRATE WITH REAL INTELLIGENCE
         nodes = await _hydrate_nodes(connection_id, raw_nodes)
         
-        # Calculate Coords (now using hydrated metrics)
+        # Calculate Coords (now using hydrated metrics) — optional, skip if service unavailable
         for node in nodes:
-            coords = latent_space_service.calculate_latent_coordinates(node, {}, [])
-            node.update(coords)
+            try:
+                coords = latent_space_service.calculate_latent_coordinates(node, {}, [])
+                node.update(coords)
+            except Exception as _coord_err:
+                logger.debug(f"Latent coords skipped for {node.get('name')}: {_coord_err}")
 
         insights = await intelligence_engine.project_current_state(connection_id, nodes)
         return insights
@@ -477,21 +475,23 @@ async def get_root_cause_analysis(connection_id: str, table_name: str):
 
 
 def _default_table_for_connection(connection_id: str) -> str:
-    """Return first table from schema or 'users' for global recommendations."""
+    """Return first table from schema, or None if schema not yet analyzed."""
     try:
         from app.services.schema_analyzer import schema_analyzer
         schema = schema_analyzer.get_analysis_result(connection_id)
         if schema and schema.tables:
             return schema.tables[0].name
-    except Exception:
-        pass
-    return "users"
+    except Exception as e:
+        logger.warning(f"Could not resolve default table for {connection_id}: {e}")
+    return None
 
 
 @router.get("/recommendations/{connection_id}")
 async def get_recommendations_global(connection_id: str):
     """Action Plans: global recommendations when no table is selected."""
     table_name = _default_table_for_connection(connection_id)
+    if not table_name:
+        return {"connection_id": connection_id, "table_name": None, "recommendations": [], "count": 0, "note": "Schema not yet analyzed — connect and scan first"}
     return await get_recommendations(connection_id, table_name)
 
 

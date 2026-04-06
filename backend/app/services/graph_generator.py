@@ -9,7 +9,7 @@ Graph Generator - Creates 3D graph structure from database schema
 Enhanced with AI (Neural Core & RL) for intelligent layout and link prediction.
 """
 import math
-from typing import Dict, List
+from typing import Dict
 from app.services.neural_core import neural_core
 logger = logging.getLogger(__name__)
 
@@ -286,8 +286,7 @@ class GraphGenerator:
                     if pred.get('confidence', 0) > 0.6: 
                         add_edge(t_name, pred['target_id'], 'ai_predicted', pred['confidence'], pred.get('reasoning'))
             else:
-                 # Handle exception
-                 pass
+                logger.warning("AI link prediction failed for table %s: %s", tables[i].get('name'), predictions)
 
         # --- PASS 2: Unified Metrics Synchronization ---
         # Now that we have all edges (Topology), we can calculate the EXACT scores 
@@ -515,8 +514,7 @@ class GraphGenerator:
         char_sum = sum(ord(c) for c in str(cluster_name))
         return palette[char_sum % len(palette)]
 
-    def _build_connections_map(self, tables: List[dict]) -> Dict[str, List[str]]:
-        return {} # Deprecated
+    # _build_connections_map removed — was returning {} with no callers
 
 
 

@@ -205,7 +205,7 @@ export default function InvestigationWorkspace({
             <CausalView mlResult={mlResult} />
           )}
           {activeView === 'whatif' && (
-            <WhatIfView mlResult={mlResult} />
+            <WhatIfView mlResult={mlResult} connectionId={connectionId} />
           )}
           {activeView === 'chat' && (
             <div className="h-full">
@@ -422,37 +422,146 @@ function CausalView({ mlResult }) {
 
 
 // ── What-If View ───────────────────────────────────────────────────────────────
-function WhatIfView({ mlResult }) {
-  const fi = mlResult?.feature_importances?.slice(0, 5) || [];
-  const [values, setValues] = useState({});
-  const baseScore = mlResult?.metrics?.f1 || mlResult?.metrics?.R2 || mlResult?.metrics?.silhouette_score || 0;
-  const simulatedScore = baseScore + Object.values(values).reduce((acc, v) => acc + (v - 0.5) * 0.1, 0);
+function WhatIfView({ mlResult, connectionId }) {
+  const fi = mlResult?.feature_importances?.slice(0, 6) || [];
+  // Slider 0–1 maps to weight 0.0–2.0 (0.5 = 1.0 = no change)
+  const [weights, setWeights] = useState({});
+  const [simResult, setSimResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const baseMetrics = mlResult?.metrics || {};
+  const primaryMetricKey = 'f1' in baseMetrics ? 'f1' : 'R2' in baseMetrics ? 'R2' : 'silhouette_score' in baseMetrics ? 'silhouette_score' : null;
+  const baseScore = primaryMetricKey ? (baseMetrics[primaryMetricKey] ?? 0) : 0;
+  const simScore = primaryMetricKey && simResult?.metrics ? (simResult.metrics[primaryMetricKey] ?? null) : null;
+
+  // Debounced backend call whenever weights change
+  useEffect(() => {
+    if (!mlResult || !connectionId || !fi.length) return;
+
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Convert slider (0–1) → multiplier (0.0–2.0)
+        const feature_weights = {};
+        fi.forEach(f => {
+          const sliderVal = weights[f.name] ?? 0.5;
+          feature_weights[f.name] = parseFloat((sliderVal * 2.0).toFixed(3));
+        });
+
+        const resp = await apiClient.post('/ml/whatif', {
+          connection_id: connectionId,
+          table: mlResult.table,
+          features: fi.map(f => f.name),
+          target: mlResult.target || null,
+          algo: mlResult.algo,
+          family: mlResult.family,
+          feature_weights,
+        });
+        setSimResult(resp);
+      } catch (e) {
+        setError(e?.response?.data?.detail || 'Simulation failed');
+      } finally {
+        setLoading(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weights, connectionId, mlResult]);
+
+  const delta = simScore !== null ? simScore - baseScore : null;
 
   return (
     <div className="max-w-lg mx-auto space-y-5">
       <p className="text-xs text-white/40 uppercase tracking-wider text-center">What-If Scenario Simulator</p>
-      <p className="text-xs text-white/25 text-center">Adjust feature weights to simulate model impact</p>
-      {fi.map(f => (
-        <div key={f.name} className="space-y-1">
-          <div className="flex justify-between text-xs">
-            <span className="text-white/60">{f.name}</span>
-            <span className="text-white/40">{((values[f.name] ?? 0.5) * 200 - 100).toFixed(0)}%</span>
+      <p className="text-xs text-white/25 text-center">
+        Adjust feature weights (0 = zero out · centre = unchanged · 2× = double)
+      </p>
+
+      {fi.map(f => {
+        const sliderVal = weights[f.name] ?? 0.5;
+        const multiplier = sliderVal * 2.0;
+        const pct = ((multiplier - 1.0) * 100).toFixed(0);
+        const sign = multiplier >= 1 ? '+' : '';
+        return (
+          <div key={f.name} className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-white/60">{f.name}</span>
+              <span className={`font-mono ${multiplier < 1 ? 'text-red-400' : multiplier > 1 ? 'text-emerald-400' : 'text-white/40'}`}>
+                {sign}{pct}%
+              </span>
+            </div>
+            <input
+              type="range" min={0} max={1} step={0.01}
+              value={sliderVal}
+              onChange={e => setWeights(prev => ({ ...prev, [f.name]: parseFloat(e.target.value) }))}
+              className="w-full accent-violet-500"
+            />
           </div>
-          <input
-            type="range" min={0} max={1} step={0.01}
-            value={values[f.name] ?? 0.5}
-            onChange={e => setValues(prev => ({ ...prev, [f.name]: parseFloat(e.target.value) }))}
-            className="w-full accent-violet-500"
-          />
-        </div>
-      ))}
+        );
+      })}
+
       {!fi.length && <p className="text-white/20 text-sm text-center">Run ML analysis first</p>}
+
       {fi.length > 0 && (
-        <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.06] text-center">
-          <p className="text-xs text-white/40 mb-1">Simulated Score</p>
-          <p className="text-3xl font-bold text-violet-400">{Math.max(0, Math.min(1, simulatedScore)).toFixed(4)}</p>
-          <p className="text-xs text-white/25 mt-1">vs baseline {baseScore.toFixed(4)}</p>
-        </div>
+        <>
+          {/* Score comparison */}
+          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.06]">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Baseline</p>
+                <p className="text-2xl font-bold text-white/60">{baseScore.toFixed(4)}</p>
+                {primaryMetricKey && <p className="text-[10px] text-white/20 mt-0.5">{primaryMetricKey}</p>}
+              </div>
+              <div className="flex flex-col items-center justify-center">
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                ) : delta !== null ? (
+                  <p className={`text-xl font-bold ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-white/40'}`}>
+                    {delta > 0 ? '+' : ''}{delta.toFixed(4)}
+                  </p>
+                ) : (
+                  <p className="text-white/20 text-xs">—</p>
+                )}
+                <p className="text-[10px] text-white/20 mt-0.5">delta</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Simulated</p>
+                <p className={`text-2xl font-bold ${loading ? 'text-white/20' : 'text-violet-400'}`}>
+                  {simScore !== null ? simScore.toFixed(4) : '—'}
+                </p>
+                {primaryMetricKey && <p className="text-[10px] text-white/20 mt-0.5">{primaryMetricKey}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Simulated feature importances */}
+          {simResult?.feature_importances?.length > 0 && (
+            <div className="bg-white/[0.03] rounded-xl p-4 border border-white/[0.06]">
+              <p className="text-xs text-white/40 mb-3">Simulated Feature Importance</p>
+              {simResult.feature_importances.slice(0, 6).map((f, i) => (
+                <div key={f.name} className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] text-white/40 w-28 truncate text-right">{f.name}</span>
+                  <div className="flex-1 bg-white/[0.04] rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-violet-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, f.importance * 100)}%`, opacity: 1 - i * 0.1 }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-white/30 w-10 text-right font-mono">
+                    {(f.importance * 100).toFixed(1)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <p className="text-xs text-red-400 text-center bg-red-500/10 rounded-lg p-2">{error}</p>
+          )}
+        </>
       )}
     </div>
   );

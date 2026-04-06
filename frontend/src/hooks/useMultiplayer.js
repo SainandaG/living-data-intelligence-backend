@@ -38,7 +38,7 @@ const generateColor = () => {
 };
 
 // Generates a stable random name
-const generateName = () => { adjs = ['Quantum', 'Lunar', 'Cosmic', 'Nebula', 'Stellar', 'Astral', 'Nexus', 'Cyber', 'Neon', 'Echo'];
+const generateName = () => { const adjs = ['Quantum', 'Lunar', 'Cosmic', 'Nebula', 'Stellar', 'Astral', 'Nexus', 'Cyber', 'Neon', 'Echo'];
     const nouns = ['Panda', 'Fox', 'Wolf', 'Owl', 'Hawk', 'Tiger', 'Bear', 'Lynx', 'Viper', 'Raven'];
     return `${adjs[Math.floor(Math.random() * adjs.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]}`;
 };

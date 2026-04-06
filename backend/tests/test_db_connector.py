@@ -6,9 +6,10 @@ Coverage targets:
   - quote_identifier: PG vs MySQL quoting
   - connect / disconnect / get_connection
   - query: parameterized queries, empty result, error propagation
+  - reconnect: in-place reconnect using stored config
 """
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from app.services.db_connector import DatabaseConnector
 
 
@@ -72,3 +73,65 @@ class TestGetConnection:
     def test_raises_for_missing_connection(self):
         with pytest.raises(Exception):
             self.db.get_connection("nonexistent")
+
+
+class TestReconnect:
+    def _make_db_with_pg_conn(self):
+        db = DatabaseConnector()
+        old_client = MagicMock()
+        old_client.close = AsyncMock()
+        db.connections = {
+            "c1": {
+                "id": "c1",
+                "type": "neon",
+                "client": old_client,
+                "config": {"host": "host", "port": 5432, "database": "mydb"},
+                "_reconnect_config": {
+                    "db_type": "neon",
+                    "host": "host",
+                    "port": 5432,
+                    "database": "mydb",
+                    "username": "user",
+                    "password": "pass",
+                },
+            }
+        }
+        return db, old_client
+
+    @pytest.mark.asyncio
+    async def test_reconnect_replaces_client(self):
+        db, old_client = self._make_db_with_pg_conn()
+        new_pool = MagicMock()
+
+        with patch.object(db, "_connect_postgresql_async", new=AsyncMock(return_value=new_pool)):
+            await db.reconnect("c1")
+
+        assert db.connections["c1"]["client"] is new_pool
+        old_client.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reconnect_raises_without_config(self):
+        db = DatabaseConnector()
+        db.connections = {"c1": {"id": "c1", "type": "neon", "client": MagicMock()}}
+        with pytest.raises(ValueError, match="No reconnect config"):
+            await db.reconnect("c1")
+
+    @pytest.mark.asyncio
+    async def test_reconnect_raises_for_unknown_id(self):
+        db = DatabaseConnector()
+        with pytest.raises(ValueError):
+            await db.reconnect("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_reconnect_raises_for_unsupported_db_type(self):
+        db = DatabaseConnector()
+        db.connections = {
+            "c1": {
+                "id": "c1",
+                "type": "mongodb",
+                "client": MagicMock(),
+                "_reconnect_config": {"db_type": "mongodb", "host": "h", "database": "d"},
+            }
+        }
+        with pytest.raises(ValueError, match="not supported"):
+            await db.reconnect("c1")

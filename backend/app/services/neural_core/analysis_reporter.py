@@ -25,6 +25,34 @@ except ImportError:
         latent_manager = None
 
 class NeuralCore:
+    async def _get_relative_value(self, connection_id: str, table: dict, vitality: float) -> float:
+        """
+        Query the actual SUM of a financial column from the DB for this table.
+        Falls back to vitality × row_count heuristic when no financial column exists.
+        """
+        from app.services.db_connector import db_connector
+        row_count = table.get('row_count', 0)
+        cols = table.get('columns', [])
+        financial_col = next(
+            (c['name'] for c in cols if any(
+                t in c['name'].lower()
+                for t in ['amount', 'price', 'total', 'revenue', 'value', 'cost', 'balance', 'income']
+            )),
+            None
+        )
+        if financial_col:
+            try:
+                quoted_table = db_connector.quote_identifier(connection_id, table['name'])
+                quoted_col = db_connector.quote_identifier(connection_id, financial_col)
+                result = await db_connector.query(
+                    connection_id, f"SELECT SUM({quoted_col}) as total FROM {quoted_table}"
+                )
+                if result and result[0].get('total') is not None:
+                    return round(float(result[0]['total']), 2)
+            except Exception as e:
+                logger.debug(f"relative_value query failed for {table.get('name')}: {e}")
+        return round(vitality * row_count * 0.001, 2)
+
     async def get_bulk_analysis_report(self, connection_id: str) -> Dict[str, Any]:
         """
         Generates a comprehensive report for all nodes in the neural graph.
@@ -77,10 +105,10 @@ class NeuralCore:
                         sensitivity_reason = f"Contains sensitive column: {cname}"
                         break
 
-            # 4. Business Metrics (Projections)
+            # 4. Business Metrics — query real financial column SUM when available
             row_count = table.get('row_count', 0)
-            revenue_proxy = vitality * row_count * 0.001 # Simplified mock logic
-            
+            relative_value = await self._get_relative_value(connection_id, table, vitality)
+
             report_nodes.append({
                 "id": table_name,
                 "name": table_name,
@@ -90,7 +118,7 @@ class NeuralCore:
                     "vitality": vitality,
                     "entropy": entropy,
                     "row_count": row_count,
-                    "revenue_proxy": round(revenue_proxy, 2)
+                    "relative_value": round(relative_value, 2)
                 },
                 "classification": {
                     "is_sensitive": is_sensitive,

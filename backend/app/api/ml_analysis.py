@@ -181,8 +181,8 @@ async def _fetch_row_count(connection_id: str, table: str) -> int:
             for t in schema.tables:
                 if t.name.lower() == table.lower():
                     return t.row_count or 0
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_fetch_row_count failed for %s.%s: %s", connection_id, table, e)
     return 0
 
 
@@ -378,8 +378,8 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
                 enc = le.fit_transform(filled).astype(float)
                 encoded_parts.append(enc.reshape(-1, 1))
                 feature_names.append(col)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Skipping column %s during encoding: %s", col, e)
 
     if not encoded_parts:
         return None, None, []
@@ -780,7 +780,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
                 date_col = col
                 break
             except Exception:
-                pass
+                pass  # not a date column — try next
 
     if date_col is None:
         # Try any column that looks like a date
@@ -1780,8 +1780,8 @@ async def ml_health():
         test_path.write_text("ok")
         test_path.unlink()
         writable = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Experiments dir not writable: %s", e)
 
     runs = experiment_tracker.get_runs(limit=1)
     last_run_at: Optional[float] = runs[0].get("created_at") if runs else None
@@ -1793,3 +1793,118 @@ async def ml_health():
         "runs_count": len(all_runs),
         "last_run_at": last_run_at,
     }
+
+
+# ─── What-If simulation endpoint ─────────────────────────────────────────────
+
+class WhatIfRequest(BaseModel):
+    connection_id: str
+    table: str = Field(..., max_length=128)
+    features: List[str] = []
+    target: Optional[str] = None
+    algo: str
+    family: Literal["classification", "regression", "clustering"]
+    feature_weights: Dict[str, float] = Field(
+        default={},
+        description="Per-feature multiplier (0.0–2.0). 1.0 = no change.",
+    )
+
+    @model_validator(mode="after")
+    def _validate(self) -> "WhatIfRequest":
+        valid = VALID_ALGOS.get(self.family, set())
+        if self.algo not in valid:
+            raise ValueError(
+                f"Algorithm '{self.algo}' is not valid for family '{self.family}'. "
+                f"Valid options: {sorted(valid)}"
+            )
+        for feat, w in self.feature_weights.items():
+            if not (0.0 <= w <= 2.0):
+                raise ValueError(
+                    f"Weight for '{feat}' must be between 0.0 and 2.0, got {w}."
+                )
+        return self
+
+
+@router.post("/whatif")
+async def whatif_analysis(req: WhatIfRequest):
+    """
+    Re-run ML analysis after applying per-feature multiplicative weights to the data.
+
+    feature_weights: dict mapping feature name → multiplier (0.0 = zero out,
+    1.0 = unchanged, 2.0 = double).  Only numeric columns are re-scaled.
+
+    Returns new metrics and feature importances so the frontend can compare
+    them to the original baseline.
+
+    Responses:
+    - 200: What-if metrics and importances returned
+    - 422: Unusable data or bad request
+    - 503: Database connection failed
+    - 504: Analysis timed out (60 s limit)
+    - 500: Unexpected error
+    """
+    try:
+        all_cols = list(dict.fromkeys(
+            ([req.target] if req.target else []) + list(req.features)
+        ))
+        rows = await _fetch_data(req.connection_id, req.table, all_cols, n=500)
+
+        # Apply multiplicative weights to numeric columns
+        if req.feature_weights:
+            df = pd.DataFrame(rows)
+            for feat, weight in req.feature_weights.items():
+                if feat not in df.columns:
+                    continue
+                numeric = pd.to_numeric(df[feat], errors="coerce")
+                if numeric.notna().sum() > len(df) * 0.3:
+                    df[feat] = numeric * float(weight)
+            rows = df.to_dict("records")
+
+        loop = asyncio.get_running_loop()
+        X, y, feature_names = await loop.run_in_executor(
+            None, _preprocess, rows, list(req.features), req.target, req.family
+        )
+        if X is None or len(X) == 0:
+            raise ValueError(
+                "No usable data after preprocessing with the supplied weights. "
+                "Ensure feature and target columns contain non-null numeric values."
+            )
+
+        async def _run():
+            if req.family == "classification":
+                metrics, fi, _, *__ = await loop.run_in_executor(
+                    None, _run_classification, X, y, req.algo, feature_names
+                )
+            elif req.family == "regression":
+                metrics, fi, _, *__ = await loop.run_in_executor(
+                    None, _run_regression, X, y, req.algo, feature_names
+                )
+            else:
+                metrics, fi, _, *__ = await loop.run_in_executor(
+                    None, _run_clustering, X, req.algo, feature_names
+                )
+            return metrics, fi
+
+        try:
+            metrics, fi = await asyncio.wait_for(_run(), timeout=60.0)
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="What-if analysis timed out. Try fewer features or a faster algorithm.",
+            )
+
+        return {
+            "metrics": metrics,
+            "feature_importances": [f.model_dump() for f in fi],
+            "row_count": len(rows),
+        }
+
+    except HTTPException:
+        raise
+    except (ValueError, NotImplementedError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except ConnectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.error("whatif analysis failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error during what-if analysis.")

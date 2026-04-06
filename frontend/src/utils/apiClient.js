@@ -57,14 +57,8 @@ const normalizeError = (error) => {
             case "DB_CONNECTION_FAILED":
                 message = "Could not connect to the database";
                 break;
-            case "DB_TIMEOUT":
-                message = "Database is waking up, please retry";
-                break;
             case "VALIDATION_ERROR":
                 message = "Invalid request data";
-                break;
-            case "AI_SERVICE_ERROR":
-                message = "AI analysis is temporarily unavailable";
                 break;
             default:
                 message = backendMessage || message;

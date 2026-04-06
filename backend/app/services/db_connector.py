@@ -1,16 +1,31 @@
 """
 Database Connector
 
-Manages async connection pools for PostgreSQL and MySQL databases, with identifier validation and parameterized query execution.
+Manages async connection pools for PostgreSQL, MySQL, and MongoDB databases,
+with identifier validation and parameterized query execution.
 """
 import logging
 import asyncpg
 import aiomysql
-from pymongo import MongoClient
 from typing import Dict, Any, List
 import asyncio
 import time
 import os
+
+# Async MongoDB driver (motor) — lazy import to stay optional
+try:
+    import motor.motor_asyncio as motor_async
+    HAS_MOTOR = True
+except ImportError:
+    HAS_MOTOR = False
+
+# Fallback: synchronous pymongo (deprecated path)
+try:
+    from pymongo import MongoClient
+    HAS_PYMONGO = True
+except ImportError:
+    HAS_PYMONGO = False
+
 logger = logging.getLogger(__name__)
 
 class DatabaseConnector:
@@ -94,7 +109,7 @@ class DatabaseConnector:
                     elif db_type == 'mysql':
                         return await self._connect_mysql_async(config)
                     elif db_type in ['mongodb', 'mongo']:
-                        return await asyncio.to_thread(self._connect_mongodb_sync, config)
+                        return await self._connect_mongodb_async(config)
                     else:
                         raise ValueError(f"Unsupported database type: {db_type}")
 
@@ -108,7 +123,8 @@ class DatabaseConnector:
                         'host': config['host'],
                         'port': config['port'],
                         'database': config['database']
-                    }
+                    },
+                    '_reconnect_config': dict(config),  # full config for reconnects
                 }
                 
                 self.locks[connection_id] = asyncio.Lock()
@@ -193,18 +209,31 @@ class DatabaseConnector:
         logger.info("✅ MySQL async connection pool created successfully")
         return pool
 
-    def _connect_mongodb_sync(self, config: Dict[str, Any]):
-        """Connect to MongoDB"""
-        logger.warning("⚠️ [WARNING] MongoDB is using synchronous pymongo MongoClient! Replace with motor.")
+    async def _connect_mongodb_async(self, config: Dict[str, Any]):
+        """Connect to MongoDB using async motor driver (preferred) or sync pymongo fallback."""
         uri = f"mongodb://{config['username']}:{config['password']}@{config['host']}:{config.get('port', 27017)}/{config['database']}"
-        client = MongoClient(
-            uri,
-            serverSelectionTimeoutMS=5000, # 5 second timeout for server selection
-            connectTimeoutMS=5000         # 5 second timeout for connection
-        )
-        # Test connection
-        client.admin.command('ping')
-        return client
+
+        if HAS_MOTOR:
+            client = motor_async.AsyncIOMotorClient(
+                uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+            )
+            # Test connection (motor ping is async)
+            await client.admin.command('ping')
+            logger.info("✅ MongoDB async connection (motor) created successfully")
+            return client
+        elif HAS_PYMONGO:
+            logger.warning("⚠️ motor not installed — falling back to synchronous pymongo (blocks event loop!)")
+            client = MongoClient(
+                uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+            )
+            await asyncio.to_thread(client.admin.command, 'ping')
+            return client
+        else:
+            raise ImportError("No MongoDB driver installed. Install 'motor' (recommended) or 'pymongo'.")
 
     def list_connections(self) -> List[Dict[str, Any]]:
         """List all active connections"""
@@ -291,6 +320,35 @@ class DatabaseConnector:
             duration = time.perf_counter() - start_time
             logger.error(f"FAIL: Async Query Error after {duration:.3f}s: {str(e)}")
             raise
+
+    async def reconnect(self, connection_id: str):
+        """Reconnect a broken connection in-place, reusing the same connection_id."""
+        existing = self.connections.get(connection_id)
+        if not existing or '_reconnect_config' not in existing:
+            raise ValueError(f"No reconnect config stored for {connection_id}")
+
+        config = dict(existing['_reconnect_config'])
+        db_type = existing['type']
+        config['_current_timeout'] = 30
+        config['db_type'] = db_type
+
+        # Close old client silently
+        try:
+            old_client = existing.get('client')
+            if old_client and hasattr(old_client, 'close'):
+                await old_client.close()
+        except Exception:
+            pass
+
+        if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+            new_client = await self._connect_postgresql_async(config)
+        elif db_type == 'mysql':
+            new_client = await self._connect_mysql_async(config)
+        else:
+            raise ValueError(f"Reconnect not supported for db_type={db_type}")
+
+        self.connections[connection_id]['client'] = new_client
+        logger.info(f"✅ Reconnected {connection_id} to {config.get('database')}")
 
     async def close(self, connection_id: str):
         """Close a specific async pool"""

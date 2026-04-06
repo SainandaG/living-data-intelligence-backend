@@ -56,10 +56,12 @@ async def connect_database(config: ConnectionRequest):
         )
     except Exception as e:
         logger.error(f"Database connection failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500, 
-            detail="Database connection failed. Please check your credentials and try again."
+        exc = HTTPException(
+            status_code=503,
+            detail="Database connection failed. Please check your credentials and try again.",
         )
+        exc.code = "DB_CONNECTION_FAILED"
+        raise exc
 
 @router.get("/connections", response_model=List[Dict[str, Any]], responses={500: {"model": ErrorResponse}})
 async def list_connections():

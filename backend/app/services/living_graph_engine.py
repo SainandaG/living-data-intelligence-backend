@@ -138,12 +138,12 @@ class LivingGraphEngine:
 
         node_id = get(node, 'id')
         self.system_pulse += 0.05
-        _pulse = math.sin(self.system_pulse + self.node_states[node_id]['pulse_phase'])
+        pulse = math.sin(self.system_pulse + self.node_states[node_id]['pulse_phase'])
 
         if health < 0.8:
-            _pulse = math.sin(self.system_pulse * 3 + self.node_states[node_id]['pulse_phase'])
-        
-        pass
+            pulse = math.sin(self.system_pulse * 3 + self.node_states[node_id]['pulse_phase'])
+
+        self.node_states[node_id]['pulse'] = round(pulse, 4)
 
 # Global instance
 living_graph_engine = LivingGraphEngine()

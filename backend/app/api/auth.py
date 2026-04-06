@@ -2,7 +2,7 @@ import json
 import os
 import time
 import logging
-from pathlib import Path
+import threading
 from fastapi import APIRouter, Request, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict
@@ -24,34 +24,82 @@ except ImportError:
 # Refresh tokens expire after 7 days by default; use same window for cleanup
 _REVOKE_TTL_SECONDS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")) * 86400
 
-# TTL-based revocation store: {token: expiry_epoch_seconds}
-# File-backed so revocations survive process restarts.
-# For multi-instance deployments replace with a shared Redis SET.
-_REVOKE_STORE = Path("data/auth/revoked_tokens.json")
-_revoked_tokens: Dict[str, float] = {}
-
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Token Revocation Store — Thread-safe, TTL-pruning, container-safe
+# =============================================================================
+# In-memory store with periodic file persistence. Designed so that:
+#  1. Revoked tokens are always checked from fast in-memory dict (zero I/O per request)
+#  2. File persistence is best-effort — if the container restarts, tokens naturally expire
+#  3. Thread-safe via a lock (important for concurrent request handling)
+#  4. Stale entries are pruned on every write to keep memory bounded
+#
+# For multi-instance / HA deployments: swap this for a Redis SET with TTL.
+# =============================================================================
+
+_REVOKE_STORE_PATH = os.path.join("data", "auth", "revoked_tokens.json")
+_revoked_tokens: Dict[str, float] = {}
+_revoke_lock = threading.Lock()
+
+
 def _load_revoked() -> None:
-    """Load persisted revocation list, pruning any already-expired entries."""
+    """Load persisted revocation list on startup, pruning any already-expired entries."""
     global _revoked_tokens
     try:
-        if _REVOKE_STORE.exists():
-            raw = json.loads(_REVOKE_STORE.read_text(encoding="utf-8"))
+        if os.path.exists(_REVOKE_STORE_PATH):
+            with open(_REVOKE_STORE_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
             now = time.time()
             _revoked_tokens = {t: exp for t, exp in raw.items() if exp > now}
+            logger.info("auth: loaded %d active revocations from disk", len(_revoked_tokens))
     except Exception as exc:
-        logger.error("auth: failed to load revocation store: %s", exc)
+        logger.warning("auth: could not load revocation store (starting fresh): %s", exc)
+        _revoked_tokens = {}
 
 
-def _save_revoked() -> None:
-    """Atomically persist the current revocation store."""
+def _persist_revoked() -> None:
+    """Best-effort persist to disk. Non-critical — tokens have natural expiry."""
     try:
-        _REVOKE_STORE.parent.mkdir(parents=True, exist_ok=True)
-        _REVOKE_STORE.write_text(json.dumps(_revoked_tokens), encoding="utf-8")
+        os.makedirs(os.path.dirname(_REVOKE_STORE_PATH), exist_ok=True)
+        # Atomic-ish write: write to temp then rename
+        tmp_path = _REVOKE_STORE_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(_revoked_tokens, f)
+        os.replace(tmp_path, _REVOKE_STORE_PATH)
     except Exception as exc:
-        logger.error("auth: failed to save revocation store: %s", exc)
+        logger.warning("auth: failed to persist revocation store: %s", exc)
+
+
+def _prune_expired() -> int:
+    """Remove expired entries. Returns count of pruned entries. Caller must hold _revoke_lock."""
+    now = time.time()
+    stale = [t for t, exp in _revoked_tokens.items() if exp <= now]
+    for t in stale:
+        del _revoked_tokens[t]
+    return len(stale)
+
+
+def _is_revoked(token: str) -> bool:
+    """Thread-safe check if a token is revoked."""
+    with _revoke_lock:
+        expiry = _revoked_tokens.get(token)
+        if expiry is None:
+            return False
+        if time.time() > expiry:
+            # Token has naturally expired — evict
+            _revoked_tokens.pop(token, None)
+            return False
+        return True
+
+
+def _revoke_token(token: str) -> None:
+    """Thread-safe revocation with pruning and best-effort persistence."""
+    with _revoke_lock:
+        _revoked_tokens[token] = time.time() + _REVOKE_TTL_SECONDS
+        _prune_expired()
+        _persist_revoked()
 
 
 # Hydrate on import
@@ -75,29 +123,6 @@ def _get_valid_users() -> Dict[str, str]:
     if admin_email and admin_password_hash:
         users[admin_email] = admin_password_hash
     return users
-
-
-def _is_revoked(token: str) -> bool:
-    """Return True if the token is in the revocation store and still within its TTL."""
-    expiry = _revoked_tokens.get(token)
-    if expiry is None:
-        return False
-    if time.time() > expiry:
-        # Token has naturally expired — safe to evict
-        _revoked_tokens.pop(token, None)
-        return False
-    return True
-
-
-def _revoke_token(token: str) -> None:
-    """Add a token to the revocation store, prune stale entries, and persist."""
-    _revoked_tokens[token] = time.time() + _REVOKE_TTL_SECONDS
-    # Prune entries whose TTL has passed to keep the file bounded
-    now = time.time()
-    stale = [t for t, exp in _revoked_tokens.items() if exp <= now]
-    for t in stale:
-        _revoked_tokens.pop(t, None)
-    _save_revoked()
 
 
 class LoginRequest(BaseModel):
@@ -158,3 +183,27 @@ async def logout(body: RefreshRequest):
     """Invalidate a refresh token"""
     _revoke_token(body.refresh_token)
     return {"status": "success", "message": "Successfully logged out"}
+
+
+@router.post("/dev-token")
+async def dev_token():
+    """
+    Issue a development-only JWT without credentials.
+    Blocked in production. Use this for local dev and testing when auth is enforced.
+    """
+    if os.getenv("APP_ENV", "development") == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dev tokens are not available in production"
+        )
+
+    access_token = create_access_token(data={"sub": "dev@localhost", "role": "developer"})
+    refresh_token = create_refresh_token(data={"sub": "dev@localhost", "role": "developer"})
+
+    logger.info("Dev token issued for dev@localhost")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "note": "Development-only token. Not available in production."
+    }

@@ -185,32 +185,50 @@ This error usually means the backend cannot connect to the database or an API ke
 
 ```
 living-data-intelligence-backend/
-├── app/
-│   ├── api/                 # API route handlers
-│   │   ├── database.py      # Database connection endpoints
-│   │   ├── schema.py        # Schema analysis endpoints
-│   │   ├── graph.py         # Graph generation endpoints
-│   │   └── metrics.py       # Real-time metrics endpoints
-│   ├── models/              # Pydantic models
-│   │   └── schemas.py       # Data validation models
-│   └── services/            # Business logic
-│       ├── db_connector.py  # Database connection manager
-│       ├── schema_analyzer.py # Schema introspection
-│       ├── ai_classifier.py # AI table classification
-│       ├── graph_generator.py # 3D graph generation
-│       ├── realtime_monitor.py # Real-time data monitoring
-│       └── connection_manager.py # WebSocket manager
-├── static/
-│   ├── css/
-│   │   └── styles.css       # Application styles
-│   ├── js/
-│   │   ├── app.js           # Main application controller
-│   │   ├── visualization.js # Three.js 3D visualization
-│   │   └── particle-system.js # Particle flow system
-│   └── index.html           # Main HTML page
-├── main.py                  # FastAPI application entry point
-├── requirements.txt         # Python dependencies
-└── .env.example            # Environment variables template
+├── backend/
+│   ├── app/
+│   │   ├── api/                    # 30+ REST API route handlers
+│   │   │   ├── auth.py             # JWT authentication + dev-token
+│   │   │   ├── database.py         # Database connection endpoints
+│   │   │   ├── graph.py            # 3D graph generation endpoints
+│   │   │   ├── ml_analysis.py      # Work on Data ML endpoints
+│   │   │   ├── apex_agent.py       # APEX autonomous agent API
+│   │   │   ├── decisions.py        # Decision Hub endpoints
+│   │   │   └── ...                 # 20+ more route modules
+│   │   ├── services/               # Business logic layer
+│   │   │   ├── db_connector.py     # Async DB pools (PG, MySQL, Mongo)
+│   │   │   ├── auth.py             # JWT + bcrypt auth service
+│   │   │   ├── neural_core/        # AI-powered schema analysis
+│   │   │   ├── apex_agent/         # Autonomous agent subsystem
+│   │   │   ├── ml/                 # ML analysis pipeline
+│   │   │   ├── decisions/          # Decision engine
+│   │   │   └── realtime/           # Real-time monitoring
+│   │   ├── config/                 # Logging, feature flags
+│   │   └── middleware/             # Request middleware
+│   ├── ml/                         # GNN models + embeddings
+│   ├── tests/                      # 197+ backend tests (pytest)
+│   ├── migrations/                 # Alembic database migrations
+│   ├── main.py                     # FastAPI entry + lifespan
+│   ├── router_registry.py          # Centralized route registration
+│   ├── Dockerfile                  # Multi-stage production build
+│   ├── requirements.txt            # Pinned Python dependencies
+│   └── .env.example                # Environment template
+├── frontend/
+│   ├── src/
+│   │   ├── components/             # React UI components
+│   │   │   ├── Dashboard/          # 3D Three.js visualizations
+│   │   │   ├── Auth/               # Login/auth flow
+│   │   │   └── ...                 # 10+ component groups
+│   │   ├── utils/apiClient.js      # Axios + JWT refresh
+│   │   ├── stores/                 # Zustand state management
+│   │   └── test/                   # Vitest test setup
+│   ├── nginx.conf                  # Dev Nginx config
+│   ├── nginx.production.conf       # Production TLS config
+│   └── Dockerfile                  # Multi-stage Nginx build
+├── .github/workflows/ci.yml        # CI pipeline
+├── docker-compose.yml              # Dev orchestration
+├── docker-compose.production.yml   # Prod: HTTPS + certbot
+└── docs/                           # Technical documentation
 ```
 
 ## 🎯 Use Cases

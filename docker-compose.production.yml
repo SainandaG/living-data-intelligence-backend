@@ -1,0 +1,71 @@
+# ============================================================================
+# Production Docker Compose — HTTPS with Let's Encrypt
+# ============================================================================
+# Usage:
+#   1. Replace 'yourdomain.com' and 'you@example.com' with your actual values
+#   2. First-time cert provisioning:
+#        docker compose -f docker-compose.production.yml run --rm certbot certonly \
+#          --webroot -w /var/www/certbot -d yourdomain.com --email you@example.com --agree-tos
+#   3. Start all services:
+#        docker compose -f docker-compose.production.yml up -d
+#   4. Certs auto-renew via the certbot service (checks every 12h)
+# ============================================================================
+
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      - APP_ENV=production
+      - DISABLE_AUTH=false
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-net
+    volumes:
+      # Mount production nginx config with TLS
+      - ./frontend/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro
+      # Mount Let's Encrypt certificates
+      - certbot-certs:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+
+  # ── Let's Encrypt auto-renewal ──────────────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # Check for renewal every 12 hours
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 43200; done'"
+    restart: unless-stopped
+    networks:
+      - app-net
+
+volumes:
+  certbot-certs:
+  certbot-www:
+
+networks:
+  app-net:
+    driver: bridge

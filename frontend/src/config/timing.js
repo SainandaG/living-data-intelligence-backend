@@ -20,17 +20,17 @@ export const MODAL_DELAY = 500;
 /** WebSocket reconnect timeout ceiling — max back-off (ms) */
 export const RECONNECT_TIMEOUT = 30000;
 
-/** Agent status panel polling interval (ms) */
-export const AGENT_POLL_INTERVAL = 10000;
+/** Agent status panel polling interval (ms) — override with VITE_AGENT_POLL_INTERVAL */
+export const AGENT_POLL_INTERVAL = Number(import.meta.env.VITE_AGENT_POLL_INTERVAL) || 10000;
 
-/** Realtime metrics polling / system vitals refresh (ms) */
-export const METRICS_POLL_INTERVAL = 5000;
+/** Realtime metrics polling / system vitals refresh (ms) — override with VITE_METRICS_POLL_INTERVAL */
+export const METRICS_POLL_INTERVAL = Number(import.meta.env.VITE_METRICS_POLL_INTERVAL) || 5000;
 
-/** Dashboard layout vitals refresh interval (ms) */
-export const VITALS_POLL_INTERVAL = 5000;
+/** Dashboard layout vitals refresh interval (ms) — override with VITE_VITALS_POLL_INTERVAL */
+export const VITALS_POLL_INTERVAL = Number(import.meta.env.VITE_VITALS_POLL_INTERVAL) || 5000;
 
-/** Intelligence dashboard data refresh (ms) — matches backend 15s cache TTL */
-export const INTELLIGENCE_POLL_INTERVAL = 15000;
+/** Intelligence dashboard data refresh (ms) — override with VITE_INTELLIGENCE_POLL_INTERVAL */
+export const INTELLIGENCE_POLL_INTERVAL = Number(import.meta.env.VITE_INTELLIGENCE_POLL_INTERVAL) || 15000;
 
 /** Delay before camera arrives at drill-down node (ms) — cinematic transition */
 export const DRILLDOWN_CAMERA_DELAY = 1200;
@@ -53,8 +53,8 @@ export const AI_STATUS_CLEAR_DELAY = 5000;
 /** SemanticSearchDiscovery debounce before firing search (ms) */
 export const SEARCH_DEBOUNCE = 400;
 
-/** Node formation simulation agent state poll (ms) */
-export const FORMATION_POLL_INTERVAL = 2000;
+/** Node formation simulation agent state poll (ms) — override with VITE_FORMATION_POLL_INTERVAL */
+export const FORMATION_POLL_INTERVAL = Number(import.meta.env.VITE_FORMATION_POLL_INTERVAL) || 2000;
 
 /** Generation log panel auto-hide delay (ms) */
 export const GENERATION_LOG_HIDE_DELAY = 3000;

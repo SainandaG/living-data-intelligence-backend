@@ -57,6 +57,11 @@ async def keep_alive_task():
                     await db_connector.query(conn['id'], "SELECT 1")
                 except Exception as e:
                     logger.warning(f"⚠️ Keep-alive failed for {conn['database']}: {e}")
+                    try:
+                        logger.info(f"🔄 Reconnecting {conn['id']} ({conn['database']})...")
+                        await db_connector.reconnect(conn['id'])
+                    except Exception as re_err:
+                        logger.error(f"❌ Reconnect failed for {conn['database']}: {re_err}")
     except asyncio.CancelledError:
         logger.info("🛑 Keep-alive task cancelled.")
         raise
@@ -89,19 +94,56 @@ async def lifespan(app: FastAPI):
     # Track ALL background tasks for clean cancellation
     app.state.bg_tasks = []
 
-    # 1. Start streaming task
-    from app.api.websocket import stream_metrics
-    streaming_task = asyncio.create_task(stream_metrics())
-    app.state.bg_tasks.append(streaming_task)
-    
-    # 2. Start keep-alive task
-    keep_alive = asyncio.create_task(keep_alive_task())
-    app.state.bg_tasks.append(keep_alive)
+    def _make_task(coro_factory, name: str, *, restart: bool = True, max_restarts: int = 5):
+        """Wrap a background coroutine with crash isolation and auto-restart.
 
-    # 3. Start Agent loop
+        Args:
+            coro_factory: An awaitable OR a zero-arg callable that returns an awaitable.
+                          Using a callable allows restart to create a fresh coroutine.
+            name: Human-readable task name for logging.
+            restart: If True, automatically restart the task after a crash.
+            max_restarts: Maximum consecutive restarts before giving up.
+        """
+        async def _guarded():
+            restarts = 0
+            while True:
+                try:
+                    # Support both raw coroutines (first run) and factories (restarts)
+                    coro = coro_factory() if callable(coro_factory) and not asyncio.iscoroutine(coro_factory) else coro_factory
+                    await coro
+                    break  # Normal exit
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    restarts += 1
+                    logger.error(
+                        "background task %s crashed (attempt %d/%d): %s",
+                        name, restarts, max_restarts, exc, exc_info=True
+                    )
+                    if not restart or restarts >= max_restarts:
+                        logger.error("background task %s exceeded max restarts — giving up", name)
+                        break
+                    backoff = min(2 ** restarts, 32)
+                    logger.info("restarting background task %s in %ds...", name, backoff)
+                    await asyncio.sleep(backoff)
+                    # If coro_factory is a plain coroutine (not callable), we can't restart
+                    if not callable(coro_factory) or asyncio.iscoroutine(coro_factory):
+                        logger.warning("background task %s was a one-shot coroutine — cannot restart", name)
+                        break
+        t = asyncio.create_task(_guarded(), name=name)
+        app.state.bg_tasks.append(t)
+        return t
+
+    # 1. Start streaming task (restartable via factory)
+    from app.api.websocket import stream_metrics
+    _make_task(stream_metrics, "stream_metrics")
+
+    # 2. Start keep-alive task (restartable via factory)
+    _make_task(keep_alive_task, "keep_alive")
+
+    # 3. Start Agent loop (restartable via factory)
     from app.services.agent_service import agent_service
-    agent_loop_task = asyncio.create_task(agent_service.start_autonomous_loop())
-    app.state.bg_tasks.append(agent_loop_task)
+    _make_task(agent_service.start_autonomous_loop, "agent_loop")
     
     # 4. Auto-Connect to Primary Database
     from app.services.db_connector import db_connector
@@ -167,6 +209,28 @@ app = FastAPI(
 # Setup SlowAPI Rate Limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_HTTP_STATUS_CODES = {
+    400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    409: "CONFLICT",
+    422: "VALIDATION_ERROR",
+    429: "RATE_LIMITED",
+    500: "INTERNAL_ERROR",
+    503: "SERVICE_UNAVAILABLE",
+}
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Return structured {error, code, path} for all HTTP exceptions so the frontend can read them."""
+    code = getattr(exc, "code", None) or _HTTP_STATUS_CODES.get(exc.status_code, "HTTP_ERROR")
+    return JSONResponse(status_code=exc.status_code, content={
+        "error": exc.detail,
+        "code": code,
+        "path": str(request.url.path),
+    })
 
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):

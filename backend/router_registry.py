@@ -12,14 +12,21 @@ logger = logging.getLogger(__name__)
 
 def register_all_routes(app, registry, expected_routers: list):
     """Register all required and optional API routers."""
-    # Enforce JWT auth on all routes in production
-    if os.getenv("APP_ENV", "development") == "production":
-        from app.services.auth import get_current_user
-        auth_dep = [Depends(get_current_user)]
-        logger.info("Auth enforcement: ENABLED (production mode)")
-    else:
+    from app.services.auth import get_current_user
+
+    is_prod = os.getenv("APP_ENV", "development") == "production"
+    disable_auth = os.getenv("DISABLE_AUTH", "false").lower() == "true"
+
+    if is_prod and disable_auth:
+        logger.critical("DISABLE_AUTH=true is FORBIDDEN in production. Ignoring.")
+        disable_auth = False
+
+    if disable_auth:
         auth_dep = []
-        logger.warning("Auth enforcement: DISABLED (development mode)")
+        logger.warning("⚠️  Auth enforcement: DISABLED (DISABLE_AUTH=true). DO NOT use in production!")
+    else:
+        auth_dep = [Depends(get_current_user)]
+        logger.info("🔒 Auth enforcement: ENABLED (all API routes require JWT)")
 
     # ── Required Routers ─────────────────────────────────────────────────────
     registry.register_required("app.api.auth", prefix="/api/auth", tags=["auth"])
@@ -66,6 +73,31 @@ def register_all_routes(app, registry, expected_routers: list):
     if missing_routers:
         logger.critical(f"CRITICAL: Missing expected routers: {missing_routers}")
         raise RuntimeError(f"Startup failed: System missing critical components {missing_routers}")
+
+    # ── API VERSIONING ────────────────────────────────────────────────────────
+    # Mount all /api/* routes under /api/v1/* as well for forward compatibility.
+    # Clients can migrate to /api/v1/ at their own pace; /api/ remains as the
+    # "latest" alias.
+    from fastapi.routing import APIRoute
+    versioned_routes = []
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.path.startswith("/api/"):
+            # Create a v1 alias: /api/foo → /api/v1/foo
+            v1_path = route.path.replace("/api/", "/api/v1/", 1)
+            versioned_routes.append((v1_path, route))
+
+    for v1_path, route in versioned_routes:
+        app.add_api_route(
+            v1_path,
+            route.endpoint,
+            methods=list(route.methods or []),
+            tags=route.tags,
+            dependencies=route.dependencies,
+            summary=route.summary,
+            description=route.description,
+        )
+
+    logger.info(f"API versioning: mounted {len(versioned_routes)} routes under /api/v1/")
 
     # ── ROUTE INVENTORY ───────────────────────────────────────────────────────
     logger.info("Finalizing route inventory...")
