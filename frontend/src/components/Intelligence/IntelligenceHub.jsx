@@ -192,7 +192,14 @@ function PlatformUtils({ connectionId }) {
             catch (e) { logger.error('Sim check failed', e); }
         };
         check();
-        const t = setInterval(check, AGENT_POLL_INTERVAL);
+        // Only poll while simulation is running — stops when idle
+        const t = setInterval(async () => {
+            try {
+                const s = await apiClient.get('/simulation/status');
+                setSimStatus(s);
+                if (!s.running) clearInterval(t);
+            } catch (e) { logger.error('Sim check failed', e); }
+        }, AGENT_POLL_INTERVAL);
         return () => clearInterval(t);
     }, []);
 

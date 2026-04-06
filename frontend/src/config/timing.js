@@ -29,8 +29,8 @@ export const METRICS_POLL_INTERVAL = 5000;
 /** Dashboard layout vitals refresh interval (ms) */
 export const VITALS_POLL_INTERVAL = 5000;
 
-/** Intelligence dashboard data refresh (ms) */
-export const INTELLIGENCE_POLL_INTERVAL = 30000;
+/** Intelligence dashboard data refresh (ms) — matches backend 15s cache TTL */
+export const INTELLIGENCE_POLL_INTERVAL = 15000;
 
 /** Delay before camera arrives at drill-down node (ms) — cinematic transition */
 export const DRILLDOWN_CAMERA_DELAY = 1200;

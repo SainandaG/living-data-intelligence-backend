@@ -43,7 +43,7 @@ export function useAgentStream() {
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const resp = await fetch(`${baseUrl}/api/apex/agent/run`, {
+      const resp = await fetch(`${baseUrl}/apex/agent/run`, {
         method:  'POST',
         headers,
         body:    JSON.stringify({ query, connection_id, context, tenant_id, user_id }),

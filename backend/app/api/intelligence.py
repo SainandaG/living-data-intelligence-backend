@@ -3,12 +3,30 @@ Intelligence API Endpoints
 Provides business-friendly data intelligence and insights
 """
 from fastapi import APIRouter, HTTPException
-from typing import Dict, List
+from typing import Dict, List, Any, Tuple
 import logging
 import asyncio
+import time
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# ── API-level response cache (15s TTL) ────────────────────────────────────────
+# Sits above the realtime_monitor's 10s debounce — makes repeat tab switches
+# and poll ticks instant without hitting the monitor or DB at all.
+_API_CACHE: dict[str, Tuple[float, Any]] = {}
+_API_CACHE_TTL = 15.0  # seconds
+
+
+def _cache_get(key: str):
+    entry = _API_CACHE.get(key)
+    if entry and (time.time() - entry[0]) < _API_CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: str, value: Any):
+    _API_CACHE[key] = (time.time(), value)
 
 from app.services.data_intelligence_analyzer import data_intelligence_analyzer
 from app.services.data_quality_engine import data_quality_engine
@@ -42,15 +60,20 @@ async def get_deep_status(connection_id: str, table_name: str):
     Returns: global_health, node_specific_diagnostics, combined_summary
     """
     try:
+        cache_key = f"deep-status:{connection_id}:{table_name}"
+        cached = _cache_get(cache_key)
+        if cached:
+            return cached
+
         from app.services.realtime_monitor import realtime_monitor
-        
+
         # Get REAL metrics from the monitor with node deep-dive
         data = await realtime_monitor.get_realtime_data(connection_id, table_name)
         
         health_data = data.get('health', {})
         node_metrics = data.get('node_metrics', {})
         
-        return {
+        result = {
             'connection_id': connection_id,
             'table_name': table_name,
             'global': {
@@ -66,7 +89,9 @@ async def get_deep_status(connection_id: str, table_name: str):
             },
             'timestamp': data.get('timestamp')
         }
-        
+        _cache_set(cache_key, result)
+        return result
+
     except Exception as e:
         logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal intelligence service error")
@@ -142,9 +167,13 @@ async def get_health_overview(connection_id: str):
     Returns: health_score, state, explanation, visual_config
     """
     try:
+        cache_key = f"health:{connection_id}"
+        cached = _cache_get(cache_key)
+        if cached:
+            return cached
+
         from app.services.realtime_monitor import realtime_monitor
-        
-        # Get REAL metrics from the monitor
+
         realtime_data = await realtime_monitor.get_realtime_data(connection_id)
         health_data = realtime_data.get('health', {
             'score': 100,
@@ -152,7 +181,7 @@ async def get_health_overview(connection_id: str):
             'color': '#00ff88',
             'issues': []
         })
-        
+
         out = {
             'connection_id': connection_id,
             'health_score': health_data['score'],
@@ -170,6 +199,7 @@ async def get_health_overview(connection_id: str):
                 'glow_intensity': 0.5 if health_data['state'] == 'healthy' else 0.8 if health_data['state'] == 'stressed' else 1.0
             }
         }
+        _cache_set(cache_key, out)
         return out
     except Exception as e:
         logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)
@@ -366,35 +396,36 @@ async def get_current_anomalies(connection_id: str):
     Returns: list of anomalies (Low/Medium/High severity)
     """
     try:
+        cache_key = f"anomalies:{connection_id}"
+        cached = _cache_get(cache_key)
+        if cached:
+            return cached
+
         from app.services.realtime_monitor import realtime_monitor
-        
-        # Get REAL metrics and anomalies
+
         realtime_data = await realtime_monitor.get_realtime_data(connection_id)
         anomalies = realtime_data.get('anomalies', [])
-        
-        # Convert to business-friendly format
-        formatted_anomalies = []
-        for anomaly in anomalies:
-            severity_map = {
-                'critical': 'High',
-                'warning': 'Medium'
+
+        severity_map = {'critical': 'High', 'warning': 'Medium'}
+        formatted_anomalies = [
+            {
+                'severity': severity_map.get(a['severity'], 'Low'),
+                'metric': _humanize_metric_name(a['metric']),
+                'current_value': a['current_value'],
+                'expected_value': a['expected_value'],
+                'explanation': a['explanation'],
+                'color': '#ff4757' if a['severity'] == 'critical' else '#ffd60a'
             }
-            
-            formatted_anomalies.append({
-                'severity': severity_map.get(anomaly['severity'], 'Low'),
-                'metric': _humanize_metric_name(anomaly['metric']),
-                'current_value': anomaly['current_value'],
-                'expected_value': anomaly['expected_value'],
-                'explanation': anomaly['explanation'],
-                'color': '#ff4757' if anomaly['severity'] == 'critical' else '#ffd60a'
-            })
-        
+            for a in anomalies
+        ]
+
         out = {
             'connection_id': connection_id,
             'anomalies': formatted_anomalies,
             'count': len(formatted_anomalies),
             'has_critical': any(a['severity'] == 'High' for a in formatted_anomalies)
         }
+        _cache_set(cache_key, out)
         return out
     except Exception as e:
         logger.error(f"Intelligence operation failed: {str(e)}", exc_info=True)

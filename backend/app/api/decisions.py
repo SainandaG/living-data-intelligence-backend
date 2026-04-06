@@ -5,10 +5,12 @@ CRUD for decisions + status update + manual notification dispatch.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,55 @@ async def create_decision(req: CreateDecisionRequest) -> Dict[str, Any]:
 async def get_stats(tenant_id: str = "default") -> Dict[str, int]:
     from app.services.decisions.alert_engine import alert_engine
     return alert_engine.stats(tenant_id=tenant_id)
+
+
+@router.get("/stream")
+async def stream_decisions(request: Request, tenant_id: str = "default"):
+    """
+    SSE stream — pushes real-time decision events to connected clients.
+
+    Events:
+      {"type": "snapshot",         "decisions": [...], "stats": {...}}
+      {"type": "decision_created", "decision": {...}}
+      {"type": "decision_updated", "decision": {...}}
+    """
+    from app.services.decisions.alert_engine import alert_engine
+    import json
+
+    q = alert_engine.subscribe()
+
+    async def event_stream():
+        try:
+            # Send full snapshot immediately so the client starts with accurate state
+            decisions = alert_engine.list_decisions(tenant_id=tenant_id, limit=50)
+            stats     = alert_engine.stats(tenant_id=tenant_id)
+            snapshot  = json.dumps({"type": "snapshot", "decisions": decisions, "stats": stats})
+            yield f"data: {snapshot}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=20.0)
+                    # Filter to this tenant only
+                    d = event.get("decision", {})
+                    if d.get("tenant_id", "default") == tenant_id:
+                        yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    # Heartbeat to keep the connection alive
+                    yield ": heartbeat\n\n"
+        finally:
+            alert_engine.unsubscribe(q)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":     "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":        "keep-alive",
+        },
+    )
 
 
 @router.get("/{decision_id}")

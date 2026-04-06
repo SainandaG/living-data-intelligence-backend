@@ -22,17 +22,30 @@ const TABLE_COLORS = [
     { color: '#4f46e5', glow: '#818cf8' },
 ];
 
-// Column node palette — excludes gold (PK) and blue (FK) to keep type identity clear
-const REGULAR_COLUMN_COLORS = [
-    { color: '#16a34a', glow: '#4ade80' },   // green
-    { color: '#9333ea', glow: '#c084fc' },   // purple
-    { color: '#dc2626', glow: '#f87171' },   // red
-    { color: '#c026d3', glow: '#e879f9' },   // fuchsia
-    { color: '#ea580c', glow: '#fb923c' },   // orange
-    { color: '#059669', glow: '#34d399' },   // emerald
-    { color: '#7c3aed', glow: '#a78bfa' },   // violet
-    { color: '#e11d48', glow: '#fb7185' },   // rose
+// 50 hand-picked perceptually distinct colors for dark backgrounds.
+// Each entry is visually unique — no two look the same even at a glance.
+const DISTINCT_NODE_COLORS = [
+    '#e63946', '#2dc653', '#f4a261', '#c77dff', '#00b4d8',
+    '#ff6b6b', '#06d6a0', '#ffd166', '#7b2d8b', '#4cc9f0',
+    '#ef233c', '#80b918', '#ff9f1c', '#9d4edd', '#48cae4',
+    '#d62828', '#a7c957', '#fb8500', '#6a0572', '#0077b6',
+    '#e76f51', '#52b788', '#ffbe0b', '#7209b7', '#4895ef',
+    '#f72585', '#43aa8b', '#f3722c', '#560bad', '#4361ee',
+    '#b5179e', '#90be6d', '#f8961e', '#3a0ca3', '#277da1',
+    '#ff4d6d', '#55a630', '#ff7c43', '#5e548e', '#0096c7',
+    '#c9184a', '#6a994e', '#f4845f', '#7b2fff', '#48b2e8',
+    '#ff595e', '#25a244', '#ff924c', '#8338ec', '#3a86ff',
 ];
+
+function getRegularColumnColor(idx) {
+    const hex = DISTINCT_NODE_COLORS[idx % DISTINCT_NODE_COLORS.length];
+    // Derive glow by lightening each channel
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const glow = `rgb(${Math.min(255, r + 70)},${Math.min(255, g + 70)},${Math.min(255, b + 70)})`;
+    return { color: hex, glow };
+}
 
 function getTableColor(index) {
     return TABLE_COLORS[index % TABLE_COLORS.length];
@@ -877,8 +890,8 @@ function transformNodeColumns(node, allTables = []) {
             color = refColors.color || '#2563eb';
             glow = refColors.glow || '#60a5fa';
         } else {
-            // Regular columns: distinct palette that excludes gold (PK)
-            const p = REGULAR_COLUMN_COLORS[i % REGULAR_COLUMN_COLORS.length];
+            // Regular columns: unique HSL color per column index
+            const p = getRegularColumnColor(i);
             color = p.color; glow = p.glow;
         }
 
@@ -2149,24 +2162,35 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                         {refTables.length > 0 && (
                             <div style={{
                                 position: 'absolute', top: 90, right: 16, zIndex: 100,
-                                pointerEvents: 'none', minWidth: 200,
+                                pointerEvents: 'auto', minWidth: 220, maxWidth: 280,
+                                maxHeight: 'calc(100vh - 160px)',
+                                display: 'flex', flexDirection: 'column',
                                 background: 'rgba(0,0,0,0.80)', border: '1px solid #1e293b',
-                                borderRadius: 10, padding: '10px 14px', backdropFilter: 'blur(10px)',
+                                borderRadius: 10, backdropFilter: 'blur(10px)',
                             }}>
-                                <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2em', color: '#475569', textTransform: 'uppercase', marginBottom: 8 }}>
-                                    Referencing Tables
+                                {/* sticky header */}
+                                <div style={{ padding: '10px 14px 6px', flexShrink: 0 }}>
+                                    <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.2em', color: '#475569', textTransform: 'uppercase' }}>
+                                        Referencing Tables
+                                        <span style={{ marginLeft: 6, color: '#334155' }}>({refTables.length})</span>
+                                    </div>
                                 </div>
-                                {refTables.map((ref, i) => {
-                                    const palette = TABLE_COLORS[(i + 2) % TABLE_COLORS.length];
-                                    return (
-                                        <div key={ref.table} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-                                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: palette.color, boxShadow: `0 0 6px ${palette.glow}`, flexShrink: 0 }} />
-                                            <span style={{ fontSize: 10, color: '#e2e8f0', fontWeight: 700 }}>{ref.table}</span>
-                                            <span style={{ fontSize: 8, color: '#475569', marginLeft: 'auto' }}>FK → {ref.fk_column || hoveredPKColId}</span>
-                                        </div>
-                                    );
-                                })}
-                                <div style={{ borderTop: '1px solid #1e293b', marginTop: 8, paddingTop: 8 }}>
+                                {/* scrollable list */}
+                                <div style={{ overflowY: 'auto', padding: '0 14px', flex: 1,
+                                    scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+                                    {refTables.map((ref, i) => {
+                                        const palette = TABLE_COLORS[(i + 2) % TABLE_COLORS.length];
+                                        return (
+                                            <div key={ref.table} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+                                                <div style={{ width: 10, height: 10, borderRadius: '50%', background: palette.color, boxShadow: `0 0 6px ${palette.glow}`, flexShrink: 0 }} />
+                                                <span style={{ fontSize: 10, color: '#e2e8f0', fontWeight: 700 }}>{ref.table}</span>
+                                                <span style={{ fontSize: 8, color: '#475569', marginLeft: 'auto', whiteSpace: 'nowrap' }}>FK → {ref.fk_column || hoveredPKColId}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {/* sticky footer */}
+                                <div style={{ borderTop: '1px solid #1e293b', padding: '6px 14px 10px', flexShrink: 0 }}>
                                     <div style={{ fontSize: 7, color: '#334155', lineHeight: 1.5 }}>
                                         Node size = row share %<br />
                                         Color = ½ PK value + ½ table

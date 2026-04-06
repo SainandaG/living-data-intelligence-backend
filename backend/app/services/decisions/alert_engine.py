@@ -21,7 +21,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ class AlertEngine:
         self._decisions: Dict[str, Decision] = {}
         self._lock = asyncio.Lock()
         self._store_path = _STORE_PATH
+        self._subscribers: Set[asyncio.Queue] = set()
         self._load()
 
     # ── Persistence ───────────────────────────────────────────────────────────
@@ -106,6 +107,27 @@ class AlertEngine:
         except Exception as exc:
             logger.error("alert_engine: failed to rewrite store: %s", exc)
 
+    # ── SSE Pub/Sub ───────────────────────────────────────────────────────────
+
+    def subscribe(self) -> "asyncio.Queue[Dict]":
+        """Register a new SSE subscriber. Returns a queue to read events from."""
+        q: asyncio.Queue[Dict] = asyncio.Queue(maxsize=100)
+        self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: "asyncio.Queue[Dict]") -> None:
+        self._subscribers.discard(q)
+
+    def _broadcast(self, event: Dict[str, Any]) -> None:
+        """Push an event to all connected SSE subscribers (non-blocking)."""
+        dead: Set[asyncio.Queue] = set()
+        for q in self._subscribers:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                dead.add(q)
+        self._subscribers -= dead
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     async def ingest_decision(self, raw: Dict[str, Any]) -> Decision:
@@ -136,6 +158,8 @@ class AlertEngine:
 
         logger.info("decision_ingested id=%s severity=%s title='%s'",
                     decision.id, decision.severity, decision.title[:60])
+
+        self._broadcast({"type": "decision_created", "decision": asdict(decision)})
 
         # Auto-dispatch notifications for high/critical (non-blocking)
         if decision.severity in ("high", "critical") and not decision.requires_approval:
@@ -203,6 +227,7 @@ class AlertEngine:
             d.resolved_at = time.time()
             self._rewrite()
         logger.info("decision_updated id=%s status=%s", decision_id, status)
+        self._broadcast({"type": "decision_updated", "decision": asdict(d)})
         return d
 
     def stats(self, tenant_id: str = "default") -> Dict[str, int]:
