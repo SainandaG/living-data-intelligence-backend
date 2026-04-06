@@ -64,10 +64,10 @@ brain/
 backend/data/workspaces/
 backend/data/agent_sessions/
 backend/data/experiments/
+backend/data/decisions/
 backend/coverage.xml
 backend/bandit-report.json
 backend/pip-audit-report.json
 
 # Claude Settings
 .claude/
-
