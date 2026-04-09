@@ -24,9 +24,8 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
-import uvicorn  # noqa: E402
 import asyncio  # noqa: E402
-from dotenv import load_dotenv  # noqa: E402
+
 
 # Ensure backend directory is in path and 'app' is findable
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,11 +34,13 @@ if current_dir not in sys.path:
 
 # Load environment variables BEFORE importing services
 # Force override ensures local .env takes precedence over system env vars
-load_dotenv(override=False)  # Never override env vars already set by the container/system
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=False)  # Never override env vars already set by the container/system
+except ImportError:
+    logger.warning("⚠️ python-dotenv not found, environment variables must be set manually")
 
-from app.api.auth import limiter  # noqa: E402
-from slowapi import _rate_limit_exceeded_handler  # noqa: E402
-from slowapi.errors import RateLimitExceeded  # noqa: E402
+
 
 async def keep_alive_task():
     """Background task to keep database connections alive"""
@@ -141,11 +142,14 @@ async def lifespan(app: FastAPI):
     # 2. Start keep-alive task (restartable via factory)
     _make_task(keep_alive_task, "keep_alive")
 
-    # 3. Start Agent loop (restartable via factory)
     from app.services.agent_service import agent_service
     _make_task(agent_service.start_autonomous_loop, "agent_loop")
+
+    # 4. Start ephemeral model cleanup (1hr retention)
+    from app.api.ml_analysis import cleanup_ephemeral_models
+    _make_task(cleanup_ephemeral_models, "ml_model_cleanup")
     
-    # 4. Auto-Connect to Primary Database
+    # 5. Auto-Connect to Primary Database
     from app.services.db_connector import db_connector
         
     db_config = {
@@ -207,8 +211,15 @@ app = FastAPI(
 )
 
 # Setup SlowAPI Rate Limiter
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+try:
+    from app.api.auth import limiter
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    logger.info("✅ Rate limiting enabled (SlowAPI)")
+except ImportError:
+    logger.warning("⚠️ SlowAPI not found, rate limiting disabled")
 
 _HTTP_STATUS_CODES = {
     400: "BAD_REQUEST",
@@ -405,6 +416,7 @@ if __name__ == "__main__":
     logger.info(f"📊 Open http://localhost:{port} to view the application")
     
     is_dev = os.getenv("APP_ENV", "development") == "development"
+    import uvicorn
     uvicorn.run(
         "main:app",
         host=host,

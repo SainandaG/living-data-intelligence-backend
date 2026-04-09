@@ -49,8 +49,11 @@ function useQueryParams() {
       features:        (p.get('features') || '').split(',').filter(Boolean).map(decodeURIComponent),
       // run_id from the modal's async job — present when opened via "Open Deep Analysis"
       run_id:          p.get('run_id') || '',
+      csv_id:          p.get('csv_id') || '',
+      csv_filename:    p.get('csv_filename') || '',
     };
   }, []);
+
 }
 
 const ALGO_DISPLAY = {
@@ -249,11 +252,12 @@ export default function DeepAnalysisPage() {
   const pollRef = useRef(null);
 
   useEffect(() => {
-    if (!params.table || !params.connectionId) {
+    if ((!params.table || !params.connectionId) && !params.csv_id) {
       setAnalysisLoading(false);
       setAnalysisError('Missing required parameters. Please re-open Deep Analysis from the Work on Data modal.');
       return;
     }
+
     setAnalysisLoading(true);
     setAnalysisError(null);
 
@@ -282,7 +286,14 @@ export default function DeepAnalysisPage() {
       pollRef.current = setInterval(checkStatus, 2000);
     } else {
       // Cold open (e.g. bookmarked URL) — fall back to a direct analysis call
-      apiClient.post('/ml/analyze', {
+      const payload = params.csv_id ? {
+        csv_id:           params.csv_id,
+        filename:         params.csv_filename,
+        family:           params.family,
+        algo:             params.algo,
+        target:           params.target || undefined,
+        features:         params.features,
+      } : {
         connection_id:    params.connectionId,
         table:            params.table,
         secondary_tables: params.secondaryTables,
@@ -290,11 +301,14 @@ export default function DeepAnalysisPage() {
         algo:             params.algo,
         target:           params.target || undefined,
         features:         params.features,
-      }, { timeout: 120000 })
+      };
+
+      apiClient.post('/ml/analyze', payload, { timeout: 120000 })
         .then(data  => setAnalysisResult(data))
         .catch(err  => setAnalysisError(err?.message || 'Analysis failed. Check your connection and selected columns.'))
         .finally(() => setAnalysisLoading(false));
     }
+
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -607,14 +621,24 @@ export default function DeepAnalysisPage() {
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] mt-0.5 flex-wrap">
-              <Database size={9} />
-              <span className="font-mono">{params.table || 'no table'}</span>
+              {params.csv_id ? (
+                 <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-md">
+                   <Upload size={9} />
+                   <span className="font-mono">{params.csv_filename || 'Uploaded CSV'}</span>
+                 </div>
+              ) : (
+                <>
+                  <Database size={9} />
+                  <span className="font-mono">{params.table || 'no table'}</span>
+                </>
+              )}
               {(params.target || chartCols.y) && <><span>·</span><span className="text-green-400">→ {params.target || chartCols.y}</span></>}
               {features.length > 0 && <><span>·</span><span className="text-purple-400">{features.length} features</span></>}
               {chartCols.x && <><span>·</span><span className="text-gray-500">x: {chartCols.x}</span></>}
               {params.secondaryTables.length > 0 && <><span>·</span><span className="text-amber-400">+{params.secondaryTables.length} joined</span></>}
               {analysisResult?.row_count > 0 && <><span>·</span><span className="text-gray-500">{Number(analysisResult.row_count).toLocaleString()} rows</span></>}
             </div>
+
           </div>
         </div>
 
@@ -638,6 +662,19 @@ export default function DeepAnalysisPage() {
           </button>
         </div>
       </header>
+      
+      {/* ── Data quality warnings ── */}
+      {analysisResult?.data_warnings?.length > 0 && (
+        <div className="px-5 py-2 bg-amber-500/10 border-b border-amber-500/20 flex flex-col gap-1">
+          {analysisResult.data_warnings.map((w, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <AlertTriangle size={11} className="text-amber-400 shrink-0" />
+              <p className="text-[10px] text-amber-200 leading-tight">{w}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
 
       {/* ── Body ────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">

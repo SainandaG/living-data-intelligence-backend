@@ -16,7 +16,7 @@ import {
   Database, Columns, RefreshCw, Zap, FlaskConical, TrendingUp,
   GitBranch, Clock, Layers, ExternalLink, AlertTriangle,
   ArrowLeft, BarChart2, Lightbulb, Activity, Search, CheckSquare, Square,
-  Send, StopCircle, Loader2, History, Download
+  Send, StopCircle, Loader2, History, Download, Upload, FileText, Table2
 } from 'lucide-react';
 import apiClient from '../../utils/apiClient';
 import { useAgentStream } from '../../hooks/useAgentStream';
@@ -431,6 +431,16 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   const [tableSearch, setTableSearch] = useState('');
   const [colSearch, setColSearch] = useState('');
 
+  // ── Data source mode ──────────────────────────────────────────────────────
+  const [dataSourceMode, setDataSourceMode] = useState('database'); // 'database' | 'csv'
+  const [csvUploadId,     setCsvUploadId]    = useState(null);
+  const [csvFilename,     setCsvFilename]    = useState('');
+  const [csvColumns,      setCsvColumns]     = useState([]); // [{name, type}]
+  const [csvRowCount,     setCsvRowCount]    = useState(0);
+  const [csvUploadStatus, setCsvUploadStatus] = useState('idle'); // 'idle'|'uploading'|'done'|'error'
+  const [csvUploadError,  setCsvUploadError]  = useState(null);
+  const csvDropRef = useRef(null);
+
   // Run state
   const [isGenerating, setIsGenerating] = useState(false);
   const [mlResults, setMlResults] = useState(null);
@@ -494,12 +504,52 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     setMlError(null);
   }, [_stopPolling]);
 
+  // ── CSV upload handler ────────────────────────────────────────────────────
+  const handleCsvFile = useCallback(async (file) => {
+    if (!file) return;
+    setCsvUploadStatus('uploading');
+    setCsvUploadError(null);
+    setCsvUploadId(null);
+    setCsvColumns([]);
+    setTargetCol('');
+    setFeatureCols([]);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await apiClient.post('/ml/csv/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setCsvUploadId(res.csv_id);
+      setCsvFilename(res.filename);
+      setCsvColumns(res.columns || []);
+      setCsvRowCount(res.row_count || 0);
+      setCsvUploadStatus('done');
+      // Auto-pick a sensible target (first numeric column that's not an id)
+      const numeric = (res.columns || []).filter(c => c.type === 'numeric' && !ID_COL_RE.test(c.name));
+      const cat = (res.columns || []).filter(c => c.type !== 'numeric' && !ID_COL_RE.test(c.name));
+      if (numeric.length > 0) {
+        setTargetCol(numeric[0].name);
+        setFeatureCols(numeric.slice(1, 6).concat(cat.slice(0, 2)).map(c => c.name));
+      } else if (cat.length > 0) {
+        setTargetCol(cat[0].name);
+        setFeatureCols(cat.slice(1, 7).map(c => c.name));
+      }
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || 'Upload failed.';
+      setCsvUploadError(msg);
+      setCsvUploadStatus('error');
+    }
+  }, []);
+
   const tables = graphData?.nodes || [];
   const activeTable = tables.find(t => t.name === selectedTable);
   const allColumns = activeTable?.columns || [];
 
   // Aggregate columns from primary + secondary tables
   const columnsFromSelected = React.useMemo(() => {
+    if (dataSourceMode === 'csv') {
+      return (csvColumns || []).map(c => ({ ...c, _table: csvFilename || 'Uploaded CSV' }));
+    }
     const cols = [];
     const seen = new Set();
     const addCols = (tName) => {
@@ -513,7 +563,23 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     if (selectedTable) addCols(selectedTable);
     selectedSecondaryTables.forEach(addCols);
     return cols;
-  }, [tables, selectedTable, selectedSecondaryTables]);
+  }, [dataSourceMode, csvColumns, csvFilename, tables, selectedTable, selectedSecondaryTables]);
+
+  // Reset selection state when switching data source mode
+  useEffect(() => {
+    setTargetCol('');
+    setFeatureCols([]);
+    setColSearch('');
+  }, [dataSourceMode]);
+
+  // Clean stale selections when columns change (e.g. after uploading a new CSV)
+  useEffect(() => {
+    if (!columnsFromSelected.length) return;
+    setTargetCol(prev => (prev && columnsFromSelected.some(c => c.name === prev)) ? prev : '');
+    setFeatureCols(prev => prev.filter(p => columnsFromSelected.some(c => c.name === p)));
+  }, [columnsFromSelected]);
+
+
 
   const filteredTables = React.useMemo(() => {
     const src = aiSuggestion?.allTables || tables;
@@ -624,11 +690,12 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
   const selectAllFeatures = () => {
     const available = columnsFromSelected
-      .filter(c => c.name !== targetCol)
+      .filter(c => c.name !== targetCol && !ID_COL_RE.test(c.name))
       .map(c => c.name)
       .slice(0, 20);
     setFeatureCols(available);
   };
+
 
   const toggleSecondaryTable = (name) => setSelectedSecondaryTables(prev =>
     prev.includes(name) ? prev.filter(t => t !== name) : [...prev, name]
@@ -637,14 +704,18 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
   const handleOpenDeepAnalysis = () => {
     const params = new URLSearchParams({
       connectionId: connectionId || '',
-      table: selectedTable,
-      secondaryTables: selectedSecondaryTables.join(','),
+      table: dataSourceMode === 'csv' ? csvFilename : selectedTable,
+      secondaryTables: dataSourceMode === 'csv' ? '' : selectedSecondaryTables.join(','),
       family: selectedFamily,
       algo: selectedAlgo,
       target: targetCol,
       // Encode each column name individually to handle commas in Postgres-quoted identifiers
       features: featureCols.map(encodeURIComponent).join(','),
     });
+    if (dataSourceMode === 'csv') {
+      params.set('csv_id', csvUploadId);
+      params.set('csv_filename', csvFilename);
+    }
     // Pass the run_id so DeepAnalysisPage can poll the cached result instead of re-running
     if (activeRunIdRef.current) {
       params.set('run_id', activeRunIdRef.current);
@@ -652,6 +723,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     window.open(`/deep-analysis?${params.toString()}`, '_blank');
     onClose();
   };
+
 
   const handleRunInline = async () => {
     if (!selectedTable) return;
@@ -665,7 +737,15 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
     let runId;
     try {
       // Start the background job — returns immediately with a run_id
-      const { run_id } = await apiClient.post('/ml/run', {
+      const payload = dataSourceMode === 'csv' ? {
+        csv_id: csvUploadId,
+        table: csvFilename,
+        family: selectedFamily,
+        algo: selectedAlgo,
+        target: targetCol || undefined,
+        features: featureCols,
+      } : {
+
         connection_id: connectionId,
         table: selectedTable,
         secondary_tables: selectedSecondaryTables,
@@ -673,10 +753,13 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
         algo: selectedAlgo,
         target: targetCol || undefined,
         features: featureCols,
-      }, { signal: controller.signal });
+      };
+
+      const { run_id } = await apiClient.post('/ml/run', payload, { signal: controller.signal });
       runId = run_id;
       activeRunIdRef.current = runId;
     } catch (e) {
+
       if (e?.name === 'CanceledError' || e?.name === 'AbortError') return;
       setMlError(structuredMlError(e));
       setIsGenerating(false);
@@ -920,75 +1003,162 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                   </div>
                 )}
 
+                {/* Data source toggle */}
+                <div className="px-6 pt-4 flex items-center gap-4">
+                  <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 shrink-0">
+                    <button
+                      onClick={() => setDataSourceMode('database')}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dataSourceMode === 'database' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' : 'text-gray-500 hover:text-white'}`}
+                    >
+                      <Database size={13} /> Database
+                    </button>
+                    <button
+                      onClick={() => setDataSourceMode('csv')}
+                      className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dataSourceMode === 'csv' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'text-gray-500 hover:text-white'}`}
+                    >
+                      <Upload size={13} /> CSV File
+                    </button>
+                  </div>
+                  {dataSourceMode === 'csv' && csvUploadStatus === 'done' && (
+                    <div className="flex items-center gap-2 text-[10px] text-gray-400 bg-white/3 border border-white/8 px-3 py-1.5 rounded-xl">
+                      <FileText size={11} className="text-amber-400" />
+                      <span className="font-mono">{csvFilename}</span>
+                      <span className="text-gray-600">·</span>
+                      <span>{csvRowCount.toLocaleString()} rows</span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Config grid */}
                 <div className="grid grid-cols-[1fr_1fr] gap-x-6 p-6">
+
 
                   {/* LEFT: Table + Column Selection */}
                   <div className="flex flex-col gap-4 min-h-0">
 
-                    {/* ── Tables ── */}
+                    {/* ── Tables / CSV Upload ── */}
                     <div className="flex flex-col min-h-0">
                       <div className="flex items-center gap-2 mb-2">
-                        <Database size={13} className="text-cyan-400" />
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tables</span>
-                        <span className="text-[10px] text-gray-500 ml-auto tabular-nums">
-                          {selectedTable ? '1 primary' : '—'}
-                          {selectedSecondaryTables.length > 0 ? ` + ${selectedSecondaryTables.length} joined` : ''}
-                        </span>
-                      </div>
-                      {/* Table search */}
-                      <div className="relative mb-2">
-                        <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                        <input
-                          type="text" value={tableSearch} onChange={e => setTableSearch(e.target.value)}
-                          placeholder="Filter tables…"
-                          className="w-full pl-7 pr-3 py-1.5 bg-white/[0.03] border border-white/10 rounded-lg text-[11px] text-white placeholder-gray-600 outline-none focus:border-cyan-500/40 transition-colors"
-                        />
-                      </div>
-                      {/* Table list — ALL tables, scrollable */}
-                      <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-                        {filteredTables.map((table) => {
-                          const isPrimary = selectedTable === table.name;
-                          const isSecondary = selectedSecondaryTables.includes(table.name);
-                          const isAI = aiSuggestion?.primaryTable === table.name;
-                          return (
-                            <div key={table.name} className="flex items-center gap-1">
-                              {/* Primary selection (radio) */}
-                              <button
-                                onClick={() => { setSelectedTable(table.name); setTargetCol(''); setFeatureCols([]); setColSearch(''); }}
-                                className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${isPrimary
-                                  ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
-                                  : isSecondary
-                                    ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
-                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
-                                  }`}
-                              >
-                                <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isPrimary ? 'border-cyan-400' : 'border-gray-600'}`}>
-                                  {isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
-                                </div>
-                                <span className="font-mono font-medium flex-1 truncate">{table.name}</span>
-                                <span className="text-[10px] text-gray-500 flex-shrink-0">{(table.row_count || 0).toLocaleString()}</span>
-                                {isAI && <span className="text-[8px] px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex-shrink-0">AI</span>}
-                              </button>
-                              {/* Join checkbox — only shown for non-primary tables when a primary is selected */}
-                              {selectedTable && selectedTable !== table.name && (
-                                <button
-                                  onClick={() => toggleSecondaryTable(table.name)}
-                                  title={isSecondary ? 'Remove from join' : 'Add as join table'}
-                                  className={`p-1 rounded transition-all flex-shrink-0 ${isSecondary ? 'text-purple-400 hover:text-purple-300' : 'text-gray-600 hover:text-gray-400'
-                                    }`}
-                                >
-                                  {isSecondary ? <CheckSquare size={13} /> : <Square size={13} />}
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {filteredTables.length === 0 && (
-                          <p className="text-[10px] text-gray-500 text-center py-3 italic">No tables match &quot;{tableSearch}&quot;</p>
+                        {dataSourceMode === 'database' ? (
+                          <>
+                            <Database size={13} className="text-cyan-400" />
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tables</span>
+                            <span className="text-[10px] text-gray-500 ml-auto tabular-nums">
+                              {selectedTable ? '1 primary' : '—'}
+                              {selectedSecondaryTables.length > 0 ? ` + ${selectedSecondaryTables.length} joined` : ''}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={13} className="text-amber-400" />
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">File Ingestion</span>
+                          </>
                         )}
                       </div>
+
+                      {dataSourceMode === 'database' ? (
+                        <>
+                          {/* Table search */}
+                          <div className="relative mb-2">
+                            <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            <input
+                              type="text" value={tableSearch} onChange={e => setTableSearch(e.target.value)}
+                              placeholder="Filter tables…"
+                              className="w-full pl-7 pr-3 py-1.5 bg-white/[0.03] border border-white/10 rounded-lg text-[11px] text-white placeholder-gray-600 outline-none focus:border-cyan-500/40 transition-colors"
+                            />
+                          </div>
+                          {/* Table list — ALL tables, scrollable */}
+                          <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                            {filteredTables.map((table) => {
+                              const isPrimary = selectedTable === table.name;
+                              const isSecondary = selectedSecondaryTables.includes(table.name);
+                              const isAI = aiSuggestion?.primaryTable === table.name;
+                              return (
+                                <div key={table.name} className="flex items-center gap-1">
+                                  {/* Primary selection (radio) */}
+                                  <button
+                                    onClick={() => { setSelectedTable(table.name); setTargetCol(''); setFeatureCols([]); setColSearch(''); }}
+                                    className={`flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all text-[11px] border ${isPrimary
+                                      ? 'bg-cyan-500/10 border-cyan-500/40 text-cyan-400'
+                                      : isSecondary
+                                        ? 'bg-purple-500/10 border-purple-500/25 text-purple-300'
+                                        : 'bg-white/[0.03] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                      }`}
+                                  >
+                                    <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isPrimary ? 'border-cyan-400' : 'border-gray-600'}`}>
+                                      {isPrimary && <div className="w-1.5 h-1.5 rounded-full bg-cyan-400" />}
+                                    </div>
+                                    <span className="font-mono font-medium flex-1 truncate">{table.name}</span>
+                                    <span className="text-[10px] text-gray-500 flex-shrink-0">{(table.row_count || 0).toLocaleString()}</span>
+                                    {isAI && <span className="text-[8px] px-1 py-0.5 bg-purple-500/20 text-purple-400 rounded-full flex-shrink-0">AI</span>}
+                                  </button>
+                                  {/* Join checkbox — only shown for non-primary tables when a primary is selected */}
+                                  {selectedTable && selectedTable !== table.name && (
+                                    <button
+                                      onClick={() => toggleSecondaryTable(table.name)}
+                                      title={isSecondary ? 'Remove from join' : 'Add as join table'}
+                                      className={`p-1 rounded transition-all flex-shrink-0 ${isSecondary ? 'text-purple-400 hover:text-purple-300' : 'text-gray-600 hover:text-gray-400'
+                                        }`}
+                                    >
+                                      {isSecondary ? <CheckSquare size={13} /> : <Square size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {filteredTables.length === 0 && (
+                              <p className="text-[10px] text-gray-500 text-center py-3 italic">No tables match &quot;{tableSearch}&quot;</p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div
+                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files[0]; if (f) handleCsvFile(f); }}
+                          onClick={() => csvDropRef.current?.click()}
+                          className={`group relative h-44 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl transition-all cursor-pointer overflow-hidden ${csvUploadStatus === 'uploading'
+                            ? 'bg-amber-500/5 border-amber-500/30'
+                            : csvUploadStatus === 'done'
+                              ? 'bg-green-500/5 border-green-500/30'
+                              : 'bg-white/[0.03] border-white/[0.08] hover:bg-white/[0.06] hover:border-amber-500/30'
+                            }`}
+                        >
+                          <input type="file" hidden accept=".csv" ref={csvDropRef} onChange={(e) => { const f = e.target.files[0]; if (f) handleCsvFile(f); }} />
+                          {csvUploadStatus === 'uploading' ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <RefreshCw size={24} className="text-amber-400 animate-spin" />
+                              <p className="text-[11px] font-bold text-amber-300 uppercase tracking-widest">Uploading CSV…</p>
+                            </div>
+                          ) : csvUploadStatus === 'done' ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <div className="p-2 bg-green-500/15 rounded-xl border border-green-500/30">
+                                <Check size={20} className="text-green-400" />
+                              </div>
+                              <p className="text-[11px] font-bold text-green-300 uppercase tracking-widest text-center px-4 truncate w-full">
+                                {csvFilename}
+                              </p>
+                              <p className="text-[9px] text-gray-500">Click to change file</p>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-3">
+                              <div className="p-3 bg-white/5 rounded-2xl group-hover:bg-amber-500/10 group-hover:scale-110 transition-all">
+                                <Upload size={24} className="text-gray-500 group-hover:text-amber-400" />
+                              </div>
+                              <div className="text-center">
+                                <p className="text-xs font-semibold text-gray-300">Drop CSV here or click</p>
+                                <p className="text-[10px] text-gray-500 mt-1">Maximum 50MB · Any tabular format</p>
+                              </div>
+                            </div>
+                          )}
+                          {csvUploadError && (
+                            <div className="absolute bottom-0 inset-x-0 p-2 bg-red-500 text-white text-[9px] font-bold text-center">
+                              {csvUploadError}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
+
 
                     {/* ── Columns ── */}
                     {columnsFromSelected.length > 0 ? (
@@ -1166,9 +1336,11 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
           {/* Footer */}
           <div className="px-6 py-4 border-t border-white/10 bg-[#0a1212] flex items-center gap-3 shrink-0">
             <div className="text-xs text-gray-500 flex items-center gap-1.5 min-w-0 overflow-hidden">
-              {selectedTable ? (
+              {(dataSourceMode === 'database' ? selectedTable : csvUploadId) ? (
                 <>
-                  <span className="text-cyan-400 font-mono truncate">{selectedTable}</span>
+                  <span className={`${dataSourceMode === 'database' ? 'text-cyan-400' : 'text-amber-400'} font-mono truncate`}>
+                    {dataSourceMode === 'database' ? selectedTable : csvFilename}
+                  </span>
                   <span className="shrink-0">·</span>
                   <span className="text-amber-400 shrink-0">{ALGO_FAMILIES.flatMap(f => f.algos).find(a => a.id === selectedAlgo)?.name}</span>
                   {targetCol && <><span className="shrink-0">·</span><span className="text-green-400 shrink-0">→ {targetCol}</span></>}
@@ -1176,7 +1348,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                 </>
               ) : (
                 <span className="flex items-center gap-1 shrink-0">
-                  <AlertTriangle size={11} className="text-amber-500" /> Select a table to continue
+                  <AlertTriangle size={11} className="text-amber-500" /> {dataSourceMode === 'database' ? 'Select a table to continue' : 'Upload a CSV to continue'}
                 </span>
               )}
             </div>
@@ -1202,7 +1374,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
                   </button>
                   <button
                     onClick={handleOpenDeepAnalysis}
-                    disabled={!selectedTable}
+                    disabled={dataSourceMode === 'database' ? !selectedTable : !csvUploadId}
                     className="flex items-center gap-2 px-4 py-2 bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 rounded-lg text-xs font-semibold hover:bg-cyan-500/25 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ExternalLink size={13} /> Open Deep Analysis
@@ -1211,9 +1383,10 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
               )}
               <button
                 onClick={handleRunInline}
-                disabled={!selectedTable || isGenerating}
+                disabled={(dataSourceMode === 'database' ? !selectedTable : !csvUploadId) || isGenerating}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-300 rounded-lg text-xs font-semibold hover:from-amber-500/30 hover:to-orange-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_12px_rgba(251,191,36,0.1)]"
               >
+
                 {isGenerating
                   ? <><RefreshCw size={13} className="animate-spin" /> Running…</>
                   : mlResults

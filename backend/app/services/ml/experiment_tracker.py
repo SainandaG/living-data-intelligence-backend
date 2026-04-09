@@ -60,6 +60,8 @@ class ExperimentTracker:
         self._validate_dir_writable()
         # Hot-path cache: run_id → latest run dict (O(1) lookup; JSONL is the durable store)
         self._run_cache: Dict[str, Dict[str, Any]] = {}
+        self._models_dir = EXPERIMENTS_DIR / "models"
+        self._models_dir.mkdir(parents=True, exist_ok=True)
 
     def _validate_dir_writable(self) -> None:
         """T5-1: Warn at startup if the experiments directory is not writable."""
@@ -111,10 +113,12 @@ class ExperimentTracker:
         metrics: Dict[str, Any],
         feature_importances: List[Dict] | None = None,
         status: str = "success",
+        artifacts_path: str | None = None,
     ) -> MLRun:
         run.metrics             = metrics
         run.feature_importances = feature_importances or []
         run.status              = status
+        run.artifacts_path      = artifacts_path or run.artifacts_path
         run.finished_at         = time.time()
         run.duration_s          = round(run.finished_at - run.created_at, 3)
         await asyncio.to_thread(self._write_locked, run)
@@ -124,6 +128,48 @@ class ExperimentTracker:
 
         logger.debug("run_finish run_id=%s status=%s", run.run_id, status)
         return run
+
+    def save_artifact(self, run_id: str, model_any: Any, extension: str = "pt", is_temp: bool = False) -> str:
+        """
+        Thread-safe persistence of a model object.
+        Supports torch (.pt) and tensorflow/keras (.keras).
+        If is_temp is True, prefixes with temp_ for 1hr cleanup.
+        """
+        prefix = "temp_" if is_temp else ""
+        filename = f"{prefix}{run_id}.{extension}"
+        target_path = self._models_dir / filename
+        
+        try:
+            if extension == "pt":
+                import torch
+                torch.save(model_any, target_path)
+            elif extension in ["keras", "h5"]:
+                # TensorFlow might be installed as tensorflow-cpu
+                import tensorflow as tf
+                tf.keras.models.save_model(model_any, target_path)
+            else:
+                import pickle
+                with open(target_path, "wb") as f:
+                    pickle.dump(model_any, f)
+                    
+            logger.info("Saved model artifact: %s", target_path)
+            return str(target_path)
+        except Exception as exc:
+            logger.error("Failed to save model artifact %s (ext=%s): %s", run_id, extension, exc)
+            return ""
+
+    def get_artifact_path(self, run_id: str, extension: str = "pt") -> Optional[Path]:
+        """Verify if an artifact exists and return its path."""
+        # Try permanent version first, then temp version
+        path = self._models_dir / f"{run_id}.{extension}"
+        if path.exists():
+            return path
+        
+        path_temp = self._models_dir / f"temp_{run_id}.{extension}"
+        if path_temp.exists():
+            return path_temp
+            
+        return None
 
     def get_runs(
         self,

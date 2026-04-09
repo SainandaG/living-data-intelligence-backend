@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
@@ -64,9 +64,34 @@ VALID_ALGOS: Dict[str, set] = {
     "timeseries":     {"arima"},
 }
 
+# ─── CSV upload store ─────────────────────────────────────────────────────────
+# csv_id → {"rows": List[Dict], "columns": List[Dict], "filename": str, "_ts": float}
+_csv_store: Dict[str, Dict[str, Any]] = {}
+_CSV_TTL_S = 7200   # 2 hours
+_CSV_MAX   = 20     # max 20 simultaneous uploads
+
+
+def _csv_set(csv_id: str, value: Dict[str, Any]) -> None:
+    """Write to _csv_store, evicting expired entries and enforcing size cap."""
+    import time as _time
+    now = _time.monotonic()
+    value["_ts"] = now
+
+    expired = [k for k, v in _csv_store.items() if now - v.get("_ts", now) > _CSV_TTL_S]
+    for k in expired:
+        del _csv_store[k]
+
+    if len(_csv_store) >= _CSV_MAX:
+        oldest = sorted(_csv_store.items(), key=lambda x: x[1].get("_ts", 0))
+        for k, _ in oldest[:max(1, len(oldest) - _CSV_MAX // 2)]:
+            del _csv_store[k]
+
+    _csv_store[csv_id] = value
+
 
 class AnalysisRequest(BaseModel):
-    connection_id: str
+    connection_id: Optional[str] = None
+    csv_id: Optional[str] = None          # set when analysing an uploaded CSV file
     table: str = Field(..., max_length=128)
     family: Literal["classification", "regression", "timeseries", "clustering"]
     algo: str
@@ -76,6 +101,8 @@ class AnalysisRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_algo_family(self) -> "AnalysisRequest":
+        if not self.connection_id and not self.csv_id:
+            raise ValueError("Either connection_id or csv_id must be provided.")
         valid = VALID_ALGOS.get(self.family, set())
         if self.algo not in valid:
             raise ValueError(
@@ -348,8 +375,9 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
         return None, None, []
 
     df = df.dropna(subset=available, how="all")
-    if len(df) < 10:
+    if len(df) < 5:
         return None, None, []
+
 
     encoded_parts: List[np.ndarray] = []
     feature_names: List[str] = []
@@ -357,14 +385,22 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
     for col in available:
         series = df[col]
 
-        # Fix 3 — skip high-cardinality string columns (likely ID columns)
+        # Detect and skip ID-like columns (High cardinality strings/IDs)
+        col_lower = col.lower()
+        is_id_ext = col_lower in ['id', 'uuid', 'pk', 'guid', 'index'] or col_lower.endswith('_id')
+        
         if not pd.api.types.is_numeric_dtype(series.dtype):
             n_unique = series.dropna().nunique()
             n_total = len(series.dropna())
-            if n_total > 10 and n_unique / n_total > 0.90:
-                logger.debug("_preprocess: skipping high-cardinality column '%s' (%d/%d unique)",
-                             col, n_unique, n_total)
-                continue
+            if n_total > 10:
+                # If it's an ID-like name AND highly unique, skip it
+                if is_id_ext and n_unique / n_total > 0.80:
+                    logger.debug("Skipping ID-like column: %s", col)
+                    continue
+                # If it's just very high cardinality (>90% unique), skip it as it's likely a unique identifier
+                if n_unique / n_total > 0.90:
+                    logger.debug("Skipping high-cardinality column: %s", col)
+                    continue
 
         if pd.api.types.is_numeric_dtype(series.dtype):
             med = series.median()
@@ -389,7 +425,9 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
 
     # Build target vector
     y = None
-    if target_col and target_col in df.columns:
+    if target_col:
+        if target_col not in df.columns:
+            raise ValueError(f"Target column '{target_col}' not found in the dataset.")
         ts = df[target_col]
         if family == "classification":
             le = LabelEncoder()
@@ -402,9 +440,125 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
                 numeric = pd.to_numeric(ts, errors="coerce")
                 med = numeric.median()
                 y = numeric.fillna(med if not math.isnan(float(med)) else 0.0).values.astype(float)
-
+                
     return X, y, feature_names
 
+
+
+# ─── Evaluation Helpers ───────────────────────────────────────────────────────
+
+def _evaluate_classification(model, X_tr, X_te, y_tr, y_te, feature_names, avg):
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    from collections import Counter
+    
+    unique_classes = np.unique(y_tr)
+    y_pred = model.predict(X_te)
+    
+    majority_class_count = max(Counter(y_te.tolist()).values()) if len(y_te) > 0 else 0
+    baseline_accuracy = round(majority_class_count / len(y_te), 4) if len(y_te) > 0 else 0
+
+    metrics: Dict[str, Any] = {
+        "accuracy":          round(float(accuracy_score(y_te, y_pred)), 4),
+        "baseline_accuracy": baseline_accuracy,
+        "precision":         round(float(precision_score(y_te, y_pred, average=avg, zero_division=0)), 4),
+        "recall":            round(float(recall_score(y_te, y_pred, average=avg, zero_division=0)), 4),
+        "f1":                round(float(f1_score(y_te, y_pred, average=avg, zero_division=0)), 4),
+        "samples":           int(len(X_tr) + len(X_te)),
+        "train_size":        int(len(X_tr)),
+        "test_size":         int(len(X_te)),
+        "n_classes":         int(len(unique_classes)),
+    }
+
+    # SHAP Explanations
+    try:
+        from app.services.ml.explainer import Explainer
+        exp = Explainer(model, X_tr, feature_names, "classification")
+        shap_fi = exp.feature_importances(X_tr)
+        fi = []
+        for s in shap_fi:
+            direction = s.get("direction", "positive")
+            pct = round(s.get("shap_mean_abs", s["importance"]) * 100, 1)
+            action = "increased" if direction == "positive" else "decreased"
+            insight = f"Higher {s['name']} {action} the probability of the target outcome by ~{pct}%."
+            fi.append(FeatureImportance(
+                name=s["name"], 
+                importance=s["importance"],
+                direction=direction,
+                insight=insight
+            ))
+    except Exception as e:
+        logger.warning("SHAP classification explainer failed: %s", e)
+        # Fallback to model importances if available
+        importances = getattr(model, "feature_importances_", np.ones(len(feature_names)) / len(feature_names))
+        fi = _normalize_fi(feature_names, importances)
+
+    # Predictions distribution
+    counts = Counter(y_pred.tolist())
+    total = len(y_pred) if len(y_pred) > 0 else 1
+    predictions = [
+        Prediction(
+            label=f"Class {int(cls)}",
+            value=round(cnt / total * 100, 1),
+            lower=round(max(0.0, cnt / total * 100 - 5), 1),
+            upper=round(min(100.0, cnt / total * 100 + 5), 1),
+            confidence="high" if cnt / total > 0.3 else "medium",
+        )
+        for cls, cnt in sorted(counts.items(), key=lambda x: -x[1])[:6]
+    ]
+
+    return metrics, fi, predictions
+
+def _evaluate_regression(model, X_tr, X_te, y_tr, y_te, feature_names):
+    from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+    y_pred = model.predict(X_te)
+    
+    r2 = float(r2_score(y_te, y_pred))
+    rmse = float(np.sqrt(mean_squared_error(y_te, y_pred)))
+    mae = float(mean_absolute_error(y_te, y_pred))
+
+    metrics: Dict[str, Any] = {
+        "R2":         round(float(np.clip(r2, -1.0, 1.0)), 4),
+        "RMSE":       round(rmse, 4),
+        "MAE":        round(mae, 4),
+        "samples":    int(len(X_tr) + len(X_te)),
+        "train_size": int(len(X_tr)),
+        "test_size":  int(len(X_te)),
+    }
+
+    try:
+        from app.services.ml.explainer import Explainer
+        exp = Explainer(model, X_tr, feature_names, "regression")
+        shap_fi = exp.feature_importances(X_tr)
+        fi = []
+        for s in shap_fi:
+            direction = s.get("direction", "positive")
+            pct = round(s.get("shap_mean_abs", s["importance"]), 2)
+            action = "increased" if direction == "positive" else "decreased"
+            insight = f"Higher {s['name']} {action} the predicted value by an average of {pct} units."
+            fi.append(FeatureImportance(
+                name=s["name"], 
+                importance=s["importance"],
+                direction=direction,
+                insight=insight
+            ))
+    except Exception as e:
+        logger.warning("SHAP regression explainer failed: %s", e)
+        importances = getattr(model, "feature_importances_", np.ones(len(feature_names)) / len(feature_names))
+        fi = _normalize_fi(feature_names, importances)
+
+    std_val = float(np.std(y_pred - y_te)) if len(y_pred) > 1 else 0.0
+    predictions = []
+    for i, (actual, pred) in enumerate(zip(y_te[:10], y_pred[:10])):
+        ci = std_val * 1.96
+        predictions.append(Prediction(
+            label=f"Sample {i + 1}",
+            value=round(float(pred), 4),
+            lower=round(float(pred) - ci, 4),
+            upper=round(float(pred) + ci, 4),
+            confidence="high" if abs(pred - actual) < std_val else ("medium" if abs(pred - actual) < 2 * std_val else "low"),
+        ))
+
+    return metrics, fi, predictions
 
 # ─── Classification ───────────────────────────────────────────────────────────
 
@@ -415,8 +569,8 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
     from sklearn.preprocessing import StandardScaler
 
-    if y is None or len(X) < 20:
-        raise ValueError("Need ≥20 rows with a valid target column for classification.")
+    if y is None or len(X) < 5:
+        raise ValueError("Need ≥5 rows with a valid target column for classification.")
 
     unique_classes = np.unique(y)
     if len(unique_classes) < 2:
@@ -427,10 +581,16 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
         idx = np.random.default_rng(42).choice(len(X), 5000, replace=False)
         X, y = X[idx], y[idx]
 
-    stratify = y if len(unique_classes) > 1 else None
+    # Check if we can safely stratify (requires >= 2 samples per class)
+    from collections import Counter
+    class_counts = Counter(y)
+    can_stratify = len(unique_classes) > 1 and all(c >= 2 for c in class_counts.values())
+    
+    stratify = y if can_stratify else None
     X_tr, X_te, y_tr, y_te = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=stratify
     )
+
     avg = "weighted" if len(unique_classes) > 2 else "binary"
 
     h = hyperparams or {}
@@ -440,6 +600,7 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
                                        max_depth=h.get("max_depth", 10),
                                        min_samples_split=h.get("min_samples_split", 2),
                                        max_features=h.get("max_features", "sqrt"),
+                                       class_weight="balanced" if len(unique_classes) <= 10 else None,
                                        random_state=42, n_jobs=-1)
         model.fit(X_tr, y_tr)
         importances = model.feature_importances_
@@ -479,10 +640,10 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
         importances = np.mean(np.abs(coef), axis=0) if coef.ndim == 2 else np.abs(coef[0])
 
     # Fix 2 — minimum reliable test set
-    if len(X_te) < 10:
+    if len(X_te) < 1:
         raise ValueError(
             f"Test set has only {len(X_te)} samples after the 80/20 split. "
-            "Need at least 50 total rows to evaluate classification reliably."
+            "Need at least 5 total rows to evaluate classification reliably."
         )
 
     y_pred = model.predict(X_te)
@@ -492,54 +653,162 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
     majority_class_count = max(Counter(y_te.tolist()).values())
     baseline_accuracy = round(majority_class_count / len(y_te), 4)
 
-    metrics: Dict[str, Any] = {
-        "accuracy":          round(float(accuracy_score(y_te, y_pred)), 4),
-        "baseline_accuracy": baseline_accuracy,   # model must beat this to be useful
-        "precision":         round(float(precision_score(y_te, y_pred, average=avg, zero_division=0)), 4),
-        "recall":            round(float(recall_score(y_te, y_pred, average=avg, zero_division=0)), 4),
-        "f1":                round(float(f1_score(y_te, y_pred, average=avg, zero_division=0)), 4),
-        "samples":           int(len(X)),
-        "train_size":        int(len(X_tr)),
-        "test_size":         int(len(X_te)),
-        "n_classes":         int(len(unique_classes)),
-    }
+    # Evaluation
+    metrics, fi, predictions = _evaluate_classification(model, X_tr, X_te, y_tr, y_te, feature_names, avg)
+    return metrics, fi, predictions, model, X_tr
 
-    try:
-        from app.services.ml.explainer import Explainer
-        exp = Explainer(model, X_tr, feature_names, "classification")
-        shap_fi = exp.feature_importances(X_tr)
-        fi = []
-        for s in shap_fi:
-            direction = s.get("direction", "positive")
-            pct = round(s.get("shap_mean_abs", s["importance"]) * 100, 1)
-            action = "increased" if direction == "positive" else "decreased"
-            insight = f"Higher {s['name']} {action} the probability of the target outcome by ~{pct}%."
-            fi.append(FeatureImportance(
-                name=s["name"], 
-                importance=s["importance"],
-                direction=direction,
-                insight=insight
-            ))
-    except Exception as e:
-        logger.warning("SHAP classification explainer failed: %s", e)
-        fi = _normalize_fi(feature_names, importances)
 
-    # Predictions = predicted class distribution
-    counts = Counter(y_pred.tolist())
-    total = len(y_pred)
-    predictions = [
-        Prediction(
-            label=f"Class {int(cls)}",
-            value=round(cnt / total * 100, 1),
-            lower=round(max(0.0, cnt / total * 100 - 5), 1),
-            upper=round(min(100.0, cnt / total * 100 + 5), 1),
-            confidence="high" if cnt / total > 0.3 else "medium",
-        )
-        for cls, cnt in sorted(counts.items(), key=lambda x: -x[1])[:6]
-    ]
+# ─── Neural Network (PyTorch) ────────────────────────────────────────────────
+
+def _run_neural_net(X: np.ndarray, y: np.ndarray,
+                    task: str, feature_names: List[str],
+                    hyperparams: Optional[Dict[str, Any]] = None):
+    import torch
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    
+    class TabularMLP(torch.nn.Module):
+        def __init__(self, input_dim: int, output_dim: int, task: str = "classification"):
+            super().__init__()
+            # Deeper, more "premium" architecture
+            self.net = torch.nn.Sequential(
+                torch.nn.Linear(input_dim, 64),
+                torch.nn.ReLU(),
+                torch.nn.Dropout(0.1),
+                torch.nn.Linear(64, 32),
+                torch.nn.ReLU(),
+                torch.nn.Linear(32, output_dim)
+            )
+            self.task = task
+
+        def forward(self, x):
+            return self.net(x)
+
+    unique_y = np.unique(y) if y is not None else []
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    scaler = StandardScaler()
+    X_tr_s = scaler.fit_transform(X_tr)
+    X_te_s = scaler.transform(X_te)
+    
+    # Convert to Tensors
+    X_train_t = torch.FloatTensor(X_tr_s)
+    X_test_t = torch.FloatTensor(X_te_s)
+    
+    if task == "classification":
+        y_train_t = torch.LongTensor(y_tr)
+        output_dim = len(unique_y)
+        criterion = torch.nn.CrossEntropyLoss()
+    else:
+        y_train_t = torch.FloatTensor(y_tr).view(-1, 1)
+        output_dim = 1
+        criterion = torch.nn.MSELoss()
+
+    model = TabularMLP(X.shape[1], output_dim, task)
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparams.get("lr", 0.001))
+    
+    # Simple training loop (Efficiency improvement: fast training)
+    model.train()
+    for _ in range(50):
+        optimizer.zero_grad()
+        outputs = model(X_train_t)
+        loss = criterion(outputs, y_train_t)
+        loss.backward()
+        optimizer.step()
+    
+    model.eval()
+    with torch.no_grad():
+        preds_t = model(X_test_t)
+        if task == "classification":
+            y_pred = torch.argmax(preds_t, dim=1).numpy()
+        else:
+            y_pred = preds_t.numpy().flatten()
+            
+    # Evaluation (Neural networks require scaled data)
+    avg = "weighted" if output_dim > 2 else "binary"
+    # We create a wrapper to make the PyTorch model look like a scikit-learn model for evaluation
+    class TorchWrapper:
+        def __init__(self, model, scaler, task):
+            self.model, self.scaler, self.task = model, scaler, task
+        def predict(self, X):
+            import torch
+            self.model.eval()
+            with torch.no_grad():
+                Xt = torch.FloatTensor(self.scaler.transform(X))
+                out = self.model(Xt)
+                if self.task == "classification":
+                    return torch.argmax(out, dim=1).numpy()
+                return out.numpy().flatten()
+
+    wrapper = TorchWrapper(model, scaler, task)
+    if task == "classification":
+        metrics, fi, predictions = _evaluate_classification(wrapper, X_tr, X_te, y_tr, y_te, feature_names, avg)
+    else:
+        metrics, fi, predictions = _evaluate_regression(wrapper, X_tr, X_te, y_tr, y_te, feature_names)
 
     return metrics, fi, predictions, model, X_tr
 
+# ─── Neural Network (TensorFlow) ─────────────────────────────────────────────
+
+def _run_tensorflow_nn(X: np.ndarray, y: np.ndarray,
+                       task: str, feature_names: List[str],
+                       hyperparams: Optional[Dict[str, Any]] = None):
+    """
+    Hardware-efficient Keras model for tabular data.
+    """
+    import tensorflow as tf
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    
+    # Force CPU for low hardware load
+    tf.config.set_visible_devices([], 'GPU')
+    
+    h = hyperparams or {}
+    unique_y = np.unique(y) if y is not None else []
+    
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+    scaler = StandardScaler()
+    X_tr_s = scaler.fit_transform(X_tr)
+    X_te_s = scaler.transform(X_te)
+    
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(h.get("units", 32), activation='relu', input_shape=(X.shape[1],)),
+        tf.keras.layers.Dropout(0.1),
+        tf.keras.layers.Dense(16, activation='relu'),
+        tf.keras.layers.Dense(len(unique_y) if task == "classification" else 1, 
+                             activation='softmax' if task == "classification" else None)
+    ])
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=h.get("lr", 0.001))
+    loss = 'sparse_categorical_crossentropy' if task == "classification" else 'mse'
+    
+    model.compile(optimizer=optimizer, loss=loss)
+    
+    # Fast training with small batch for lower memory usage
+    model.fit(X_tr_s, y_tr, epochs=h.get("epochs", 20), batch_size=32, verbose=0)
+    
+    # Evaluation
+    class TFWrapper:
+        def __init__(self, model, scaler, task):
+            self.model, self.scaler, self.task = model, scaler, task
+        def predict(self, X):
+            Xs = self.scaler.transform(X)
+            out = self.model.predict(Xs, verbose=0)
+            if self.task == "classification":
+                return np.argmax(out, axis=1)
+            return out.flatten()
+
+    wrapper = TFWrapper(model, scaler, task)
+    avg = "weighted" if len(unique_y) > 2 else "binary"
+    if task == "classification":
+        metrics, fi, predictions = _evaluate_classification(wrapper, X_tr, X_te, y_tr, y_te, feature_names, avg)
+    else:
+        metrics, fi, predictions = _evaluate_regression(wrapper, X_tr, X_te, y_tr, y_te, feature_names)
+
+    # Free memory
+    tf.keras.backend.clear_session()
+    
+    return metrics, fi, predictions, model, X_tr
 
 # ─── Regression ───────────────────────────────────────────────────────────────
 
@@ -550,8 +819,8 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
     from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
     from sklearn.preprocessing import StandardScaler
 
-    if y is None or len(X) < 20:
-        raise ValueError("Need ≥20 rows with a numeric target column for regression.")
+    if y is None or len(X) < 5:
+        raise ValueError("Need ≥5 rows with a numeric target column for regression.")
 
     if len(X) > 5000:
         idx = np.random.default_rng(42).choice(len(X), 5000, replace=False)
@@ -596,54 +865,8 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
         model.fit(X_tr, y_tr)
         importances = model.feature_importances_
 
-    y_pred = model.predict(X_te)
-
-    r2 = float(r2_score(y_te, y_pred))
-    rmse = float(np.sqrt(mean_squared_error(y_te, y_pred)))
-    mae = float(mean_absolute_error(y_te, y_pred))
-
-    metrics: Dict[str, Any] = {
-        "R2":         round(float(np.clip(r2, -1.0, 1.0)), 4),
-        "RMSE":       round(rmse, 4),
-        "MAE":        round(mae, 4),
-        "samples":    int(len(X)),
-        "train_size": int(len(X_tr)),
-        "test_size":  int(len(X_te)),
-    }
-
-    try:
-        from app.services.ml.explainer import Explainer
-        exp = Explainer(model, X_tr, feature_names, "regression")
-        shap_fi = exp.feature_importances(X_tr)
-        fi = []
-        for s in shap_fi:
-            direction = s.get("direction", "positive")
-            pct = round(s.get("shap_mean_abs", s["importance"]), 2)
-            action = "increased" if direction == "positive" else "decreased"
-            insight = f"Higher {s['name']} {action} the predicted value by an average of {pct} units."
-            fi.append(FeatureImportance(
-                name=s["name"], 
-                importance=s["importance"],
-                direction=direction,
-                insight=insight
-            ))
-    except Exception as e:
-        logger.warning("SHAP regression explainer failed: %s", e)
-        fi = _normalize_fi(feature_names, importances)
-
-    # Predictions: actual test-set samples (actual vs predicted)
-    std_val = float(np.std(y_pred - y_te))
-    predictions = []
-    for i, (actual, pred) in enumerate(zip(y_te[:10], y_pred[:10])):
-        ci = std_val * 1.96
-        predictions.append(Prediction(
-            label=f"Sample {i + 1}",
-            value=round(float(pred), 4),
-            lower=round(float(pred) - ci, 4),
-            upper=round(float(pred) + ci, 4),
-            confidence="high" if abs(pred - actual) < std_val else ("medium" if abs(pred - actual) < 2 * std_val else "low"),
-        ))
-
+    # Evaluation
+    metrics, fi, predictions = _evaluate_regression(model, X_tr, X_te, y_tr, y_te, feature_names)
     return metrics, fi, predictions, model, X_tr
 
 
@@ -1040,11 +1263,21 @@ async def run_ml_analysis(req: AnalysisRequest):
         features = req.features or []
         target = req.target
 
-        all_cols = list(dict.fromkeys(([target] if target else []) + features))
-        rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
-        if req.secondary_tables:
-            rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
-        row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
+        if req.csv_id:
+            csv_entry = _csv_store.get(req.csv_id)
+            if not csv_entry:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"CSV upload '{req.csv_id}' not found or expired. Please re-upload the file.",
+                )
+            rows = csv_entry["rows"]
+            row_count = len(rows)
+        else:
+            all_cols = list(dict.fromkeys(([target] if target else []) + features))
+            rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
+            if req.secondary_tables:
+                rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
+            row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
 
         # Run all trustworthiness checks before touching the model
         data_warnings = _check_data_quality(rows, features, target)
@@ -1055,7 +1288,7 @@ async def run_ml_analysis(req: AnalysisRequest):
             experiment=f"{req.table}_{req.family}",
             algo=req.algo,
             family=req.family,
-            connection_id=req.connection_id,
+            connection_id=req.connection_id or "csv",
             table=req.table,
             hyperparams={},
         )
@@ -1073,25 +1306,64 @@ async def run_ml_analysis(req: AnalysisRequest):
                     "No usable data after preprocessing. "
                     "Ensure the selected feature and target columns contain non-null values."
                 )
-            if req.family == "classification":
-                metrics, fi, predictions, *_ = await loop.run_in_executor(
-                    None, _run_classification, X, y, req.algo, feature_names
-                )
-            elif req.family == "regression":
-                metrics, fi, predictions, *_ = await loop.run_in_executor(
-                    None, _run_regression, X, y, req.algo, feature_names
-                )
-            else:  # clustering
-                metrics, fi, predictions, *_ = await loop.run_in_executor(
-                    None, _run_clustering, X, req.algo, feature_names
-                )
-            return metrics, fi, predictions
+            async def _run_ml_core(X_internal, y_internal, feature_names_internal):
+                # Optionally run optimizer if data is sufficient
+                from app.services.ml.automl.optimizer import hyperparameter_optimizer
+                best_h = {}
+                if len(X_internal) >= 50:
+                    try:
+                        best_h, _ = hyperparameter_optimizer.optimize(
+                            req.algo, req.family, X_internal, y_internal, n_trials=5
+                        )
+                    except Exception as e:
+                        logger.warning("Hyperparameter optimization failed: %s", e)
+
+                # Route to the correct engine
+                if req.algo == "pytorch_nn":
+                    return await loop.run_in_executor(
+                        None, _run_neural_net, X_internal, y_internal, req.family, feature_names_internal, best_h
+                    )
+                elif req.algo == "tensorflow_nn":
+                    return await loop.run_in_executor(
+                        None, _run_tensorflow_nn, X_internal, y_internal, req.family, feature_names_internal, best_h
+                    )
+                
+                if req.family == "classification":
+                    return await loop.run_in_executor(
+                        None, _run_classification, X_internal, y_internal, req.algo, feature_names_internal, best_h
+                    )
+                elif req.family == "regression":
+                    return await loop.run_in_executor(
+                        None, _run_regression, X_internal, y_internal, req.algo, feature_names_internal, best_h
+                    )
+                else:
+                    return await loop.run_in_executor(
+                        None, _run_clustering, X_internal, req.algo, feature_names_internal, best_h
+                    )
+
+            metrics, fi, predictions, model, X_tr = await _run_ml_core(X, y, feature_names)
+            
+            # Persistence: Save model with correct format extension
+            artifact_path = None
+            if model:
+                # CSV runs are ephemeral (1hr retention), Database runs are permanent
+                is_csv = not req.connection_id or req.connection_id == "csv"
+                ext = "keras" if req.algo == "tensorflow_nn" else "pt"
+                try:
+                    artifact_path = experiment_tracker.save_artifact(
+                        run.run_id, model, extension=ext, is_temp=is_csv
+                    )
+                except Exception as e:
+                    logger.error("Failed to persist model artifact: %s", e)
+
+            return metrics, fi, predictions, artifact_path
 
         try:
-            metrics, fi, predictions = await asyncio.wait_for(_run_ml(), timeout=120.0)
+            metrics, fi, predictions, artifact_path = await asyncio.wait_for(_run_ml(), timeout=120.0)
             await experiment_tracker.finish_run(
                 run, metrics=metrics,
                 feature_importances=[f.model_dump() for f in fi],
+                artifacts_path=artifact_path
             )
         except asyncio.TimeoutError:
             await experiment_tracker.finish_run(run, metrics={}, status="timeout")
@@ -1145,17 +1417,61 @@ async def run_ml_analysis(req: AnalysisRequest):
 
 # ─── Async job endpoints (/run + /run/{run_id}/status) ───────────────────────
 
+async def cleanup_ephemeral_models():
+    """
+    Background task that deletes 'temp_' model files older than 1 hour.
+    Optimizes system hardware load by cleaning up ephemeral CSV-based models.
+    """
+    from app.services.ml.experiment_tracker import experiment_tracker
+    import time
+    import os
+    
+    models_dir = experiment_tracker._models_dir
+    one_hour = 3600
+    
+    logger.info("Starting ephemeral model cleanup service (1hr retention)")
+    
+    while True:
+        try:
+            now = time.time()
+            if models_dir.exists():
+                for filename in os.listdir(models_dir):
+                    if filename.startswith("temp_"):
+                        file_path = models_dir / filename
+                        mtime = os.path.getmtime(file_path)
+                        if now - mtime > one_hour:
+                            logger.info("Cleaning up expired model: %s", filename)
+                            os.remove(file_path)
+        except Exception as e:
+            logger.error("Error during ephemeral model cleanup: %s", e)
+            
+        # Run every 5 minutes
+        await asyncio.sleep(300)
+
+
 async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
     """Background coroutine that runs the full ML pipeline and stores the result."""
     try:
         features = req.features or []
         target = req.target
 
-        all_cols = list(dict.fromkeys(([target] if target else []) + features))
-        rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
-        if req.secondary_tables:
-            rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
-        row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
+        if req.csv_id:
+            # CSV path — use cached uploaded data
+            csv_entry = _csv_store.get(req.csv_id)
+            if not csv_entry:
+                _pending_set(run_id, {
+                    "status": "failed",
+                    "error": f"CSV upload '{req.csv_id}' not found or expired. Please re-upload the file.",
+                })
+                return
+            rows = csv_entry["rows"]
+            row_count = len(rows)
+        else:
+            all_cols = list(dict.fromkeys(([target] if target else []) + features))
+            rows = await _fetch_data(req.connection_id, req.table, all_cols, n=2000)
+            if req.secondary_tables:
+                rows = await _merge_secondary_tables(req.connection_id, req.table, rows, req.secondary_tables)
+            row_count = len(rows) or await _fetch_row_count(req.connection_id, req.table)
 
         data_warnings = _check_data_quality(rows, features, target)
 
@@ -1163,13 +1479,13 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
         run = await experiment_tracker.start_run(
             experiment=f"{req.table}_{req.family}",
             algo=req.algo, family=req.family,
-            connection_id=req.connection_id, table=req.table,
+            connection_id=req.connection_id or "csv", table=req.table,
             hyperparams={},
         )
 
         bg_loop = asyncio.get_running_loop()
 
-        async def _run_ml():
+        async def _execute_ml_pipeline():
             if req.family == "timeseries":
                 return await bg_loop.run_in_executor(
                     None, _run_timeseries, rows, features, target, req.algo
@@ -1182,25 +1498,60 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
                     "No usable data after preprocessing. "
                     "Ensure the selected feature and target columns contain non-null values."
                 )
-            if req.family == "classification":
-                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
-                    None, _run_classification, X, y, req.algo, feature_names
+
+            # Optionally run optimizer if data is sufficient
+            from app.services.ml.automl.optimizer import hyperparameter_optimizer
+            best_h = {}
+            if len(X) >= 50:
+                try:
+                    best_h, _ = hyperparameter_optimizer.optimize(
+                        req.algo, req.family, X, y, n_trials=5
+                    )
+                except Exception as e:
+                    logger.warning("Hyperparameter optimization failed, using defaults: %s", e)
+
+            # Route to the correct engine
+            if req.algo == "pytorch_nn":
+                metrics, fi, predictions, model, _ = await bg_loop.run_in_executor(
+                    None, _run_neural_net, X, y, req.family, feature_names, best_h
+                )
+            elif req.algo == "tensorflow_nn":
+                metrics, fi, predictions, model, _ = await bg_loop.run_in_executor(
+                    None, _run_tensorflow_nn, X, y, req.family, feature_names, best_h
+                )
+            elif req.family == "classification":
+                metrics, fi, predictions, model, _ = await bg_loop.run_in_executor(
+                    None, _run_classification, X, y, req.algo, feature_names, best_h
                 )
             elif req.family == "regression":
-                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
-                    None, _run_regression, X, y, req.algo, feature_names
+                metrics, fi, predictions, model, _ = await bg_loop.run_in_executor(
+                    None, _run_regression, X, y, req.algo, feature_names, best_h
                 )
             else:
-                metrics, fi, predictions, *_ = await bg_loop.run_in_executor(
-                    None, _run_clustering, X, req.algo, feature_names
+                metrics, fi, predictions, model, _ = await bg_loop.run_in_executor(
+                    None, _run_clustering, X, req.algo, feature_names, best_h
                 )
-            return metrics, fi, predictions
+
+            # Persistence: Save model with correct format extension
+            artifact_path = None
+            if model:
+                is_csv = not req.connection_id or req.connection_id == "csv"
+                ext = "keras" if req.algo == "tensorflow_nn" else "pt"
+                try:
+                    artifact_path = experiment_tracker.save_artifact(
+                        run.run_id, model, extension=ext, is_temp=is_csv
+                    )
+                except Exception as e:
+                    logger.error("Failed to persist model artifact: %s", e)
+
+            return metrics, fi, predictions, artifact_path
 
         try:
-            metrics, fi, predictions = await asyncio.wait_for(_run_ml(), timeout=120.0)
+            metrics, fi, predictions, artifact_path = await asyncio.wait_for(_execute_ml_pipeline(), timeout=120.0)
             await experiment_tracker.finish_run(
                 run, metrics=metrics,
                 feature_importances=[f.model_dump() for f in fi],
+                artifacts_path=artifact_path
             )
         except asyncio.TimeoutError:
             await experiment_tracker.finish_run(run, metrics={}, status="timeout")
@@ -1272,6 +1623,28 @@ async def get_run_status(run_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
     return job
+
+
+@router.get("/run/{run_id}/model")
+async def download_model_file(run_id: str):
+    """
+    Download the trained model file (.pt) for a successful database analysis run.
+    """
+    from app.services.ml.experiment_tracker import experiment_tracker
+    import os
+
+    path = experiment_tracker.get_artifact_path(run_id, extension="pt")
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Model file for run '{run_id}' not found or was not saved.")
+
+    with open(path, "rb") as f:
+        content = f.read()
+    
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename=model_{run_id}.pt"}
+    )
 
 
 # ─── Suggest endpoint ─────────────────────────────────────────────────────────
@@ -1365,6 +1738,81 @@ async def suggest_analysis(connection_id: str, table: str):
     except Exception as exc:
         logger.error("ML suggestion failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error during algorithm suggestion.")
+
+
+# ─── CSV upload endpoint ──────────────────────────────────────────────────────
+
+from fastapi import UploadFile
+import io as _io
+
+
+@router.post("/csv/upload")
+async def upload_csv_file(file: UploadFile):
+    """
+    Upload a CSV file for offline ML analysis (no database connection required).
+
+    Accepts a multipart/form-data file. Parses the CSV, stores data in memory
+    for up to 2 hours, and returns column metadata for the UI column picker.
+
+    Responses:
+    - 200: {csv_id, filename, row_count, columns: [{name, type}]}
+    - 422: Not a CSV, empty, or exceeds 50 MB
+    - 500: Unexpected parse error
+    """
+    filename = file.filename or ""
+    if not filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=422,
+                            detail="Only CSV files are supported. Please upload a .csv file.")
+
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=422,
+                            detail="CSV exceeds the 50 MB limit. Filter or sample your data first.")
+    if not content.strip():
+        raise HTTPException(status_code=422, detail="The uploaded CSV file is empty.")
+
+    try:
+        df = pd.read_csv(_io.BytesIO(content), nrows=5000)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Failed to parse CSV: {exc}")
+
+    if df.empty or len(df.columns) == 0:
+        raise HTTPException(status_code=422, detail="CSV has no rows or columns after parsing.")
+
+    def _infer_type(series: pd.Series) -> str:
+        if pd.api.types.is_numeric_dtype(series.dtype):
+            return "numeric"
+        if pd.api.types.is_datetime64_any_dtype(series.dtype):
+            return "datetime"
+        sample = series.dropna().head(20).astype(str)
+        date_hits = sum(1 for v in sample if any(c in v for c in ["-", "/", "T"]) and len(v) >= 8)
+        if date_hits >= len(sample) * 0.6:
+            return "datetime"
+        return "text"
+
+    columns = [{"name": col, "type": _infer_type(df[col])} for col in df.columns]
+
+    rows: List[Dict] = []
+    for _, row in df.iterrows():
+        entry: Dict[str, Any] = {}
+        for col in df.columns:
+            v = row[col]
+            if pd.isna(v):
+                entry[col] = None
+            elif isinstance(v, float):
+                entry[col] = float(v)
+            elif isinstance(v, int):
+                entry[col] = int(v)
+            else:
+                entry[col] = str(v)[:512]
+        rows.append(entry)
+
+    csv_id = str(uuid.uuid4())
+    _csv_set(csv_id, {"rows": rows, "columns": columns, "filename": filename})
+    logger.info("CSV upload: csv_id=%s file=%s rows=%d cols=%d",
+                csv_id, filename, len(rows), len(columns))
+
+    return {"csv_id": csv_id, "filename": filename, "row_count": len(rows), "columns": columns}
 
 
 # ─── AutoML endpoint ──────────────────────────────────────────────────────────
