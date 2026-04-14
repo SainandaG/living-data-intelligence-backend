@@ -43,12 +43,12 @@ export function useDashboard(graphRef) {
     viewMode, activeLens, activeLayoutMode, breadcrumbs, isChatOpen,
     drillDownTable, isSidebarPanelActive, isHudMinimized, insightPerspective,
     activeFilters, isWarRoomActive, warRoomTargetNode,
-    showPKs, showFKs, singleNodeViewEnabled,
+    showPKs, showFKs, singleNodeViewEnabled, isInspectorActive,
     setViewMode, setActiveLens, setActiveLayoutMode, setBreadcrumbs,
     setIsChatOpen, setDrillDownTable, setIsSidebarPanelActive,
     setIsHudMinimized, setInsightPerspective, toggleInsightPerspective,
     setActiveFilters, setFilterValue, activateWarRoom, deactivateWarRoom,
-    setShowPKs, setShowFKs, setSingleNodeViewEnabled,
+    setShowPKs, setShowFKs, setSingleNodeViewEnabled, setIsInspectorActive,
   } = useViewStore();
   const { liveStats, liveTableCounts, simUpdate, setLiveStats, setLiveTableCounts, showSimToast } = useRealtimeStore();
   const {
@@ -406,7 +406,7 @@ export function useDashboard(graphRef) {
     viewMode, activeLens, activeLayoutMode, breadcrumbs, isChatOpen,
     drillDownTable, isSidebarPanelActive, isHudMinimized, insightPerspective,
     activeFilters, isWarRoomActive, warRoomTargetNode,
-    showPKs, showFKs, singleNodeViewEnabled,
+    showPKs, showFKs, singleNodeViewEnabled, isInspectorActive,
     liveStats, liveTableCounts, simUpdate,
     evolutionMode, currentSnapshot, timeMachineOpen, snapshotData, timeValue,
     aiStatus, mlInsights, gravitySuggestions, showRecordGravity, rlActive,
@@ -417,7 +417,7 @@ export function useDashboard(graphRef) {
     setIsHudMinimized, setMultiSelectedNodes, setShowMultiConnections,
     setPinnedNodes, setPinnedCols, setColumnAliases, setInsightPerspective,
     toggleInsightPerspective, setFilterValue, activateWarRoom, deactivateWarRoom,
-    setShowPKs, setShowFKs, setSingleNodeViewEnabled,
+    setShowPKs, setShowFKs, setSingleNodeViewEnabled, setIsInspectorActive,
     setCurrentSnapshot, closeTimeMachine, incrementThreeGraphKey, setTimeValue,
     // Handlers
     handleNavigate, handleNodeDrillDown, handleBackToOverview, handleToggleLatent,

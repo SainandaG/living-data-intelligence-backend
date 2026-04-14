@@ -122,7 +122,8 @@ const DashboardLayout = ({
     sidebarProps,
     navbar,
     timeValue,
-    onTimeChange
+    onTimeChange,
+    isInspectorActive = false
 }) => {
 
     const [isRightOpen, setIsRightOpen] = useState(true);
@@ -261,26 +262,20 @@ const DashboardLayout = ({
 
             </div>
 
-            {/* ---------------- FOOTER ---------------- */}
-
-            <footer className="h-8 bg-[var(--bg-dark)]/90 border-t border-white/5 px-6 flex items-center justify-between text-[10px] text-slate-500 backdrop-blur-md">
-
-                <SystemStatus
-                    sysVitals={sysVitals}
-                    sysStatus={sysStatus}
-                />
-
-                <div className="flex items-center gap-4">
-
-                    <span className="text-[var(--primary)]/50">
-                        LATENT_MODE: ENABLED
-                    </span>
-
-                    <span className="font-mono">{time}</span>
-
-                </div>
-
-            </footer>
+            {!isInspectorActive && (
+                <footer className="h-8 bg-[var(--bg-dark)]/90 border-t border-white/5 px-6 flex items-center justify-between text-[10px] text-slate-500 backdrop-blur-md">
+                    <SystemStatus
+                        sysVitals={sysVitals}
+                        sysStatus={sysStatus}
+                    />
+                    <div className="flex items-center gap-4">
+                        <span className="text-[var(--primary)]/50">
+                            LATENT_MODE: ENABLED
+                        </span>
+                        <span className="font-mono">{time}</span>
+                    </div>
+                </footer>
+            )}
 
         </div>
     );

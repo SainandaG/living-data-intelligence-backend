@@ -35,6 +35,8 @@ const ALGO_FAMILIES = [
       { id: 'svm', name: 'SVM', tag: 'Robust', tagColor: 'purple', best_for: 'Clear margin separation, medium datasets' },
       { id: 'knn', name: 'K-Nearest Neighbors', tag: 'Fast', tagColor: 'green', best_for: 'Local patterns, small-medium datasets' },
       { id: 'logreg', name: 'Logistic Regression', tag: 'Interpretable', tagColor: 'teal', best_for: 'Binary outcomes, linear boundaries' },
+      { id: 'pytorch_nn', name: 'PyTorch Neural Net', tag: 'Deep', tagColor: 'amber', best_for: 'Complex non-linear patterns, large datasets' },
+      { id: 'tensorflow_nn', name: 'TensorFlow Neural Net', tag: 'Deep', tagColor: 'amber', best_for: 'Complex non-linear patterns, large datasets' },
     ],
   },
   {
@@ -48,6 +50,8 @@ const ALGO_FAMILIES = [
       { id: 'ridge', name: 'Ridge Regression', tag: 'Regularized', tagColor: 'blue', best_for: 'Multicollinearity, many features' },
       { id: 'lasso', name: 'Lasso Regression', tag: 'Sparse', tagColor: 'purple', best_for: 'Feature selection, sparse solutions' },
       { id: 'xgboost', name: 'GradientBoosting', tag: '★ Best', tagColor: 'amber', best_for: 'Tabular data, high accuracy, non-linear' },
+      { id: 'pytorch_nn', name: 'PyTorch Neural Net', tag: 'Deep', tagColor: 'amber', best_for: 'Complex non-linear patterns, large datasets' },
+      { id: 'tensorflow_nn', name: 'TensorFlow Neural Net', tag: 'Deep', tagColor: 'amber', best_for: 'Complex non-linear patterns, large datasets' },
     ],
   },
   {
@@ -726,7 +730,7 @@ export default function WorkOnDataModal({ isOpen, onClose, graphData, connection
 
 
   const handleRunInline = async () => {
-    if (!selectedTable) return;
+    if (!selectedTable && !(dataSourceMode === 'csv' && csvUploadId)) return;
     _stopPolling();
     const controller = new AbortController();
     runAbortRef.current = controller;

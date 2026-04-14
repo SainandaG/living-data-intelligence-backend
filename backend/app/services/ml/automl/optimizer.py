@@ -130,6 +130,11 @@ class HyperparamOptimizer:
             return {"alpha": trial.suggest_float("alpha", 0.001, 100.0, log=True)}
         elif algo_id == "lasso":
             return {"alpha": trial.suggest_float("alpha", 0.001, 10.0, log=True)}
+        elif algo_id in ("pytorch_nn", "tensorflow_nn"):
+            return {
+                "lr":     trial.suggest_float("lr", 0.0001, 0.01, log=True),
+                "epochs": trial.suggest_int("epochs", 20, 100),
+            }
         return {}
 
     def _defaults(self, algo_id: str) -> Dict[str, Any]:
@@ -141,9 +146,11 @@ class HyperparamOptimizer:
             "knn":     {"n_neighbors": 5},
             "ridge":   {"alpha": 1.0},
             "lasso":   {"alpha": 0.1},
-            "linear":  {},
-            "kmeans":  {"n_clusters": 5, "n_init": 10},
-            "dbscan":  {"eps": 0.5, "min_samples": 5},
+            "linear":        {},
+            "kmeans":        {"n_clusters": 5, "n_init": 10},
+            "dbscan":        {"eps": 0.5, "min_samples": 5},
+            "pytorch_nn":    {"lr": 0.001, "epochs": 50},
+            "tensorflow_nn": {"lr": 0.001, "epochs": 20},
         }
         return defaults.get(algo_id, {})
 

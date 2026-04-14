@@ -62,6 +62,7 @@ const ALGO_DISPLAY = {
   linear: 'Linear Regression', ridge: 'Ridge', lasso: 'Lasso',
   arima: 'ARIMA',
   kmeans: 'K-Means',   dbscan: 'DBSCAN',
+  pytorch_nn: 'PyTorch Neural Net', tensorflow_nn: 'TensorFlow Neural Net',
 };
 
 const CYAN   = '#0de7f2';

@@ -101,6 +101,7 @@ const MainDashboard = () => {
       <DashboardLayout
         sidebarProps={d.sidebarProps} timeValue={d.timeValue}
         onTimeChange={(d.viewMode === 'latent' || d.viewMode === 'globalLatent') ? d.setTimeValue : null}
+        isInspectorActive={d.isInspectorActive}
         navbar={
           <NavigationBar currentView={d.viewMode} onNavigate={d.handleNavigate} breadcrumbs={d.breadcrumbs}
             onToggleChat={() => d.setIsChatOpen(!d.isChatOpen)} isChatOpen={d.isChatOpen}
@@ -126,7 +127,7 @@ const MainDashboard = () => {
             graphData={d.graphData}
             activeLens={d.activeLens}
             layoutMode={d.activeLayoutMode}
-            visible={!d.loading && !!d.graphData?.nodes?.length}
+            visible={!d.loading && !!d.graphData?.nodes?.length && !d.isInspectorActive}
           />
 
           {d.loading && <GraphOverlaySkeleton />}
@@ -140,6 +141,8 @@ const MainDashboard = () => {
                   showPKs={d.showPKs} showFKs={d.showFKs}
                   singleNodeViewEnabled={d.singleNodeViewEnabled}
                   connectionId={d.connectionId}
+                  isInspectorActive={d.isInspectorActive}
+                  setIsInspectorActive={d.setIsInspectorActive}
                   className="absolute inset-0 z-0"
                 />
               ) : (
@@ -155,7 +158,7 @@ const MainDashboard = () => {
           </ErrorBoundary>
 
           <AnimatePresence>
-            {d.aiStatus && (
+            {d.aiStatus && !d.isInspectorActive && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 className="absolute bottom-4 left-4 z-[4001] px-3 py-1 bg-[var(--bg-elevated)]/60 border border-[var(--primary-cyan)]/20 rounded-full flex items-center gap-2 backdrop-blur-md">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--primary-cyan)] animate-ping" />
@@ -184,7 +187,7 @@ const MainDashboard = () => {
           </ErrorBoundary>
 
           <AnimatePresence>
-            {d.isHudMinimized && (
+            {d.isHudMinimized && !d.isInspectorActive && (
               <motion.button initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
                 onClick={() => d.setIsHudMinimized(false)}
                 className="fixed top-[100px] left-[92px] p-2 bg-[var(--bg-elevated)]/80 border border-[var(--primary-cyan)]/30 rounded-lg flex items-center gap-2 text-[var(--primary-cyan)] font-bold text-[10px] uppercase tracking-widest backdrop-blur-md z-[5001]">
@@ -233,7 +236,7 @@ const MainDashboard = () => {
           </ErrorBoundary>
         </div>
 
-        {d.viewMode === 'overview' && (
+        {d.viewMode === 'overview' && !d.isInspectorActive && (
           <Legend
             layoutMode={d.activeLayoutMode}
             showPKs={d.showPKs}

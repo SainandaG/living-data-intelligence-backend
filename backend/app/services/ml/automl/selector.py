@@ -214,15 +214,9 @@ class AlgorithmSelector:
     def _rank_timeseries(self, n_rows: int) -> List[AlgoCandidate]:
         candidates = [
             AlgoCandidate(
-                algo_id="prophet", family="timeseries",
-                score=0.85 if n_rows >= 90 else 0.60,
-                reason="Handles seasonality, holidays, missing values; business-friendly",
-                hyperparams={"seasonality_mode": "multiplicative", "yearly_seasonality": True},
-            ),
-            AlgoCandidate(
                 algo_id="arima", family="timeseries",
-                score=0.75,
-                reason="Classic ARIMA; works well for stationary series with clear trends",
+                score=0.85,
+                reason="Trend + seasonal harmonic regression; works well for stationary series with clear trends",
                 hyperparams={"order": "auto"},
             ),
         ]

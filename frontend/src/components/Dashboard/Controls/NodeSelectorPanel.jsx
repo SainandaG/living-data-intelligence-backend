@@ -39,33 +39,35 @@ const NodeSelectorPanel = ({ dataClusters, multiSelectedNodes, setMultiSelectedN
                 <span style={s.closeBtn} onClick={() => setExpanded(!expanded)}>{expanded ? '−' : '+'}</span>
             </div>
             {expanded && (
-                <div style={{ ...s.panelBody, maxHeight: '200px', overflowY: 'auto' }}>
-                    {(dataClusters || []).map(node => {
-                        const isSelected = multiSelectedNodes?.includes(node.id);
-                        return (
-                            <div key={node.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', overflow: 'hidden' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                setMultiSelectedNodes?.(prev => [...(prev || []), node.id]);
-                                            } else {
-                                                setMultiSelectedNodes?.(prev => (prev || []).filter(id => id !== node.id));
-                                            }
-                                        }}
-                                        style={{ cursor: 'pointer', accentColor: '#818cf8', flexShrink: 0 }}
-                                    />
-                                    <span style={{ color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={node.name || node.id}>
-                                        {node.name || node.id}
-                                    </span>
+                <>
+                    <div style={{ ...s.panelBody, maxHeight: '240px', overflowY: 'auto', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        {(dataClusters || []).map(node => {
+                            const isSelected = multiSelectedNodes?.includes(node.id);
+                            return (
+                                <div key={node.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', overflow: 'hidden' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setMultiSelectedNodes?.(prev => [...(prev || []), node.id]);
+                                                } else {
+                                                    setMultiSelectedNodes?.(prev => (prev || []).filter(id => id !== node.id));
+                                                }
+                                            }}
+                                            style={{ cursor: 'pointer', accentColor: '#818cf8', flexShrink: 0 }}
+                                        />
+                                        <span style={{ color: isSelected ? '#fff' : 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }} title={node.name || node.id}>
+                                            {node.name || node.id}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
 
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '6px' }}>
+                    <div style={{ ...s.panelBody, display: 'flex', gap: '6px' }}>
                         <button
                             onClick={() => setShowMultiConnections?.(!showMultiConnections)}
                             style={{
@@ -97,7 +99,7 @@ const NodeSelectorPanel = ({ dataClusters, multiSelectedNodes, setMultiSelectedN
                             </button>
                         )}
                     </div>
-                </div>
+                </>
             )}
         </div>
     );

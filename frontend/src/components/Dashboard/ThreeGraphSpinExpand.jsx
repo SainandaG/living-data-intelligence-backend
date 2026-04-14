@@ -7,6 +7,7 @@ import { OrbitControls, Html, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { useRegisterCommand } from '../../context/CommandRegistryContext';
 import { logger } from '../../utils/logger';
+import MultiTableInspector from './MultiTableInspector';
 
 // ─── Color Palette ──────────────────────────────────────────────────────────
 const TABLE_COLORS = [
@@ -1132,7 +1133,7 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
             // Color = 50% PK value color + 50% ref-table color
             const pkValNode = pkValMap.get(pkEntry.value);
             const blendColor = pkValNode ? mixColors(pkValNode.color, refPalette.color) : refPalette.color;
-            const blendGlow  = pkValNode ? mixColors(pkValNode.glow,  refPalette.glow)  : refPalette.glow;
+            const blendGlow = pkValNode ? mixColors(pkValNode.glow, refPalette.glow) : refPalette.glow;
 
             const fkNodeId = `__fkdist__${ref.table}__${pkEntry.value}`;
             fkDistNodes.push({
@@ -1145,7 +1146,7 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
                 color: blendColor, glow: blendGlow,
                 refColor: refPalette.color, refGlow: refPalette.glow,
                 pkColor: pkValNode?.color || '#fbbf24',
-                pkGlow:  pkValNode?.glow  || '#fde68a',
+                pkGlow: pkValNode?.glow || '#fde68a',
                 position: fkPos,
                 refTable: ref.table,
                 pkValue: pkEntry.value,
@@ -2120,9 +2121,9 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                                 PK · {hoveredPKColId}
                             </span>
                             <span style={{ fontSize: 9, color: '#475569', fontWeight: 600 }}>|</span>
-                            
+
                             {/* NEW: Lock Toggle Button */}
-                            <button 
+                            <button
                                 onClick={() => {
                                     if (lockedPKColId === hoveredPKColId) setLockedPKColId(null);
                                     else setLockedPKColId(hoveredPKColId);
@@ -2176,8 +2177,10 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                                     </div>
                                 </div>
                                 {/* scrollable list */}
-                                <div style={{ overflowY: 'auto', padding: '0 14px', flex: 1,
-                                    scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+                                <div style={{
+                                    overflowY: 'auto', padding: '0 14px', flex: 1,
+                                    scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent'
+                                }}>
                                     {refTables.map((ref, i) => {
                                         const palette = TABLE_COLORS[(i + 2) % TABLE_COLORS.length];
                                         return (
@@ -2391,7 +2394,7 @@ function CameraController({ cameraRef }) {
 }
 
 // ─── Scene ──────────────────────────────────────────────────────────────────
-function Scene({ tables, bridges, connectivity, onNodeClick, onNodeHover, selectedId, setSelectedId, controlsRef, cameraRef, edgesVisible, multiSelectedNodes, singleNodeViewEnabled, onInspectNode, activeLens }) {
+function Scene({ tables, bridges, connectivity, onNodeClick, onNodeHover, selectedId, setSelectedId, controlsRef, cameraRef, edgesVisible, multiSelectedNodes, singleNodeViewEnabled, onInspectNode, activeLens, selectMode, onMultiSelect, localMultiSelected, showMultiConnections }) {
     const [hoveredTableId, setHoveredTableId] = useState(null);
     const hoverClearTimer = useRef(null);
     const hoverShowTimer = useRef(null);
@@ -2451,12 +2454,21 @@ function Scene({ tables, bridges, connectivity, onNodeClick, onNodeHover, select
                     key={table.id}
                     table={{
                         ...table,
-                        isDimmed: hoveredTableId && hoveredTableId !== table.id && !connectedToHovered.includes(table.id)
+                        isDimmed: (hoveredTableId && hoveredTableId !== table.id && !connectedToHovered.includes(table.id)) ||
+                                 (showMultiConnections && multiSelectedNodes.length > 0 && !multiSelectedNodes.includes(table.label) && !multiSelectedNodes.includes(table.id))
                     }}
-                    isSelected={selectedId === table.id || (multiSelectedNodes || []).includes(table.id)}
+                    isSelected={selectedId === table.id || (multiSelectedNodes || []).includes(table.id) || (localMultiSelected || []).includes(table.label) || (localMultiSelected || []).includes(table.id)}
                     isHighlighted={connectedToHovered.includes(table.id)}
                     targetPosition={targetPositions[table.id] || null}
                     onClick={(e) => {
+                        if (selectMode) {
+                            // In select mode: toggle this table in multi-selection
+                            // Pass full nodeData — handleMultiSelect uses .name || .id
+                            if (onMultiSelect) {
+                                onMultiSelect(table.nodeData || { name: table.label, id: table.id });
+                            }
+                            return;
+                        }
                         const shiftKey = e?.nativeEvent?.shiftKey || e?.shiftKey || false;
                         const newSelected = selectedId === table.id ? null : table.id;
                         setSelectedId(newSelected);
@@ -2537,6 +2549,8 @@ const ThreeGraphSpinExpand = forwardRef(({
     showFKs = true,
     singleNodeViewEnabled = false,
     connectionId = null,
+    isInspectorActive = false,
+    setIsInspectorActive = () => { },
 }, ref) => {
 
     const [selectedId, setSelectedId] = useState(null);
@@ -2544,6 +2558,32 @@ const ThreeGraphSpinExpand = forwardRef(({
     const [inspectedNode, setInspectedNode] = useState(null);
     const controlsRef = useRef(null);
     const cameraRef = useRef(null);
+
+    // Multi-select for MultiTableInspector
+    const [localMultiSelected, setLocalMultiSelected] = useState([]);
+    const [multiTableOpen, setMultiTableOpen] = useState(false);
+    const [selectMode, setSelectMode] = useState(false);
+    const [listSearchTerm, setListSearchTerm] = useState('');
+
+    const handleMultiSelect = useCallback((nodeData) => {
+        // Always store the table NAME (what backend expects), not internal node id
+        const name = nodeData.name || nodeData.id;
+        setLocalMultiSelected(prev =>
+            prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]
+        );
+    }, []);
+
+    const handleNodeClickMulti = useCallback((nodeData, shiftKey) => {
+        if (shiftKey) {
+            setLocalMultiSelected(prev => {
+                const id = nodeData.id || nodeData.name;
+                return prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+            });
+        } else {
+            setLocalMultiSelected([]);
+            if (onNodeClick) onNodeClick(nodeData, false);
+        }
+    }, [onNodeClick]);
 
     // Transform data
     const { tables, bridges, connectivity } = useMemo(
@@ -2638,6 +2678,227 @@ const ThreeGraphSpinExpand = forwardRef(({
 
     return (
         <div className={className || 'absolute inset-0 z-0'}>
+            {/* ── SELECT MODE PANEL — top-left, above everything ── */}
+            {!multiTableOpen && (
+                <div style={{
+                    position: 'absolute',
+                    top: 65, // Shifted further up from 75
+                    left: 16,
+                    zIndex: 3500,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8, // Slightly more gap between buttons
+                    pointerEvents: 'auto',
+                    maxWidth: 240,
+                }}>
+                    {/* Toggle button */}
+                    <button
+                        onClick={() => {
+                            const next = !selectMode;
+                            setSelectMode(next);
+                            setIsInspectorActive(next);
+                            if (selectMode) setLocalMultiSelected([]);
+                        }}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            background: selectMode ? '#fbbf24' : 'rgba(15,23,42,0.8)',
+                            color: selectMode ? '#000' : '#fbbf24',
+                            border: `1px solid ${selectMode ? '#fbbf24' : 'rgba(251,191,36,0.2)'}`,
+                            borderRadius: 12, padding: '9px 18px',
+                            fontSize: 11, fontWeight: 900, cursor: 'pointer',
+                            backdropFilter: 'blur(16px)',
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                            boxShadow: selectMode ? '0 0 25px rgba(251,191,36,0.3)' : '0 4px 12px rgba(0,0,0,0.3)',
+                        }}
+                    >
+                        <span style={{ fontSize: 14 }}>{selectMode ? '✕' : '🔍'}</span>
+                        <span>{selectMode ? 'Close Selection' : 'Multi-Select'}</span>
+                        {!selectMode && localMultiSelected.length > 0 && (
+                            <span style={{ background: 'rgba(251,191,36,0.15)', padding: '2px 8px', borderRadius: 6, fontSize: 10 }}>
+                                {localMultiSelected.length}
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Expanded panel when active */}
+                    {selectMode && (
+                        <div style={{
+                            background: 'rgba(10,18,18,0.95)',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: 12,
+                            padding: '12px',
+                            backdropFilter: 'blur(20px)',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
+                            display: 'flex', flexDirection: 'column',
+                            maxHeight: 'calc(100vh - 180px)', 
+                            width: 240,
+                            gap: 10,
+                        }}>
+                            {/* Pinned Action Header (Moved here for visibility) */}
+                            <div style={{ 
+                                display: 'flex', gap: 6, 
+                                borderBottom: '1px solid rgba(255,255,255,0.1)', 
+                                paddingBottom: 10 
+                            }}>
+                                {localMultiSelected.length >= 2 ? (
+                                    <button
+                                        onClick={() => { 
+                                            setSelectMode(false); 
+                                            setMultiTableOpen(true); 
+                                            setIsInspectorActive(true);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            background: '#fbbf24', color: '#000', border: 'none',
+                                            borderRadius: 8, padding: '8px 10px',
+                                            fontSize: 10, fontWeight: 900, cursor: 'pointer',
+                                            letterSpacing: '0.05em', textTransform: 'uppercase',
+                                            boxShadow: '0 0 16px rgba(251,191,36,0.35)',
+                                        }}
+                                    >
+                                        Inspect Selected →
+                                    </button>
+                                ) : (
+                                    <div style={{ flex: 1, fontSize: 10, color: '#475569', fontWeight: 700, display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
+                                        Select 2+ tables...
+                                    </div>
+                                )}
+                                {localMultiSelected.length > 0 && (
+                                    <button
+                                        onClick={() => setLocalMultiSelected([])}
+                                        style={{
+                                            background: 'rgba(255,255,255,0.05)', color: '#94a3b8',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 8, padding: '8px 10px',
+                                            fontSize: 10, cursor: 'pointer',
+                                        }}
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Scrollable Content Area */}
+                            <div style={{ 
+                                flex: 1, 
+                                overflowY: 'auto', 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                gap: 12,
+                                paddingRight: 4,
+                                scrollbarWidth: 'thin',
+                                scrollbarColor: 'rgba(255,255,255,0.1) transparent'
+                            }}>
+                                {/* Search & Selector List */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Search tables..."
+                                        value={listSearchTerm}
+                                        onChange={(e) => setListSearchTerm(e.target.value)}
+                                        style={{
+                                            background: '#0a1212', // Solid background to prevent bleed-through
+                                            border: '1px solid rgba(251,191,36,0.3)',
+                                            borderRadius: 6, padding: '8px 10px',
+                                            fontSize: 11, color: '#fff', outline: 'none',
+                                            position: 'sticky', top: 0, zIndex: 10,
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                        }}
+                                    />
+                                    
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        {tables
+                                            .filter(t => t.label?.toLowerCase().includes(listSearchTerm.toLowerCase()))
+                                            .map(t => {
+                                                const isSelected = localMultiSelected.includes(t.label);
+                                                return (
+                                                    <div 
+                                                        key={t.id} 
+                                                        onClick={() => handleMultiSelect({ name: t.label })}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: 8,
+                                                            padding: '4px 8px', borderRadius: 4,
+                                                            background: isSelected ? 'rgba(251,191,36,0.1)' : 'transparent',
+                                                            cursor: 'pointer', transition: 'background 0.2s',
+                                                        }}
+                                                    >
+                                                        <div style={{
+                                                            width: 12, height: 12, borderRadius: 3,
+                                                            border: `1px solid ${isSelected ? '#fbbf24' : 'rgba(255,255,255,0.2)'}`,
+                                                            background: isSelected ? '#fbbf24' : 'transparent',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        }}>
+                                                            {isSelected && <span style={{ color: '#000', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                                                        </div>
+                                                        <span style={{ fontSize: 10, color: isSelected ? '#fff' : '#94a3b8', fontWeight: isSelected ? 700 : 400 }}>
+                                                            {t.label}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+
+                                {/* Selected chips */}
+                                {localMultiSelected.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
+                                        <div style={{
+                                            fontSize: 8, fontWeight: 800, letterSpacing: 2,
+                                            color: '#64748b', textTransform: 'uppercase', marginBottom: 2,
+                                        }}>
+                                            Selected · {localMultiSelected.length}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                            {localMultiSelected.map(id => (
+                                                <div key={id} style={{
+                                                    display: 'flex', alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    background: 'rgba(251,191,36,0.08)',
+                                                    border: '1px solid rgba(251,191,36,0.2)',
+                                                    borderRadius: 6, padding: '4px 8px',
+                                                }}>
+                                                    <span style={{
+                                                        fontSize: 10, color: '#fde68a', fontWeight: 700,
+                                                        maxWidth: 160, overflow: 'hidden',
+                                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                    }}>{id}</span>
+                                                    <button
+                                                        onClick={() => setLocalMultiSelected(prev => prev.filter(x => x !== id))}
+                                                        style={{
+                                                            background: 'none', border: 'none',
+                                                            color: '#64748b', cursor: 'pointer',
+                                                            fontSize: 12, padding: '0 0 0 8px', lineHeight: 1,
+                                                            flexShrink: 0,
+                                                        }}>✕</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* MultiTableInspector overlay — z-index must beat all global HUD elements (max z-5001) */}
+            {multiTableOpen && localMultiSelected.length >= 2 && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 9999, background: '#020617' }}>
+                    <MultiTableInspector
+                        selectedTableNames={localMultiSelected}
+                        connectionId={connectionId || activeFilters?.connectionId || data?.connectionId}
+                        allTables={tables}
+                        onClose={() => {
+                            setMultiTableOpen(false);
+                            setIsInspectorActive(false);
+                            setLocalMultiSelected([]);
+                        }}
+                    />
+                </div>
+            )}
+
             {isSnapshotMode && (
                 <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 px-6 py-3 bg-amber-500/20 backdrop-blur-md border border-amber-500/40 rounded-full flex items-center gap-3 animate-pulse pointer-events-none">
                     <div className="w-2 h-2 bg-amber-500 rounded-full" />
@@ -2660,17 +2921,21 @@ const ThreeGraphSpinExpand = forwardRef(({
                         tables={tables}
                         bridges={bridges}
                         connectivity={connectivity}
-                        onNodeClick={onNodeClick}
+                        onNodeClick={handleNodeClickMulti}
                         onNodeHover={onNodeHover}
                         selectedId={selectedId}
                         setSelectedId={setSelectedId}
                         controlsRef={controlsRef}
                         cameraRef={cameraRef}
                         edgesVisible={edgesVisible}
-                        multiSelectedNodes={multiSelectedNodes}
-                        singleNodeViewEnabled={singleNodeViewEnabled}
+                        multiSelectedNodes={localMultiSelected.length > 0 ? localMultiSelected : (multiSelectedNodes || [])}
+                        singleNodeViewEnabled={singleNodeViewEnabled && !selectMode}
                         onInspectNode={setInspectedNode}
                         activeLens={activeLens}
+                        selectMode={selectMode}
+                        onMultiSelect={handleMultiSelect}
+                        localMultiSelected={localMultiSelected}
+                        showMultiConnections={showMultiConnections}
                     />
                 </Canvas>
             </div>

@@ -49,6 +49,7 @@ export const useViewStore = create((set, get) => ({
   showPKs: true,
   showFKs: true,
   singleNodeViewEnabled: false,
+  isInspectorActive: false,
 
   setViewMode: (mode) => {
     localStorage.setItem('viewMode', mode);
@@ -94,4 +95,5 @@ export const useViewStore = create((set, get) => ({
   setShowPKs: (show) => set({ showPKs: show }),
   setShowFKs: (show) => set({ showFKs: show }),
   setSingleNodeViewEnabled: (enabled) => set({ singleNodeViewEnabled: enabled }),
+  setIsInspectorActive: (active) => set({ isInspectorActive: active }),
 }));

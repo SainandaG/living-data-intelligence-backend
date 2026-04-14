@@ -54,6 +54,7 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_optional("app.api.intelligence", prefix="/api/intelligence", tags=["intelligence"], dependencies=auth_dep)
     registry.register_optional("app.api.ontology", prefix="/api/ontology", tags=["ontology"], dependencies=auth_dep)
     registry.register_optional("app.api.node_xray", prefix="/api", tags=["node-xray"], dependencies=auth_dep)
+    registry.register_optional("app.api.multi_table_inspector", prefix="/api", tags=["multi-table-inspector"], dependencies=auth_dep)  # ← NEW
     registry.register_optional("app.api.simulation", prefix="/api", tags=["simulation"], dependencies=auth_dep)
     registry.register_optional("app.api.seeder_api", prefix="/api", tags=["seeder"], dependencies=auth_dep)
 
@@ -75,14 +76,10 @@ def register_all_routes(app, registry, expected_routers: list):
         raise RuntimeError(f"Startup failed: System missing critical components {missing_routers}")
 
     # ── API VERSIONING ────────────────────────────────────────────────────────
-    # Mount all /api/* routes under /api/v1/* as well for forward compatibility.
-    # Clients can migrate to /api/v1/ at their own pace; /api/ remains as the
-    # "latest" alias.
     from fastapi.routing import APIRoute
     versioned_routes = []
     for route in app.routes:
         if isinstance(route, APIRoute) and route.path.startswith("/api/"):
-            # Create a v1 alias: /api/foo → /api/v1/foo
             v1_path = route.path.replace("/api/", "/api/v1/", 1)
             versioned_routes.append((v1_path, route))
 

@@ -58,8 +58,8 @@ def _pending_set(run_id: str, value: Dict[str, Any]) -> None:
     _pending_results[run_id] = value
 
 VALID_ALGOS: Dict[str, set] = {
-    "classification": {"rf_clf", "svm", "knn", "logreg"},
-    "regression":     {"linear", "ridge", "lasso", "xgboost"},
+    "classification": {"rf_clf", "svm", "knn", "logreg", "pytorch_nn", "tensorflow_nn"},
+    "regression":     {"linear", "ridge", "lasso", "xgboost", "pytorch_nn", "tensorflow_nn"},
     "clustering":     {"kmeans", "dbscan"},
     "timeseries":     {"arima"},
 }
@@ -385,19 +385,25 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
     for col in available:
         series = df[col]
 
-        # Detect and skip ID-like columns (High cardinality strings/IDs)
+        # 1. Skip constant columns (absolutely useless for ML, zero variance)
+        n_unique = series.dropna().nunique()
+        n_total = len(series.dropna())
+        
+        if n_total > 0 and n_unique <= 1:
+            logger.debug("Skipping constant column: %s", col)
+            continue
+
+        # Detect and skip ID-like columns (High cardinality strings/IDs/Dates)
         col_lower = col.lower()
         is_id_ext = col_lower in ['id', 'uuid', 'pk', 'guid', 'index'] or col_lower.endswith('_id')
         
         if not pd.api.types.is_numeric_dtype(series.dtype):
-            n_unique = series.dropna().nunique()
-            n_total = len(series.dropna())
             if n_total > 10:
                 # If it's an ID-like name AND highly unique, skip it
                 if is_id_ext and n_unique / n_total > 0.80:
                     logger.debug("Skipping ID-like column: %s", col)
                     continue
-                # If it's just very high cardinality (>90% unique), skip it as it's likely a unique identifier
+                # If it's just very high cardinality (>90% unique), skip it (catches unique timestamps/text)
                 if n_unique / n_total > 0.90:
                     logger.debug("Skipping high-cardinality column: %s", col)
                     continue
@@ -1348,7 +1354,7 @@ async def run_ml_analysis(req: AnalysisRequest):
             if model:
                 # CSV runs are ephemeral (1hr retention), Database runs are permanent
                 is_csv = not req.connection_id or req.connection_id == "csv"
-                ext = "keras" if req.algo == "tensorflow_nn" else "pt"
+                ext = "keras" if req.algo == "tensorflow_nn" else ("pt" if req.algo == "pytorch_nn" else "pkl")
                 try:
                     artifact_path = experiment_tracker.save_artifact(
                         run.run_id, model, extension=ext, is_temp=is_csv
@@ -1536,7 +1542,7 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
             artifact_path = None
             if model:
                 is_csv = not req.connection_id or req.connection_id == "csv"
-                ext = "keras" if req.algo == "tensorflow_nn" else "pt"
+                ext = "keras" if req.algo == "tensorflow_nn" else ("pt" if req.algo == "pytorch_nn" else "pkl")
                 try:
                     artifact_path = experiment_tracker.save_artifact(
                         run.run_id, model, extension=ext, is_temp=is_csv
