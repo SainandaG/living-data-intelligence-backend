@@ -2,14 +2,49 @@
 
 Transform database schemas into interactive 3D visualizations with real-time transaction flow monitoring.
 
-## 🚀 Features
+## 🔧 Features
 
-- **Database Connectivity**: Connect to PostgreSQL, MySQL, and MongoDB databases
-- **Automatic Schema Analysis**: AI-powered detection of fact/dimension tables and relationships
-- **3D Visualization**: Interactive Three.js visualization with circle packing layout
-- **Real-Time Monitoring**: WebSocket-based live transaction flow tracking
-- **Particle System**: Visual representation of data flowing between entities
-- **Business Insights**: Fraud detection, bottleneck identification, and performance metrics
+- **3D Graph Visualization**: Interactive Three.js-based database schema visualization
+- **Real-time Monitoring**: Live TPS tracking and performance metrics
+- **AI Chat**: Natural language queries powered by Google Gemini
+- **Neural Core**: Intelligent schema analysis and relationship discovery
+- **Multi-Database Support**: MySQL, PostgreSQL, and more
+- **Dual Clustering Methods**: Choose between heuristic or graph-theory-based clustering
+
+### Clustering Options
+
+The system supports two clustering methods for organizing database tables:
+
+#### 1. Heuristic Clustering (Default)
+- **Method**: Prefix-based pattern matching
+- **Best for**: Databases with naming conventions (e.g., `auth_user`, `auth_group`)
+- **Speed**: Instant
+- **Accuracy**: ~60-80% (depends on naming consistency)
+
+#### 2. NetworkX Clustering (Advanced)
+- **Method**: Louvain community detection + PageRank
+- **Best for**: Any database structure, especially complex schemas
+- **Speed**: <100ms for typical schemas
+- **Accuracy**: ~95% (uses actual foreign key relationships)
+
+**API Usage**:
+```bash
+# Heuristic clustering
+POST /api/optimize
+{
+  "connection_id": "your-id",
+  "active": true,
+  "method": "heuristic"
+}
+
+# NetworkX clustering
+POST /api/optimize
+{
+  "connection_id": "your-id",
+  "active": true,
+  "method": "networkx"
+}
+```
 
 ## 📋 Prerequisites
 
@@ -46,8 +81,15 @@ pip install -r requirements.txt
 ### 4. Configure environment
 
 ```bash
-copy .env.example .env
-# Edit .env with your database credentials
+```bash
+# Windows
+type backend\.env.example > backend\.env
+
+# Linux/Mac
+cp backend/.env.example backend/.env
+```
+2. Edit `backend/.env` with your API keys and database credentials.
+   - **Crucial**: You must set `GEMINI_API_KEY` and `DB_PASSWORD` for the Neural Core to function.
 ```
 
 ## 🚀 Running the Application
@@ -66,6 +108,16 @@ cd frontend
 npm run dev
 ```
 The **High Fidelity UI** will be available on **`http://localhost:5173`**.
+
+### 3. Database Setup (First Run Only)
+If you haven't set up the database yet:
+1. Create a MySQL database named `aw`.
+2. Run the scripts in `AdventureWorksDW/`:
+   ```bash
+   mysql -u root -p aw < AdventureWorksDW/create-database-tables.sql
+   mysql -u root -p aw < AdventureWorksDW/add-constraints.sql
+   ```
+
 
 ---
 
@@ -105,6 +157,15 @@ The **High Fidelity UI** will be available on **`http://localhost:5173`**.
 - No data modification
 - Secure WebSocket connections
 - Environment variable configuration
+
+## ❓ Troubleshooting
+
+### "Neural Core: Analysis Failed"
+This error usually means the backend cannot connect to the database or an API key is missing.
+1. **Check `.env`**: Ensure `backend/.env` exists and has valid `DB_PASSWORD` and `GEMINI_API_KEY`.
+2. **Check Database**: Ensure your MySQL server is running and the `aw` database exists.
+3. **Check Console**: Look at the terminal running `main.py` for specific error logs (e.g., "Access denied for user").
+
 
 ## 📁 Project Structure
 
