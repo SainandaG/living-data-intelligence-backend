@@ -45,7 +45,11 @@ async def _enrich_node(
 
         # GNN importance (optional, may not be installed)
         try:
-            from ml.graph_neural_core import graph_neural_core
+            try:
+                from backend.ml.graph_neural_core import graph_neural_core # type: ignore
+            except ImportError:
+                from ml.graph_neural_core import graph_neural_core # type: ignore
+            
             node["importance_score"] = graph_neural_core.predict_importance(
                 node.get("id", "unknown"), node.get("type", "table"), node
             )

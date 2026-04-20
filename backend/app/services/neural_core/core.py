@@ -16,12 +16,9 @@ import time
 
 logger = logging.getLogger(__name__)
 try:
-    from backend.app.services.latent_manager import latent_manager
+    from backend.app.services.latent_manager import latent_manager # type: ignore
 except ImportError:
-    try:
-        from app.services.latent_manager import latent_manager
-    except ImportError:
-        from .latent_manager import latent_manager
+    from app.services.latent_manager import latent_manager # type: ignore
 
 class NeuralCore:
     def __init__(self):
@@ -648,15 +645,9 @@ class NeuralCore:
         # Use the real importance score to weight the complexity
         try:
             try:
-                try:
-                    from backend.ml.graph_neural_core import graph_neural_core
-                except ImportError:
-                    try:
-                        from ml.graph_neural_core import graph_neural_core
-                    except ImportError:
-                         from ...ml.graph_neural_core import graph_neural_core
+                from backend.ml.graph_neural_core import graph_neural_core # type: ignore
             except ImportError:
-                from ml.graph_neural_core import graph_neural_core
+                from ml.graph_neural_core import graph_neural_core # type: ignore
             
             # Get table importance (0.0 - 1.0)
             table_importance = graph_neural_core.predict_importance(table_name, "table")

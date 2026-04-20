@@ -168,15 +168,9 @@ class NeuralCore:
         # Use the real importance score to weight the complexity
         try:
             try:
-                try:
-                    from backend.ml.graph_neural_core import graph_neural_core
-                except ImportError:
-                    try:
-                        from ml.graph_neural_core import graph_neural_core
-                    except ImportError:
-                         from ...ml.graph_neural_core import graph_neural_core
+                from backend.ml.graph_neural_core import graph_neural_core # type: ignore
             except ImportError:
-                from ml.graph_neural_core import graph_neural_core
+                from ml.graph_neural_core import graph_neural_core # type: ignore
             
             # Get table importance (0.0 - 1.0)
             table_importance = graph_neural_core.predict_importance(table_name, "table")

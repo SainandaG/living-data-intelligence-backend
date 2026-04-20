@@ -395,7 +395,7 @@ function TableEllipsoid({ table, isSelected, isHighlighted, onClick, onHover, ta
             {/* Label */}
             <Html center distanceFactor={40} style={{ pointerEvents: 'none' }}>
                 <div style={{
-                    color: 'white',
+                    color: table.glow, // Premium upgrade: Use table glow instead of white
                     textAlign: 'center',
                     fontFamily: "'Inter', system-ui, sans-serif",
                     textShadow: `0 0 20px ${table.color}, 0 0 40px ${table.color}, 0 2px 8px rgba(0,0,0,0.8)`,
@@ -1447,7 +1447,7 @@ function RefTableNode({ node: n }) {
                 <div style={{ fontFamily: "'Inter', system-ui, sans-serif", textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <div style={{
                         fontSize: 12, fontWeight: 900,
-                        color: '#ffffff',
+                        color: n.glow, // Premium upgrade: Match theme
                         textShadow: `0 0 16px ${n.glow}, 0 0 32px ${n.glow}50`,
                         letterSpacing: 0.5,
                     }}>{n.label}</div>
@@ -1549,7 +1549,7 @@ function ColumnEllipsoid({ col, isHighlighted, onHover }) {
                     {col.badge && (
                         <div style={{
                             fontSize: 9, fontWeight: 900, letterSpacing: '0.12em',
-                            color: '#ffffff',
+                            color: ringColor, // Match badge text to its ring color for better visual integration
                             textTransform: 'uppercase',
                             marginBottom: 3,
                             // PK: dark amber bg. FK: always dark navy bg (blue ring = FK identity).
@@ -1563,7 +1563,7 @@ function ColumnEllipsoid({ col, isHighlighted, onHover }) {
                     )}
                     <div style={{
                         fontSize: 10, fontWeight: 700,
-                        color: '#ffffff',
+                        color: col.glow, // Premium upgrade: Thematic label
                         textShadow: `0 0 10px ${col.glow}, 0 1px 4px rgba(0,0,0,0.95)`,
                     }}>{col.label}</div>
                 </div>
@@ -2455,7 +2455,7 @@ function Scene({ tables, bridges, connectivity, onNodeClick, onNodeHover, select
                     table={{
                         ...table,
                         isDimmed: (hoveredTableId && hoveredTableId !== table.id && !connectedToHovered.includes(table.id)) ||
-                                 (showMultiConnections && multiSelectedNodes.length > 0 && !multiSelectedNodes.includes(table.label) && !multiSelectedNodes.includes(table.id))
+                            (showMultiConnections && multiSelectedNodes.length > 0 && !multiSelectedNodes.includes(table.label) && !multiSelectedNodes.includes(table.id))
                     }}
                     isSelected={selectedId === table.id || (multiSelectedNodes || []).includes(table.id) || (localMultiSelected || []).includes(table.label) || (localMultiSelected || []).includes(table.id)}
                     isHighlighted={connectedToHovered.includes(table.id)}
@@ -2564,6 +2564,8 @@ const ThreeGraphSpinExpand = forwardRef(({
     const [multiTableOpen, setMultiTableOpen] = useState(false);
     const [selectMode, setSelectMode] = useState(false);
     const [listSearchTerm, setListSearchTerm] = useState('');
+    const [savedGroups, setSavedGroups] = useState([]);
+    const [savedGroupsLoading, setSavedGroupsLoading] = useState(false);
 
     const handleMultiSelect = useCallback((nodeData) => {
         // Always store the table NAME (what backend expects), not internal node id
@@ -2584,6 +2586,66 @@ const ThreeGraphSpinExpand = forwardRef(({
             if (onNodeClick) onNodeClick(nodeData, false);
         }
     }, [onNodeClick]);
+    
+    const actualConnectionId = connectionId || activeFilters?.connectionId || data?.connectionId;
+
+    // Load saved table groups
+    const fetchTableGroups = useCallback(async () => {
+        if (!actualConnectionId || !selectMode) return;
+        setSavedGroupsLoading(true);
+        try {
+            const resp = await fetch(`/api/table-groups/${actualConnectionId}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                setSavedGroups(data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch table groups:", err);
+        } finally {
+            setSavedGroupsLoading(false);
+        }
+    }, [actualConnectionId, selectMode]);
+
+    useEffect(() => {
+        if (selectMode) fetchTableGroups();
+    }, [selectMode, fetchTableGroups]);
+
+    const handleSaveTableGroup = async () => {
+        if (localMultiSelected.length < 2) return;
+        const title = prompt("Enter a name for this table group:");
+        if (!title) return;
+
+        try {
+            const resp = await fetch(`/api/table-groups/${actualConnectionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title,
+                    table_names: localMultiSelected
+                })
+            });
+            if (resp.ok) {
+                fetchTableGroups();
+            }
+        } catch (err) {
+            alert("Failed to save table group");
+        }
+    };
+
+    const handleDeleteTableGroup = async (e, groupId) => {
+        e.stopPropagation();
+        if (!confirm("Delete this saved group?")) return;
+        try {
+            const resp = await fetch(`/api/table-groups/${actualConnectionId}/${groupId}`, {
+                method: 'DELETE'
+            });
+            if (resp.ok) {
+                fetchTableGroups();
+            }
+        } catch (err) {
+            console.error("Failed to delete table group:", err);
+        }
+    };
 
     // Transform data
     const { tables, bridges, connectivity } = useMemo(
@@ -2732,21 +2794,21 @@ const ThreeGraphSpinExpand = forwardRef(({
                             backdropFilter: 'blur(20px)',
                             boxShadow: '0 8px 32px rgba(0,0,0,0.8)',
                             display: 'flex', flexDirection: 'column',
-                            maxHeight: 'calc(100vh - 180px)', 
+                            maxHeight: 'calc(100vh - 180px)',
                             width: 240,
                             gap: 10,
                         }}>
                             {/* Pinned Action Header (Moved here for visibility) */}
-                            <div style={{ 
-                                display: 'flex', gap: 6, 
-                                borderBottom: '1px solid rgba(255,255,255,0.1)', 
-                                paddingBottom: 10 
+                            <div style={{
+                                display: 'flex', gap: 6,
+                                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                paddingBottom: 10
                             }}>
                                 {localMultiSelected.length >= 2 ? (
                                     <button
-                                        onClick={() => { 
-                                            setSelectMode(false); 
-                                            setMultiTableOpen(true); 
+                                        onClick={() => {
+                                            setSelectMode(false);
+                                            setMultiTableOpen(true);
                                             setIsInspectorActive(true);
                                         }}
                                         style={{
@@ -2764,28 +2826,77 @@ const ThreeGraphSpinExpand = forwardRef(({
                                     <div style={{ flex: 1, fontSize: 10, color: '#475569', fontWeight: 700, display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
                                         Select 2+ tables...
                                     </div>
-                                )}
-                                {localMultiSelected.length > 0 && (
-                                    <button
-                                        onClick={() => setLocalMultiSelected([])}
-                                        style={{
-                                            background: 'rgba(255,255,255,0.05)', color: '#94a3b8',
-                                            border: '1px solid rgba(255,255,255,0.1)',
-                                            borderRadius: 8, padding: '8px 10px',
-                                            fontSize: 10, cursor: 'pointer',
-                                        }}
-                                    >
-                                        Clear
-                                    </button>
-                                )}
-                            </div>
+                                        )}
+                                        {localMultiSelected.length >= 2 && (
+                                            <button
+                                                onClick={handleSaveTableGroup}
+                                                style={{
+                                                    background: 'rgba(34,197,94,0.1)', color: '#4ade80',
+                                                    border: '1px solid rgba(34,197,94,0.3)',
+                                                    borderRadius: 8, padding: '8px 10px',
+                                                    fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                                }}
+                                                title="Save this group of tables"
+                                            >
+                                                Save Group
+                                            </button>
+                                        )}
+                                        {localMultiSelected.length > 0 && (
+                                            <button
+                                                onClick={() => setLocalMultiSelected([])}
+                                                style={{
+                                                    background: 'rgba(255,255,255,0.05)', color: '#94a3b8',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: 8, padding: '8px 10px',
+                                                    fontSize: 10, cursor: 'pointer',
+                                                }}
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Saved Groups section */}
+                                    {savedGroups.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.05)', pb: 10 }}>
+                                            <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: 2, color: '#64748b', textTransform: 'uppercase' }}>
+                                                Saved Groups · {savedGroups.length}
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                                {savedGroups.map(group => (
+                                                    <div
+                                                        key={group.id}
+                                                        onClick={() => setLocalMultiSelected(group.table_names)}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: 6,
+                                                            background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+                                                            borderRadius: 16, padding: '4px 10px', cursor: 'pointer',
+                                                            transition: 'all 0.2s',
+                                                        }}
+                                                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(59,130,246,0.2)'; }}
+                                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(59,130,246,0.1)'; }}
+                                                    >
+                                                        <span style={{ fontSize: 10, color: '#93c5fd', fontWeight: 700 }}>{group.title}</span>
+                                                        <button
+                                                            onClick={(e) => handleDeleteTableGroup(e, group.id)}
+                                                            style={{
+                                                                background: 'none', border: 'none', color: '#64748b',
+                                                                cursor: 'pointer', fontSize: 11, padding: 0, display: 'flex',
+                                                            }}
+                                                        >✕</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
 
                             {/* Scrollable Content Area */}
-                            <div style={{ 
-                                flex: 1, 
-                                overflowY: 'auto', 
-                                display: 'flex', 
-                                flexDirection: 'column', 
+                            <div style={{
+                                flex: 1,
+                                overflowY: 'auto',
+                                display: 'flex',
+                                flexDirection: 'column',
                                 gap: 12,
                                 paddingRight: 4,
                                 scrollbarWidth: 'thin',
@@ -2807,15 +2918,15 @@ const ThreeGraphSpinExpand = forwardRef(({
                                             boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
                                         }}
                                     />
-                                    
+
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                         {tables
                                             .filter(t => t.label?.toLowerCase().includes(listSearchTerm.toLowerCase()))
                                             .map(t => {
                                                 const isSelected = localMultiSelected.includes(t.label);
                                                 return (
-                                                    <div 
-                                                        key={t.id} 
+                                                    <div
+                                                        key={t.id}
                                                         onClick={() => handleMultiSelect({ name: t.label })}
                                                         style={{
                                                             display: 'flex', alignItems: 'center', gap: 8,

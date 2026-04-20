@@ -1,0 +1,44 @@
+[
+  {
+    "id": "0644c2ef-e141-4a37-ba38-4c18180fffa7",
+    "title": "volt group",
+    "connection_id": "conn_1",
+    "table_name": "batteries",
+    "pks": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "pk_labels": [
+      "BAT-1000",
+      "BAT-1001",
+      "BAT-1002",
+      "BAT-1003"
+    ],
+    "metrics": [
+      "batch_id",
+      "capacity_mah",
+      "current_charge",
+      "cycle_count",
+      "damage_deposit_amount",
+      "health_percentage",
+      "id",
+      "last_maintenance_cycles",
+      "location_id",
+      "records",
+      "rental_price_per_day",
+      "spec_id",
+      "telemetics_data > battery_id",
+      "telemetics_data > current",
+      "telemetics_data > gps_latitude",
+      "telemetics_data > gps_longitude",
+      "telemetics_data > soc",
+      "telemetics_data > soh",
+      "telemetics_data > temperature",
+      "telemetics_data > voltage",
+      "voltage"
+    ],
+    "created_at": 1776521704.9585927
+  }
+]

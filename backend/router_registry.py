@@ -55,8 +55,10 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_optional("app.api.ontology", prefix="/api/ontology", tags=["ontology"], dependencies=auth_dep)
     registry.register_optional("app.api.node_xray", prefix="/api", tags=["node-xray"], dependencies=auth_dep)
     registry.register_optional("app.api.multi_table_inspector", prefix="/api", tags=["multi-table-inspector"], dependencies=auth_dep)  # ← NEW
+    registry.register_optional("app.api.saved_selections", prefix="/api", tags=["selections"], dependencies=auth_dep)
     registry.register_optional("app.api.simulation", prefix="/api", tags=["simulation"], dependencies=auth_dep)
     registry.register_optional("app.api.seeder_api", prefix="/api", tags=["seeder"], dependencies=auth_dep)
+    registry.register_optional("app.api.table_groups", prefix="/api", tags=["table-groups"], dependencies=auth_dep)
 
     # ── APEX Platform Routers ─────────────────────────────────────────────────
     registry.register_optional("app.api.apex_agent",  tags=["apex-agent"],  dependencies=auth_dep)

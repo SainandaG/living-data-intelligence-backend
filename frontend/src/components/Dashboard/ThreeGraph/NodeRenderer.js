@@ -351,8 +351,8 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
     // Label (Clean)
     const labelText = nodeData.name || nodeData.id;
     // VISUAL FIX: Doubled font size for readability
-    // COLOR FIX: Use node color instead of white for labels in Latent Mode
-    const labelColor = (layoutMode === 'latent' || isCore) ? '#' + new THREE.Color(color).getHexString() : '#ffffff';
+    // COLOR FIX: Use node color instead of white for labels consistently for "Premium" feel
+    const labelColor = '#' + new THREE.Color(color).getHexString();
     const label = createTextSprite(labelText, 80, labelColor);
     label.position.set(0, size + 60, 0);
     sphere.add(label);

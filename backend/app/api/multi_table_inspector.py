@@ -143,7 +143,7 @@ async def get_table_rows(
     linked_table: Optional[str] = Query(None, description="Related table to count activity from"),
     fk_column: Optional[str] = Query(None, description="FK column in linked_table pointing to this table"),
     pk_column: Optional[str] = Query(None, description="PK column of this table"),
-    limit: int = Query(100, description="Number of rows to fetch"),
+    limit: int = Query(40, description="Number of rows to fetch"),
     offset: int = Query(0, description="Number of rows to skip"),
 ):
     """
@@ -200,21 +200,87 @@ async def get_table_rows(
         else:
             fallback_filter = ""
 
-        # Build activity count subquery if linked table provided
+        # Build activity count subquery if linked table(s) provided
         activity_sql = None
-        if linked_table and fk_column:
-            safe_linked = db_connector.quote_identifier(connection_id, linked_table)
-            safe_fk = db_connector.quote_identifier(connection_id, fk_column)
+        table_totals = {}  # table_name -> global_total
+        linked_names = [t.strip() for t in (linked_table or "").split(",") if t.strip()]
+        fk_cols = [c.strip() for c in (fk_column or "").split(",") if c.strip()]
+
+        if linked_names and fk_cols:
+            # 1. First, calculate GLOBAL total weight for each linked table for percentage denominators
+            for (lt_name, fk_col) in zip(linked_names, fk_cols):
+                safe_linked = db_connector.quote_identifier(connection_id, lt_name)
+                safe_fk = db_connector.quote_identifier(connection_id, fk_col)
+                
+                # Weight detection
+                agg_field = "1"
+                lt_schema = next((t for t in schema.tables if t.name == lt_name), None)
+                if lt_schema:
+                    for kw in ['cycles', 'energy', 'amount', 'quantity', 'value', 'weight']:
+                        if any(c.name.lower() == kw for c in lt_schema.columns):
+                            agg_field = db_connector.quote_identifier(connection_id, kw)
+                            break
+                
+                where_clause = f"WHERE CAST({safe_fk} AS TEXT) IN (SELECT CAST({safe_pk} AS TEXT) FROM {safe_table})"
+                if search:
+                    where_clause += f" AND CAST({safe_fk} AS TEXT) IN (SELECT CAST({safe_pk} AS TEXT) FROM {safe_table} {fallback_filter})"
+                
+                try:
+                    total_q = f"SELECT SUM(CAST({agg_field} AS DOUBLE PRECISION)) as total FROM {safe_linked} {where_clause};"
+                    logger.info(f"Denominator Query [{lt_name}]: {total_q} with params {query_params}")
+                    total_res = await db_connector.query(connection_id, total_q, tuple(query_params))
+                    table_totals[lt_name] = float(total_res[0].get("total") or 1.0)
+                    logger.info(f"Calculated Relationship Total for {lt_name}: {table_totals[lt_name]}")
+                except Exception as e:
+                    logger.warning(f"Total calc failed for {lt_name}: {e}")
+                    table_totals[lt_name] = 1.0
+
+            # 2. Main query for the record ring with multiple table aggregations
+            selects = []
+            joins = []
+            for i, (lt_name, fk_col) in enumerate(zip(linked_names, fk_cols)):
+                safe_linked = db_connector.quote_identifier(connection_id, lt_name)
+                safe_fk = db_connector.quote_identifier(connection_id, fk_col)
+                
+                # Re-detect weight field for this specific join
+                agg_field = "1"
+                lt_schema = next((t for t in schema.tables if t.name == lt_name), None)
+                if lt_schema:
+                    for kw in ['cycles', 'energy', 'amount', 'quantity', 'value', 'weight']:
+                        if any(c.name.lower() == kw for c in lt_schema.columns):
+                            agg_field = db_connector.quote_identifier(connection_id, kw)
+                            break
+                
+                # Define aggregation for this specific linked table
+                agg_func = f"SUM(CAST(l{i}.{agg_field} AS DOUBLE PRECISION))" if agg_field != "1" else f"COUNT(l{i}.{safe_fk})"
+                selects.append(f"COALESCE({agg_func}, 0) AS act_{i}")
+                joins.append(f"LEFT JOIN {safe_linked} l{i} ON CAST(l{i}.{safe_fk} AS TEXT) = CAST(t.{safe_pk} AS TEXT)")
+
+            # Use raw aggregate expressions in the total expression as well (aliases not allowed in same SELECT level)
+            agg_exprs = []
+            for i, (lt_name, fk_col) in enumerate(zip(linked_names, fk_cols)):
+                lt_schema = next((t for t in schema.tables if t.name == lt_name), None)
+                curr_agg = "1"
+                if lt_schema:
+                    for kw in ['cycles', 'energy', 'amount', 'quantity', 'value', 'weight']:
+                        if any(c.name.lower() == kw for c in lt_schema.columns):
+                            curr_agg = db_connector.quote_identifier(connection_id, kw)
+                            break
+                agg_func = f"SUM(CAST(l{i}.{curr_agg} AS DOUBLE PRECISION))" if curr_agg != "1" else f"COUNT(l{i}.{db_connector.quote_identifier(connection_id, fk_col)})"
+                agg_exprs.append(f"COALESCE({agg_func}, 0)")
+
+            total_expr = " + ".join(agg_exprs)
             activity_sql = f"""
                 SELECT
                     t.{safe_pk} AS pk_val,
                     t.{safe_disp} AS display_val,
-                    COUNT(l.{safe_fk}) AS activity_count
+                    {', '.join(selects)},
+                    ({total_expr}) AS total_activity
                 FROM {safe_table} t
-                LEFT JOIN {safe_linked} l ON CAST(l.{safe_fk} AS TEXT) = CAST(t.{safe_pk} AS TEXT)
+                { ' '.join(joins) }
                 {search_filter}
                 GROUP BY t.{safe_pk}, t.{safe_disp}
-                ORDER BY activity_count DESC
+                ORDER BY total_activity DESC
                 LIMIT {int(limit)} OFFSET {int(offset)};
             """
 
@@ -239,22 +305,36 @@ async def get_table_rows(
             rows = await db_connector.query(connection_id, fallback_sql, tuple(query_params))
 
         # Compute max activity for % sizing
-        max_activity = max((int(r.get("activity_count", 0)) for r in rows), default=1) or 1
+        max_activity = max((float(r.get("total_activity", 0)) for r in rows), default=1) or 1
 
         result_rows = []
         for r in rows:
             pk_val = str(r.get("pk_val", ""))
             disp_val = str(r.get("display_val", pk_val))
-            activity = int(r.get("activity_count", 0))
-            pct = round(activity / max_activity * 100, 1)
+            
+            # Breakdown per table
+            breakdown = {}
+            total_act = 0
+            if linked_names:
+                for i, lt_name in enumerate(linked_names):
+                    act = float(r.get(f"act_{i}", 0))
+                    total_act += act
+                    denominator = table_totals.get(lt_name, 1.0)
+                    breakdown[lt_name] = {
+                        "count": act,
+                        "pct": round(act / max(denominator, 1.0) * 100, 1)
+                    }
+
             # Label combines pk + display if they differ
             label = f"{pk_val}. {disp_val}" if disp_val != pk_val else pk_val
             result_rows.append({
                 "pk_val": pk_val,
                 "display_val": disp_val,
                 "label": label,
-                "activity_count": activity,
-                "activity_pct": pct,  # 0–100, drives node size
+                "activity_count": total_act,
+                "activity_breakdown": breakdown,
+                # Compatibility: first table pct as activity_pct
+                "activity_pct": breakdown[linked_names[0]]["pct"] if breakdown and linked_names else 0,
             })
 
         # Also get total count for this table to help frontend pagination
@@ -304,22 +384,23 @@ async def get_row_detail(
     from app.services.db_connector import db_connector
     from app.services.schema_analyzer import schema_analyzer
 
-    linked_list = [t.strip() for t in linked_tables.split(",") if t.strip()]
+    linked_list = sorted(list(set(t.strip() for t in linked_tables.split(",") if t.strip())))
     pk_list = [p.strip() for p in pk_values.split(",") if p.strip()]
     
     if not pk_list:
         raise HTTPException(status_code=400, detail="No PK values provided")
 
     cache_key = f"rowdetail::{connection_id}::{table_name}::{pk_values}::{pk_column}::{'|'.join(sorted(linked_list))}"
-    cached = _cache_get(cache_key)
-    if cached:
-        return cached
-
     try:
+        logger.info(f"Fetching row-detail for table: {table_name}, PKs: {pk_list[:5]}...")
         try:
             schema = await schema_analyzer.get_schema(connection_id)
         except AttributeError:
             schema = await schema_analyzer.analyze_schema(connection_id)
+        
+        if not schema:
+            logger.error(f"Schema not found for connection {connection_id}")
+            raise HTTPException(status_code=404, detail="Schema not found")
 
         # Get columns for the source row (display fields)
         src_schema = next((t for t in schema.tables if t.name == table_name), None)
@@ -334,8 +415,10 @@ async def get_row_detail(
 
         # Fetch the actual row data for all selected PKs
         src_row_sql = f'SELECT * FROM {safe_src_table} WHERE CAST({safe_src_pk} AS TEXT) IN ({pk_placeholders});'
+        logger.debug(f"Source row SQL: {src_row_sql} with params {pk_list}")
         src_all_rows = await db_connector.query(connection_id, src_row_sql, tuple(pk_list))
         src_representative = src_all_rows[0] if src_all_rows else {}
+        logger.info(f"Fetched {len(src_all_rows)} source rows.")
 
         # Identify numeric columns in source table for pivoting
         src_numeric_cols = [
@@ -343,119 +426,159 @@ async def get_row_detail(
             if c.type and any(t in c.type.lower() for t in [
                 "int", "float", "decimal", "numeric", "double", "real", "money", "bigint"
             ])
-        ]
+        ][:12] # Limit to 12 numeric columns to prevent SQL/UI bloat
 
         # Calculate "local" distribution for source columns across selected records
-        # This allows selecting 'batteries > quantity_damaged' even for the batteries table itself
         src_distribution = {}
         for row in src_all_rows:
             pv = str(row.get(pk_column, ""))
             metrics = {"records": 1.0}
             for nc in src_numeric_cols:
-                metrics[nc] = float(row.get(nc) or 0)
+                try:
+                    val = row.get(nc)
+                    metrics[nc] = float(val) if val is not None else 0.0
+                except (ValueError, TypeError):
+                    metrics[nc] = 0.0
             src_distribution[pv] = metrics
+
+        # Fetch Grand Totals for the Source Table (Denominators)
+        src_totals = {"records": 0}
+        src_total_sql = f"SELECT COUNT(*) as row_count"
+        for nc in src_numeric_cols:
+            if nc != "records":
+                safe_nc = db_connector.quote_identifier(connection_id, nc)
+                src_total_sql += f", SUM({safe_nc}) as sum_{nc.lower().replace(' ','_')}"
+        src_total_sql += f" FROM {safe_src_table};"
+        
+        src_total_rows = await db_connector.query(connection_id, src_total_sql)
+        if src_total_rows:
+            tr = src_total_rows[0]
+            src_totals["records"] = float(tr.get("row_count") or 1)
+            for nc in src_numeric_cols:
+                if nc != "records":
+                    key = f"sum_{nc.lower().replace(' ','_')}"
+                    src_totals[nc] = float(tr.get(key) or 1) # Fallback to 1 to avoid div by zero
 
         # Build linked table metrics in parallel
         async def _analyze_linked_table(linked_name: str):
-            linked_schema = next((t for t in schema.tables if t.name == linked_name), None)
-            if not linked_schema:
-                return None
+            try:
+                linked_schema = next((t for t in schema.tables if t.name == linked_name), None)
+                if not linked_schema:
+                    return None
 
-            # Find FK column pointing to our table
-            fk_col = None
-            for fk in (linked_schema.foreign_keys or []):
-                if fk.referenced_table == table_name and fk.referenced_column == pk_column:
-                    fk_col = fk.column
-                    break
-
-            if not fk_col:
+                # Find FK column pointing to our table
+                fk_col = None
                 for fk in (linked_schema.foreign_keys or []):
-                    if fk.referenced_table == table_name:
+                    if fk.referenced_table == table_name and fk.referenced_column == pk_column:
                         fk_col = fk.column
                         break
 
-            if not fk_col:
-                return None
+                if not fk_col:
+                    for fk in (linked_schema.foreign_keys or []):
+                        if fk.referenced_table == table_name:
+                            fk_col = fk.column
+                            break
 
-            numeric_cols = [
-                c.name for c in (linked_schema.columns or [])
-                if c.type and any(t in c.type.lower() for t in [
-                    "int", "float", "decimal", "numeric", "double", "real", "money", "bigint"
-                ])
-            ]
+                if not fk_col:
+                    return None
 
-            safe_linked = db_connector.quote_identifier(connection_id, linked_name)
-            safe_fk = db_connector.quote_identifier(connection_id, fk_col)
+                numeric_cols = [
+                    c.name for c in (linked_schema.columns or [])
+                    if c.type and any(t in c.type.lower() for t in [
+                        "int", "float", "decimal", "numeric", "double", "real", "money", "bigint"
+                    ])
+                ]
 
-            # Aggregation query using IN clause for multi-selection support
-            agg_parts = [f"COUNT(*) AS row_count"]
-            for nc in numeric_cols[:8]:
-                safe_nc = db_connector.quote_identifier(connection_id, nc)
-                agg_parts.append(f"SUM({safe_nc}) AS sum_{nc.lower().replace(' ','_')}")
-                agg_parts.append(f"AVG({safe_nc}) AS avg_{nc.lower().replace(' ','_')}")
+                safe_linked = db_connector.quote_identifier(connection_id, linked_name)
+                safe_fk = db_connector.quote_identifier(connection_id, fk_col)
 
-            # Aggregation query using GROUP BY for per-record breakdown
-            agg_sql = f"""
-                SELECT CAST({safe_fk} AS TEXT) AS pk_val, {', '.join(agg_parts)}
-                FROM {safe_linked}
-                WHERE CAST({safe_fk} AS TEXT) IN ({pk_placeholders})
-                GROUP BY {safe_fk};
-            """
-            agg_rows = await db_connector.query(connection_id, agg_sql, tuple(pk_list))
-            
-            # Map aggregated results per PK
-            pk_distribution = {}
-            total_row_count = 0
-            
-            # Totals for the whole table (across selected PKs)
-            table_totals = {"records": 0}
-            for nc in numeric_cols[:8]:
-                table_totals[nc] = 0.0
-
-            for row in agg_rows:
-                pv = str(row.get("pk_val", ""))
-                rc = int(row.get("row_count", 0))
-                total_row_count += rc
-                table_totals["records"] += rc
-                
-                metrics = {"records": float(rc)}
+                # 1. Selection Aggregation (What is selected)
+                agg_parts = [f"COUNT(*) AS row_count"]
                 for nc in numeric_cols[:8]:
-                    key = f"sum_{nc.lower().replace(' ','_')}"
-                    val = float(row.get(key) or 0)
-                    metrics[nc] = val
-                    table_totals[nc] += val
-                
-                pk_distribution[pv] = metrics
-            
-            # Build standard metric_nodes for the overall table stats
-            metric_nodes = []
-            metric_nodes.append({
-                "column": "records",
-                "metric": "frequency",
-                "value": float(table_totals["records"]),
-                "label": "Frequency",
-            })
+                    safe_nc = db_connector.quote_identifier(connection_id, nc)
+                    agg_parts.append(f"SUM({safe_nc}) AS sum_{nc.lower().replace(' ','_')}")
+                    agg_parts.append(f"AVG({safe_nc}) AS avg_{nc.lower().replace(' ','_')}")
 
-            for nc in numeric_cols[:8]:
+                agg_sql = f"""
+                    SELECT CAST({safe_fk} AS TEXT) AS pk_val, {', '.join(agg_parts)}
+                    FROM {safe_linked}
+                    WHERE CAST({safe_fk} AS TEXT) IN ({pk_placeholders})
+                    GROUP BY CAST({safe_fk} AS TEXT);
+                """
+                logger.debug(f"Agg SQL for {linked_name}: {agg_sql}")
+                agg_rows = await db_connector.query(connection_id, agg_sql, tuple(pk_list))
+                
+                # 2. Grand Totals (Entire database context - The Denominator)
+                grand_total_sql = f"SELECT COUNT(*) AS total_count"
+                for nc in numeric_cols[:8]:
+                    safe_nc = db_connector.quote_identifier(connection_id, nc)
+                    grand_total_sql += f", SUM({safe_nc}) AS grand_sum_{nc.lower().replace(' ','_')}"
+                grand_total_sql += f" FROM {safe_linked} WHERE CAST({safe_fk} AS TEXT) IN (SELECT CAST({safe_src_pk} AS TEXT) FROM {safe_src_table});"
+                logger.info(f"Grand Total Query [{linked_name}]: {grand_total_sql}")
+                
+                grand_results = await db_connector.query(connection_id, grand_total_sql)
+                grand_data = grand_results[0] if grand_results else {}
+                logger.info(f"Relationship Grand Total for {linked_name}: {grand_data}")
+
+                pk_distribution = {}
+                total_selection_rows = 0
+                
+                for row in agg_rows:
+                    pv = str(row.get("pk_val", ""))
+                    rc = int(row.get("row_count", 0))
+                    total_selection_rows += rc
+                    
+                    metrics = {"records": float(rc)}
+                    for nc in numeric_cols[:8]:
+                        key = f"sum_{nc.lower().replace(' ','_')}"
+                        try:
+                            val = row.get(key)
+                            metrics[nc] = float(val) if val is not None else 0.0
+                        except (ValueError, TypeError):
+                            metrics[nc] = 0.0
+                    pk_distribution[pv] = metrics
+                
+                # Build standard metric_nodes using GRAND TOTALS
+                metric_nodes = []
                 metric_nodes.append({
-                    "column": nc,
-                    "metric": "sum",
-                    "value": round(table_totals[nc], 2),
-                    "label": f"Σ {nc}",
+                    "column": "records",
+                    "metric": "frequency",
+                    "value": float(grand_data.get("total_count") or total_selection_rows or 1),
+                    "label": "Frequency",
                 })
 
-            return {
-                "table": linked_name,
-                "fk_column": fk_col,
-                "row_count": total_row_count,
-                "metric_nodes": metric_nodes,
-                "pk_distribution": pk_distribution, # New breakdown field
-            }
+                for nc in numeric_cols[:8]:
+                    key = f"grand_sum_{nc.lower().replace(' ','_')}"
+                    try:
+                        g_val = float(grand_data.get(key) or 1)
+                    except (ValueError, TypeError):
+                        g_val = 1.0
+                    metric_nodes.append({
+                        "column": nc,
+                        "metric": "sum",
+                        "value": round(g_val, 2),
+                        "label": f"Σ {nc}",
+                    })
 
+                return {
+                    "uid": f"{linked_name}::{fk_col}",
+                    "table": linked_name,
+                    "fk_column": fk_col,
+                    "row_count": total_selection_rows,
+                    "metric_nodes": metric_nodes,
+                    "pk_distribution": pk_distribution,
+                }
+            except Exception as e:
+                logger.warning(f"Analysis failed for {linked_name}: {e}")
+                return None
+
+        logger.info(f"Starting linked table analysis for {len(linked_list)} tables: {linked_list}")
+        # Add timeout protection for individual table aggregations
         linked_results_raw = await asyncio.gather(*[_analyze_linked_table(lt) for lt in linked_list])
         linked_results = [r for r in linked_results_raw if r is not None]
+        logger.info(f"Successfully analyzed {len(linked_results)} linked tables.")
 
-        # Gather all available columns for the sidebar
+        # Gather all available columns
         final_available = ["records"]
         for nc in src_numeric_cols:
             if nc != "records":
@@ -468,32 +591,6 @@ async def get_row_detail(
                     final_available.append(f"{t_name} > {m['column']}")
         final_available = sorted(list(set(final_available)))
 
-        # Calculate percentage share for each available column across all tables
-        # This drives the visual scale (pct) in the 3D scene
-        for col_key in final_available:
-            total_for_col = 0
-            if col_key == "records" or " > " not in col_key:
-                # Local or global standard metric
-                col_name = col_key
-                total_for_col = sum(
-                    next((m["value"] for m in r["metric_nodes"] if m["column"] == col_name), 0)
-                    for r in linked_results
-                ) or 1
-                for r in linked_results:
-                    for m in r["metric_nodes"]:
-                        if m["column"] == col_name:
-                            m["pct"] = round(m["value"] / total_for_col * 100, 1)
-            else:
-                # Specific Table > Column metric
-                t_target, col_name = col_key.split(" > ")
-                # Find the total for this column SPECIFICALLY in its target table
-                # (Since it doesn't exist in others, the total is just that table's value)
-                for r in linked_results:
-                    if r["table"] == t_target:
-                        target_m = next((m for m in r["metric_nodes"] if m["column"] == col_name), None)
-                        if target_m:
-                            target_m["pct"] = 100.0 # It owns 100% of its own specific metric share
-
         result = {
             "table": table_name,
             "pk_column": pk_column,
@@ -504,6 +601,7 @@ async def get_row_detail(
             "row_data": {str(k): str(v) for k, v in src_representative.items()},
             "linked_tables": linked_results,
             "source_distribution": src_distribution,
+            "source_totals": src_totals,
             "available_columns": final_available,
         }
         _cache_set(cache_key, result)
