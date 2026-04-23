@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
+import { useConnectionStore } from '../stores/connectionStore';
+
 const WindowManagerContext = createContext();
 
 export const useWindowManager = () => useContext(WindowManagerContext);
@@ -8,7 +10,7 @@ export const WindowManagerProvider = ({ children }) => {
     const [windows, setWindows] = useState([]);
     const [activeWindowId, setActiveWindowId] = useState(null);
     const [highestZIndex, setHighestZIndex] = useState(100);
-    const [connectionId, setConnectionId] = useState(null); // Real connection ID
+    const { connectionId, setConnectionId } = useConnectionStore();
     const [isGenerationLogVisible, setIsGenerationLogVisible] = useState(false);
 
     const openWindow = useCallback((id, title, component, defaultProps = {}) => {

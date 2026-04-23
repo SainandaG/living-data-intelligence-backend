@@ -62,6 +62,7 @@ export function useDashboard(graphRef) {
     setAiStatus, setMlInsights, setGravitySuggestions, setShowRecordGravity,
     setRlActive, toggleClusteringMethod, setColumnAliases,
   } = useIntelligenceStore();
+  const [activeConnections, setActiveConnections] = React.useState([]);
 
   // ── Router ───────────────────────────────────────────────────────────────────
   const { windows } = useWindowManager();
@@ -273,7 +274,7 @@ export function useDashboard(graphRef) {
         return { id: node.id, name: node.name, color: node.color || (node.group === 1 ? 0xfbbf24 : 0x22d3ee), size: 20 + (importance * 15) + rowBonus, pos: [node.x || Math.cos(i * 0.5) * (150 + i * 10), node.y || (Math.random() - 0.5) * 200, node.z || Math.sin(i * 0.5) * (150 + i * 10)], entity: node.entity || 'TABLE', rows: node.row_count ? node.row_count.toLocaleString() + ' Records' : 'Empty', row_count: node.row_count || 0, metrics: node.metrics || node.foreign_keys || [], columns: node.columns || [], vitality: node.vitality === undefined ? 100 : node.vitality, pulse_rate: node.pulse_rate || 0.1, glow_intensity: node.node_glow || 0.1, node_glow: node.node_glow || 0.2, importance_score: node.importance_score || 1.0, cluster: node.cluster, foreign_keys: node.foreign_keys || [], customMetrics: node.customMetrics || {}, has_upstream_deps: node.has_upstream_deps, upstream_node_ids: node.upstream_node_ids, downstream_node_ids: node.downstream_node_ids, is_anomalous: node.is_anomalous, latent_category: node.latent_category, latent_color: node.latent_color, isFactTable: node.is_fact_table, isDimensionTable: node.is_dimension_table, isSource: node.is_source, dependencyDepth: node.dependency_depth, independencyScore: node.independency_score, anomalySeverity: node.anomaly_severity, healthScore: node.health_score, affectedDownstreamCount: node.affected_downstream_count, upstreamNodeIds: node.upstream_node_ids, downstreamNodeIds: node.downstream_node_ids };
       });
       const edgesTransformed = (rawData.edges || []).map((e) => ({ ...e, type: e.type || e.relationship_category, trafficIntensity: e.traffic_intensity || 0.3, edge_glow: e.edge_glow || 1.0 }));
-      setGraphData({ nodes: nodesTransformed, edges: edgesTransformed, latent_manifold: rawData.latent_manifold || null, intelligence_stream: rawData.intelligence_stream });
+      setGraphData({ nodes: nodesTransformed, edges: edgesTransformed, latent_manifold: rawData.latent_manifold || null, intelligence_stream: rawData.intelligence_stream, connectionId: id });
       setLiveStats((prev) => ({ ...prev, activeNodes: nodesTransformed.length }));
       setTimeout(() => setAiStatus(null), STATUS_CLEAR_DELAY);
     } catch (e) { logger.error('Error fetching graph data:', e); setAiStatus(`Backend Unavailable: ${e.message}`); }
@@ -291,13 +292,41 @@ export function useDashboard(graphRef) {
       .catch((err) => { logger.error('Could not fetch system config:', err); if (!connectionId) setTimeout(() => setShowConnectModal(true), MODAL_DELAY); });
   }, [connectionId, fetchRealGraphData, setConnectionId, setShowConnectModal]);
 
+  // --- DATA SYNC: Fetch graph when connection changes from ANY source (Modal, Sidebar, Agent) ---
+  useEffect(() => {
+    // If we have a connectionId but no graph data (or data from another connection), fetch it.
+    // This handles the case where ConnectionModal sets the connectionId but doesn't trigger a fetch.
+    if (connectionId && (!graphData || graphData.nodes.length === 0 || graphData.connectionId !== connectionId)) {
+      logger.log(`[useDashboard] Connection changed to ${connectionId}, fetching graph data...`);
+      fetchRealGraphData(connectionId);
+    }
+  }, [connectionId, graphData, fetchRealGraphData]);
+
   useEffect(() => {
     if (!showConnectModal && !connectionId) {
       apiClient.get('/connections')
-        .then((conns) => { if (conns?.length > 0) { setConnectionId(conns[0].id); fetchRealGraphData(conns[0].id); } })
-        .catch((err) => logger.error('Auto-discovery failed:', err));
+        .then((conns) => {
+          if (conns?.length > 0) {
+            logger.log(`[useDashboard] Auto-selecting connection: ${conns[0].id}`);
+            setConnectionId(conns[0].id);
+          }
+        })
+        .catch((err) => logger.error('[useDashboard] Auto-discovery failed:', err));
     }
-  }, [showConnectModal, connectionId, fetchRealGraphData, setConnectionId]);
+  }, [showConnectModal, connectionId, setConnectionId]);
+
+  const fetchActiveConnections = useCallback(async () => {
+    try {
+      const data = await apiClient.get('/connections');
+      setActiveConnections(data || []);
+    } catch (e) { logger.error('Failed to fetch connections:', e); }
+  }, []);
+
+  useEffect(() => {
+    fetchActiveConnections();
+    const interval = setInterval(fetchActiveConnections, 10000);
+    return () => clearInterval(interval);
+  }, [fetchActiveConnections]);
 
   // ── Node interaction ──────────────────────────────────────────────────────────
   const handleNodeClick = useCallback((node, shiftKey = false) => {
@@ -388,7 +417,18 @@ export function useDashboard(graphRef) {
   const resolvedGraphLayoutMode = (viewMode === 'globalLatent' || viewMode === 'latent') ? 'latent' : activeLayoutMode;
 
   const sidebarProps = {
-    actions: { loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, toggleRL: handleToggleRL, rlActive, clusteringMethod, toggleClusteringMethod: handleToggleClusteringMethod, recalculateGravity: handleRecalculateGravity, navigateTo: handleNavigate },
+    actions: { 
+      loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, 
+      toggleRL: handleToggleRL, 
+      rlActive, 
+      clusteringMethod, 
+      toggleClusteringMethod: handleToggleClusteringMethod, 
+      recalculateGravity: handleRecalculateGravity, 
+      navigateTo: handleNavigate,
+      switchConnection: (id) => { setConnectionId(id); fetchRealGraphData(id); },
+      openConnectModal: () => setShowConnectModal(true),
+      activeConnections
+    },
     clusters: mlInsights?.clusters || [], onClusterClick: () => { },
     selectedNode, impactedNodes: graphData.nodes.filter((n) => n.propagationState === 'impacted'),
     mlInsights, liveStats, activeLens,

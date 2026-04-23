@@ -138,7 +138,11 @@ export const StatsDashboard = React.memo(({ stats }) => {
             {stats.activeBatteries > 0 && (
                 <div className={cn("glass-card roi-card", collapsed.roi && 'collapsed')}>
                     <div className="section-header" onClick={() => toggle('roi')} style={{ paddingBottom: '10px' }}>
-                        <div className="health-title" style={{ margin: 0, color: '#00ff88' }}>WEZU ROI Intensity</div>
+                        <div className="health-title" style={{ margin: 0, color: '#00ff88' }}>
+                            {connectionId?.includes('excel') ? 'EXCEL DATA INTENSITY' : 
+                             connectionId?.includes('file') ? 'FILE DATA INTENSITY' : 
+                             'WEZU ROI INTENSITY'}
+                        </div>
                         <span className="toggle-icon">{collapsed.roi ? '+' : '−'}</span>
                     </div>
                     {!collapsed.roi && (

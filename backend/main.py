@@ -422,6 +422,10 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=is_dev,
-        reload_excludes=["*.log", "*.tmp"] if is_dev else [],
+        reload_excludes=[
+            "*.log", "*.tmp", "*.pyc",
+            "app.log", "__pycache__",
+            "*/__pycache__/*", "*/data/*", "*/static/*",
+        ] if is_dev else [],
         log_level="info"
     )

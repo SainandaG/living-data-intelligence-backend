@@ -90,7 +90,7 @@ def mount_health_endpoints(app: FastAPI, registry):
                 steps_completed.append(f"core_metrics: status={core_metrics.get('status')}")
 
                 # Step 5: Glow Calculator
-                from visualization.glow_calculator import GlowCalculator
+                from app.visualization.glow_calculator import GlowCalculator
                 glow_calc = GlowCalculator()
                 nodes_for_calc = graph.get('nodes', [])
                 edges_for_calc = graph.get('edges', [])

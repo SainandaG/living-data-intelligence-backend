@@ -167,6 +167,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
             .catch(e => {
                 console.error("MultiTable Rows Fetch Error:", e);
                 setRowsLoading(false);
+                setDetailLoading(false); // Clear if this was part of an initial load
             });
     }, [connectionId, schemaData]);
 
@@ -293,6 +294,9 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
     useEffect(() => {
         if (level === 2 && rowsData?.rows?.length > 0 && !rowDetailData && detailLoading && multiSelectedRows.length === 0) {
             fetchDetail(rowsData.rows);
+        } else if (level === 2 && rowsData?.rows?.length === 0 && detailLoading) {
+            // No rows to fetch detail for
+            setDetailLoading(false);
         }
     }, [level, rowsData, rowDetailData, detailLoading, multiSelectedRows, fetchDetail]);
 

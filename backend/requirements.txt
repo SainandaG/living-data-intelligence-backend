@@ -45,3 +45,10 @@ shap>=0.46.0
 
 # Reporting
 reportlab==4.1.0
+
+# File-based database support (CSV / Excel uploads)
+duckdb>=0.10.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+odfpy>=1.4.1

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X } from 'lucide-react';
+import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus } from 'lucide-react';
 import CollapsiblePanel from '../UI/CollapsiblePanel';
 import { cn } from '../../utils/cn';
 import AgentStatusPanel from '../Voice/AgentStatusPanel';
@@ -172,9 +172,97 @@ const IntelPopover = ({ actions, onClose }) => (
     </motion.div>
 );
 
+/* ── Connections popover ──────────────────────────────────────────────────── */
+const ConnectionsPopover = ({ connections, activeId, onSelect, onAdd, onClose }) => (
+    <motion.div
+        initial={{ opacity: 0, x: -8, scale: 0.96 }}
+        animate={{ opacity: 1, x: 0, scale: 1 }}
+        exit={{ opacity: 0, x: -8, scale: 0.96 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="absolute left-full top-0 ml-3.5 w-64 z-[6000] flex flex-col gap-3 p-4 rounded-2xl shadow-2xl"
+        style={{
+            background: 'rgba(8, 14, 14, 0.95)',
+            border: '1px solid rgba(255,255,255,0.09)',
+            backdropFilter: 'blur(28px)',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset',
+        }}
+    >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-md flex items-center justify-center bg-cyan-500/20">
+                    <HardDrive size={11} className="text-cyan-400" />
+                </div>
+                <span className="text-[11px] font-black text-white uppercase tracking-[0.15em]">Connections</span>
+            </div>
+            <button
+                onClick={onClose}
+                className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
+            >
+                <X size={12} />
+            </button>
+        </div>
+
+        {/* Connections List */}
+        <div className="space-y-1 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+            {connections.length > 0 ? (
+                connections.map(conn => (
+                    <button
+                        key={conn.id}
+                        onClick={() => { onSelect(conn.id); onClose(); }}
+                        className={cn(
+                            "w-full flex flex-col items-start p-2.5 rounded-xl border transition-all text-left group",
+                            conn.id === activeId
+                                ? "bg-cyan-500/10 border-cyan-500/30 ring-1 ring-cyan-500/20"
+                                : "bg-white/5 border-white/5 hover:border-white/20 hover:bg-white/8"
+                        )}
+                    >
+                        <div className="flex items-center justify-between w-full mb-1">
+                            <span className={cn(
+                                "text-[11px] font-bold",
+                                conn.id === activeId ? "text-cyan-400" : "text-white"
+                            )}>
+                                {conn.database}
+                            </span>
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-500 px-1.5 py-0.5 rounded bg-black/40">
+                                {conn.type}
+                            </span>
+                        </div>
+                        <div className="text-[9px] text-slate-500 font-mono truncate w-full">
+                            ID: {conn.id.substring(0, 12)}...
+                        </div>
+                        {conn.id === activeId && (
+                            <div className="mt-1 flex items-center gap-1.5">
+                                <div className="w-1 h-1 rounded-full bg-cyan-400 animate-pulse" />
+                                <span className="text-[8px] font-bold text-cyan-500/80 uppercase tracking-widest">Active</span>
+                            </div>
+                        )}
+                    </button>
+                ))
+            ) : (
+                <div className="py-8 text-center">
+                    <p className="text-[10px] text-slate-500 italic">No active connections</p>
+                </div>
+            )}
+        </div>
+
+        <RailSep />
+
+        {/* Add Connection */}
+        <button
+            onClick={() => { onAdd(); onClose(); }}
+            className="w-full py-2.5 rounded-xl text-[11px] font-bold text-white bg-cyan-500 hover:bg-cyan-400 flex items-center justify-center gap-2 transition-all shadow-lg shadow-cyan-500/20"
+        >
+            <Plus size={14} />
+            Add Connection
+        </button>
+    </motion.div>
+);
+
 /* ── Left sidebar ──────────────────────────────────────────────────────────── */
 const LeftSidebar = React.memo(({ actions }) => {
     const [showIntelMenu, setShowIntelMenu] = useState(false);
+    const [showConnMenu, setShowConnMenu] = useState(false);
     const [isAgentHubOpen, setIsAgentHubOpen] = useState(false);
 
     React.useEffect(() => {
@@ -215,10 +303,38 @@ const LeftSidebar = React.memo(({ actions }) => {
             {/* ── Primary actions ────────────────────────── */}
             <RailButton
                 icon={Database}
-                label="Load System"
+                label="Manage Connection"
                 hint="⌘L"
                 onClick={actions.loadSystem}
             />
+
+            <div className="relative w-full flex justify-center">
+                <RailButton
+                    icon={HardDrive}
+                    label="Switch Database"
+                    accentColor="#22d3ee"
+                    active={showConnMenu}
+                    onClick={() => {
+                        const next = !showConnMenu;
+                        setShowConnMenu(next);
+                        if (next) {
+                            setShowIntelMenu(false);
+                            window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
+                        }
+                    }}
+                />
+                <AnimatePresence>
+                    {showConnMenu && (
+                        <ConnectionsPopover
+                            connections={actions.activeConnections || []}
+                            activeId={actions.connectionId}
+                            onSelect={actions.switchConnection}
+                            onAdd={actions.openConnectModal}
+                            onClose={() => setShowConnMenu(false)}
+                        />
+                    )}
+                </AnimatePresence>
+            </div>
 
             <RailButton
                 icon={Share2}

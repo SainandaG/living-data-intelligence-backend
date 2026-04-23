@@ -40,6 +40,26 @@ class RealtimeMonitor:
 
     async def get_realtime_data(self, connection_id: str, table_name: str = None) -> dict:
         """Get real-time metrics with intelligence analysis. If table_name is provided, include node-specific analysis."""
+        # File connections (CSV/Excel) don't support DB-level metrics — return safe defaults immediately
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                return {
+                    'type': 'metrics_update',
+                    'timestamp': datetime.now().isoformat(),
+                    'data': {'transaction_rate': 0, 'total_transactions': 0, 'fraud_alerts': 0,
+                             'average_amount': 0, 'failed_transactions': 0, 'active_connections': 1,
+                             'cache_hit_rate': 100.0, 'active_batteries': 0, 'online_stations': 0,
+                             'network_health': 100, 'energy_alerts': 0},
+                    'health': {'state': 'healthy', 'score': 100, 'color': '#00ff88', 'issues': [],
+                               'visual_config': {'pulse_speed': 1.0, 'glow_intensity': 0.4}},
+                    'anomalies': [],
+                    'ai_stats': {},
+                    'node_metrics': None,
+                }
+        except Exception:
+            pass
+
         try:
             current_time = time.time()
             last_update = self.last_metrics_update.get(connection_id, 0)
@@ -557,6 +577,14 @@ class RealtimeMonitor:
 
     async def get_wezu_node_data(self, connection_id: str) -> Dict[str, Any]:
         """Fetch WEZU-specific business metrics for for 3D Latent Mapping"""
+        # File connections don't have batteries/stations tables — skip immediately
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                return {}
+        except Exception:
+            pass
+
         try:
             db_info = db_connector.get_connection(connection_id)
             db_type = db_info['type']

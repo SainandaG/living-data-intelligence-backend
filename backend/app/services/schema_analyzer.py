@@ -42,6 +42,15 @@ class SchemaAnalyzer:
         if connection_id in self.analysis_results and self._is_cache_fresh(connection_id):
             return self.analysis_results[connection_id]
 
+        # Short-circuit for file-based connections (CSV / Excel)
+        from app.services import file_connector as _fc
+        if _fc.is_file_connection(connection_id):
+            schema = _fc.build_schema_for_file(connection_id)
+            self.analysis_results[connection_id] = schema
+            self._cached_at[connection_id] = __import__('time').time()
+            return schema
+
+
         connection = db_connector.get_connection(connection_id)
         db_type = connection['type']
         

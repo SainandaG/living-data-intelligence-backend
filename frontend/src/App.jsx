@@ -134,7 +134,9 @@ const MainDashboard = () => {
           <ErrorBoundary key={d.threeGraphKey} fallback={(_, reset) => <ThreeGraphFallback reset={() => { reset(); d.incrementThreeGraphKey(); }} />} onError={(err) => logger.error('3D engine crashed:', err)}>
             <Suspense fallback={<GraphOverlaySkeleton />}>
               {d.resolvedGraphLayoutMode === 'spin_expand' ? (
-                <ThreeGraphSpinExpand ref={graphRef} data={d.graphData}
+                <ThreeGraphSpinExpand 
+                  key={`${d.threeGraphKey}-${d.connectionId}`}
+                  ref={graphRef} data={d.graphData}
                   onNodeClick={d.handleNodeClick} onNodeHover={d.setHoveredNode}
                   onEdgeHover={(edge) => { d.setHoveredEdge(edge); if (edge) d.setHoveredEdgePos(edge.mousePos); }}
                   activeLens={d.activeLens}

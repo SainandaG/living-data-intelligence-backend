@@ -38,7 +38,7 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_required("app.api.hierarchy", prefix="/api", tags=["hierarchy"], dependencies=auth_dep)
     registry.register_required("app.api.internal_node", prefix="/api", tags=["internal-node"], dependencies=auth_dep)
     registry.register_required("app.api.ai", prefix="/api/ai", tags=["ai"], dependencies=auth_dep)
-    registry.register_required("app.api.agent", dependencies=auth_dep)
+    registry.register_optional("app.api.agent", dependencies=auth_dep)  # optional: torch DLL may fail on Windows
     # ── Optional Routers ─────────────────────────────────────────────────────
     registry.register_optional("app.api.latent_stream", tags=["latent_stream"], dependencies=auth_dep)
     registry.register_required("app.api.websocket")  # WS token validated inside its own route
@@ -59,6 +59,9 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_optional("app.api.simulation", prefix="/api", tags=["simulation"], dependencies=auth_dep)
     registry.register_optional("app.api.seeder_api", prefix="/api", tags=["seeder"], dependencies=auth_dep)
     registry.register_optional("app.api.table_groups", prefix="/api", tags=["table-groups"], dependencies=auth_dep)
+
+    # ── File Upload (CSV / Excel as database) ────────────────────────────────
+    registry.register_optional("app.api.file_upload", prefix="/api/files", tags=["file-upload"], dependencies=auth_dep)
 
     # ── APEX Platform Routers ─────────────────────────────────────────────────
     registry.register_optional("app.api.apex_agent",  tags=["apex-agent"],  dependencies=auth_dep)
