@@ -47,6 +47,14 @@ def configure_logging(level: int = logging.INFO) -> None:
     # Remove any existing handlers (e.g. from basicConfig) to avoid duplicate lines
     root.handlers.clear()
     root.addHandler(handler)
+    
+    # Only add FileHandler in non-development environments to prevent infinite restart loops
+    if os.getenv("APP_ENV", "development") != "development":
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler("app.log", maxBytes=5*1024*1024, backupCount=3)
+        file_handler.setFormatter(logging.Formatter(log_format, datefmt="%Y-%m-%dT%H:%M:%S"))
+        file_handler.addFilter(request_filter)
+        root.addHandler(file_handler)
 
     # Quieten noisy third-party loggers
     for noisy in ("uvicorn.access", "httpx", "asyncpg"):

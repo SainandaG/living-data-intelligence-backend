@@ -11,7 +11,7 @@ class StatusResponse(BaseModel):
     message: str
 
 class ConnectionRequest(BaseModel):
-    db_type: Literal["postgresql", "postgres", "mysql", "mongodb", "neon", "neon_db"]
+    db_type: Literal["postgresql", "postgres", "mysql", "mongodb", "neon", "neon_db", "csv", "excel"]
     host: str = Field(..., min_length=3, max_length=253)
     port: int = Field(..., ge=1, le=65535)
     database: str = Field(..., min_length=1, max_length=128, pattern=r'^[a-zA-Z0-9_\-]+$')

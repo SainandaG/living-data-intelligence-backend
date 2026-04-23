@@ -236,8 +236,8 @@ class DatabaseConnector:
             raise ImportError("No MongoDB driver installed. Install 'motor' (recommended) or 'pymongo'.")
 
     def list_connections(self) -> List[Dict[str, Any]]:
-        """List all active connections"""
-        return [
+        """List all active connections (DB + file-based)"""
+        db_list = [
             {
                 'id': conn['id'],
                 'type': conn['type'],
@@ -246,9 +246,22 @@ class DatabaseConnector:
             }
             for conn in self.connections.values()
         ]
+        try:
+            from app.services import file_connector as _fc
+            return db_list + _fc.list_connections()
+        except Exception:
+            return db_list
 
     def get_connection(self, connection_id: str) -> Dict[str, Any]:
-        """Get connection by ID with better error reporting"""
+        """Get connection by ID with better error reporting (includes file-based connections)"""
+        # Delegate to file connector transparently
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                return _fc.get_connection(connection_id)
+        except Exception:
+            pass
+
         if connection_id not in self.connections:
             available = list(self.connections.keys())
             logger.error(f"❌ Connection {connection_id} not found. Available: {available}")
@@ -265,6 +278,20 @@ class DatabaseConnector:
 
     async def query(self, connection_id: str, sql: str, params: tuple = ()):
         """Execute an asynchronous query and return results directly from the pool"""
+        # [FIX] Pre-convert placeholders so delegated connectors (DuckDB) get standard $1, $2 format
+        if params and "%s" in sql:
+            sql = self._convert_psycopg2_to_asyncpg_params(sql)
+
+        # Delegate file-based connections (CSV/Excel) to file_connector
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                return await _fc.query_file(connection_id, sql, params)
+        except Exception as _fc_err:
+            if 'file_' in str(connection_id):
+                raise  # re-raise only for obvious file connection IDs
+
+
         start_time = time.perf_counter()
         
         try:
@@ -287,8 +314,6 @@ class DatabaseConnector:
                 logger.debug(f"Pool {connection_id} status: {client.get_size()}/{client.get_max_size()}")
             
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
-                # Replace synchronous %s interpolators with asyncpg's positional $1, $2 params
-                sql = self._convert_psycopg2_to_asyncpg_params(sql)
                 async with connection['client'].acquire() as conn:
                     if params:
                         records = await conn.fetch(sql, *params)
@@ -352,6 +377,14 @@ class DatabaseConnector:
 
     async def close(self, connection_id: str):
         """Close a specific async pool"""
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                await _fc.close_connection(connection_id)
+                return
+        except Exception:
+            pass
+
         if connection_id in self.connections:
             connection = self.connections[connection_id]
             try:

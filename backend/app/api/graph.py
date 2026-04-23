@@ -225,11 +225,18 @@ async def get_graph(connection_id: str):
             manifold_data,
         )
 
+    except HTTPException:
+        raise
+    except (ValueError, KeyError) as e:
+        error_msg = str(e)
+        logger.error(f"Error generating graph for {connection_id}: {error_msg}", exc_info=True)
+        # Only raise 404 for explicit "not found" errors from connection lookups
+        if "not found" in error_msg.lower() and "connect" in error_msg.lower():
+            raise HTTPException(status_code=404, detail="Connection not found. Please re-connect.")
+        raise HTTPException(status_code=500, detail=f"Graph generation failed: {error_msg}")
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error generating graph for {connection_id}: {error_msg}", exc_info=True)
-        if "not found" in error_msg.lower() or "connection" in error_msg.lower():
-            raise HTTPException(status_code=404, detail="Connection not found. Please re-connect.")
         raise HTTPException(status_code=500, detail=f"Graph generation failed: {error_msg}")
 
 

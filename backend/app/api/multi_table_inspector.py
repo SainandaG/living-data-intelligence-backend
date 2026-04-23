@@ -172,11 +172,18 @@ async def get_table_rows(
             raise HTTPException(status_code=404, detail=f"Table {table_name} not found")
 
         cols = tbl_schema.columns or []
+        col_names = {c.name for c in cols}
 
-        # Auto-detect pk if not provided
-        if not pk_column:
+        # Validate pk_column — frontend may send a generic name like 'id' that doesn't exist.
+        # Always check against real schema; override if the column is missing.
+        if not pk_column or pk_column not in col_names:
             pk_col_obj = next((c for c in cols if c.is_pk), None)
-            pk_column = pk_col_obj.name if pk_col_obj else (cols[0].name if cols else "id")
+            if pk_column and pk_column not in col_names:
+                logger.warning(
+                    f"pk_column='{pk_column}' not found in {table_name} "
+                    f"(available: {sorted(col_names)[:8]}). Auto-detecting from schema."
+                )
+            pk_column = (pk_col_obj.name if pk_col_obj else (cols[0].name if cols else "id"))
 
         # Find best display column (first non-pk text/varchar column)
         display_col = None
@@ -302,7 +309,11 @@ async def get_table_rows(
             rows = await db_connector.query(connection_id, sql_to_run, tuple(query_params))
         except Exception as e:
             logger.warning(f"Activity query failed for {table_name}, falling back: {e}")
-            rows = await db_connector.query(connection_id, fallback_sql, tuple(query_params))
+            try:
+                rows = await db_connector.query(connection_id, fallback_sql, tuple(query_params))
+            except Exception as e2:
+                logger.error(f"Fallback query also failed for {table_name}: {e2}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Could not fetch rows for '{table_name}': {e2}")
 
         # Compute max activity for % sizing
         max_activity = max((float(r.get("total_activity", 0)) for r in rows), default=1) or 1
@@ -398,14 +409,21 @@ async def get_row_detail(
         except AttributeError:
             schema = await schema_analyzer.analyze_schema(connection_id)
         
-        if not schema:
-            logger.error(f"Schema not found for connection {connection_id}")
-            raise HTTPException(status_code=404, detail="Schema not found")
-
-        # Get columns for the source row (display fields)
+        # Find source table schema
         src_schema = next((t for t in schema.tables if t.name == table_name), None)
         if not src_schema:
-            raise HTTPException(status_code=404, detail=f"Table {table_name} not found")
+            raise HTTPException(status_code=404, detail=f"Table {table_name} not found in schema")
+
+        # Validate pk_column — frontend may send a generic name like 'id' that doesn't exist.
+        col_names = [c.name for c in (src_schema.columns or [])]
+        if not pk_column or pk_column not in col_names:
+            pk_col_obj = next((c for c in (src_schema.columns or []) if c.is_pk), None)
+            if pk_column and pk_column not in col_names:
+                logger.warning(
+                    f"pk_column='{pk_column}' not found in {table_name} "
+                    f"(available: {sorted(col_names)[:8]}). Auto-detecting from schema."
+                )
+            pk_column = (pk_col_obj.name if pk_col_obj else (src_schema.columns[0].name if src_schema.columns else "id"))
 
         safe_src_table = db_connector.quote_identifier(connection_id, table_name)
         safe_src_pk = db_connector.quote_identifier(connection_id, pk_column)
@@ -418,7 +436,7 @@ async def get_row_detail(
         logger.debug(f"Source row SQL: {src_row_sql} with params {pk_list}")
         src_all_rows = await db_connector.query(connection_id, src_row_sql, tuple(pk_list))
         src_representative = src_all_rows[0] if src_all_rows else {}
-        logger.info(f"Fetched {len(src_all_rows)} source rows.")
+        logger.info(f"Fetched {len(src_all_rows)} source rows for PKs {pk_list[:3]}...")
 
         # Identify numeric columns in source table for pivoting
         src_numeric_cols = [
@@ -466,20 +484,40 @@ async def get_row_detail(
                 if not linked_schema:
                     return None
 
-                # Find FK column pointing to our table
-                fk_col = None
+                # Find relationship between our source table and this linked table
+                # Case A: Linked table has FK to our table (One-to-Many, e.g. Customer -> Orders)
+                # Case B: Our table has FK to linked table (Many-to-One, e.g. Order -> Customer)
+                
+                fk_col = None      # The column in the LINKED table we'll use for filtering
+                src_key_col = None # The column in the SOURCE table we'll use in the subquery
+                
+                # Try Case A first: Linked table points to us
                 for fk in (linked_schema.foreign_keys or []):
-                    if fk.referenced_table == table_name and fk.referenced_column == pk_column:
+                    if fk.referenced_table == table_name:
                         fk_col = fk.column
+                        src_key_col = fk.referenced_column
                         break
-
+                
+                # If not found, try Case B: We point to linked table
                 if not fk_col:
-                    for fk in (linked_schema.foreign_keys or []):
-                        if fk.referenced_table == table_name:
-                            fk_col = fk.column
+                    for fk in (src_schema.foreign_keys or []):
+                        if fk.referenced_table == linked_name:
+                            fk_col = fk.referenced_column
+                            src_key_col = fk.column
                             break
-
+                
+                # If still no relationship found, try heuristic name match (for file connections)
                 if not fk_col:
+                    linked_pks = [c.name for c in (linked_schema.columns or []) if c.is_pk]
+                    if linked_pks:
+                        pk_of_linked = linked_pks[0]
+                        src_cols = [c.name for c in (src_schema.columns or [])]
+                        if pk_of_linked in src_cols:
+                            fk_col = pk_of_linked
+                            src_key_col = pk_of_linked
+
+                if not fk_col or not src_key_col:
+                    logger.debug(f"No clear relationship found between {table_name} and {linked_name}")
                     return None
 
                 numeric_cols = [
@@ -491,6 +529,15 @@ async def get_row_detail(
 
                 safe_linked = db_connector.quote_identifier(connection_id, linked_name)
                 safe_fk = db_connector.quote_identifier(connection_id, fk_col)
+                safe_src_key = db_connector.quote_identifier(connection_id, src_key_col)
+
+                # Get the actual values for the source key columns for the selected PKs
+                # We need these for the agg_sql IN clause
+                src_key_values = [str(row.get(src_key_col)) for row in src_all_rows if row.get(src_key_col) is not None]
+                if not src_key_values:
+                    return None
+                
+                key_placeholders = ", ".join(["%s"] * len(src_key_values))
 
                 # 1. Selection Aggregation (What is selected)
                 agg_parts = [f"COUNT(*) AS row_count"]
@@ -500,20 +547,27 @@ async def get_row_detail(
                     agg_parts.append(f"AVG({safe_nc}) AS avg_{nc.lower().replace(' ','_')}")
 
                 agg_sql = f"""
-                    SELECT CAST({safe_fk} AS TEXT) AS pk_val, {', '.join(agg_parts)}
+                    SELECT CAST({safe_fk} AS TEXT) AS join_key, {', '.join(agg_parts)}
                     FROM {safe_linked}
-                    WHERE CAST({safe_fk} AS TEXT) IN ({pk_placeholders})
+                    WHERE CAST({safe_fk} AS TEXT) IN ({key_placeholders})
                     GROUP BY CAST({safe_fk} AS TEXT);
                 """
                 logger.debug(f"Agg SQL for {linked_name}: {agg_sql}")
-                agg_rows = await db_connector.query(connection_id, agg_sql, tuple(pk_list))
+                agg_rows = await db_connector.query(connection_id, agg_sql, tuple(src_key_values))
                 
                 # 2. Grand Totals (Entire database context - The Denominator)
+                # This should be the sum of all linked records reachable from the source table's full population
                 grand_total_sql = f"SELECT COUNT(*) AS total_count"
                 for nc in numeric_cols[:8]:
                     safe_nc = db_connector.quote_identifier(connection_id, nc)
                     grand_total_sql += f", SUM({safe_nc}) AS grand_sum_{nc.lower().replace(' ','_')}"
-                grand_total_sql += f" FROM {safe_linked} WHERE CAST({safe_fk} AS TEXT) IN (SELECT CAST({safe_src_pk} AS TEXT) FROM {safe_src_table});"
+                
+                grand_total_sql += f"""
+                    FROM {safe_linked} 
+                    WHERE CAST({safe_fk} AS TEXT) IN (
+                        SELECT DISTINCT CAST({safe_src_key} AS TEXT) FROM {safe_src_table}
+                    );
+                """
                 logger.info(f"Grand Total Query [{linked_name}]: {grand_total_sql}")
                 
                 grand_results = await db_connector.query(connection_id, grand_total_sql)
@@ -523,20 +577,27 @@ async def get_row_detail(
                 pk_distribution = {}
                 total_selection_rows = 0
                 
-                for row in agg_rows:
-                    pv = str(row.get("pk_val", ""))
-                    rc = int(row.get("row_count", 0))
-                    total_selection_rows += rc
+                # We need to map the join_key back to the original source PKs
+                # Since multiple source rows might have the same join_key (e.g. multiple orders for one customer)
+                for src_row in src_all_rows:
+                    spk = str(src_row.get(pk_column))
+                    skv = str(src_row.get(src_key_col))
                     
-                    metrics = {"records": float(rc)}
-                    for nc in numeric_cols[:8]:
-                        key = f"sum_{nc.lower().replace(' ','_')}"
-                        try:
-                            val = row.get(key)
-                            metrics[nc] = float(val) if val is not None else 0.0
-                        except (ValueError, TypeError):
-                            metrics[nc] = 0.0
-                    pk_distribution[pv] = metrics
+                    # Find the agg row that matches this source key value
+                    matching_agg = next((r for r in agg_rows if str(r.get("join_key")) == skv), None)
+                    if matching_agg:
+                        rc = int(matching_agg.get("row_count", 0))
+                        total_selection_rows += rc
+                        
+                        metrics = {"records": float(rc)}
+                        for nc in numeric_cols[:8]:
+                            key = f"sum_{nc.lower().replace(' ','_')}"
+                            try:
+                                val = matching_agg.get(key)
+                                metrics[nc] = float(val) if val is not None else 0.0
+                            except (ValueError, TypeError):
+                                metrics[nc] = 0.0
+                        pk_distribution[spk] = metrics
                 
                 # Build standard metric_nodes using GRAND TOTALS
                 metric_nodes = []
@@ -569,7 +630,7 @@ async def get_row_detail(
                     "pk_distribution": pk_distribution,
                 }
             except Exception as e:
-                logger.warning(f"Analysis failed for {linked_name}: {e}")
+                logger.warning(f"Analysis failed for {linked_name}: {e}", exc_info=True)
                 return None
 
         logger.info(f"Starting linked table analysis for {len(linked_list)} tables: {linked_list}")

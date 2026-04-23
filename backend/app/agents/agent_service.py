@@ -135,9 +135,10 @@ class AgentService:
         
         # 1. Check Neural Core for high-gravity nodes
         # If the core has learned that a certain node is important, we suggest it
-        _core_metrics = await neural_core.get_core_metrics()
+        active_conn_id = neural_core.active_connection_id
+        _core_metrics = await neural_core.get_core_metrics(active_conn_id) if active_conn_id else {}
         # Access internal gravity store directly if needed or via a method
-        gravity_store = neural_core.gravity_stores.get(neural_core.active_connection_id, {})
+        gravity_store = neural_core.gravity_stores.get(active_conn_id, {})
         top_gravity_nodes = sorted(gravity_store.items(), key=lambda x: x[1], reverse=True)[:3]
         
         for node_id, score in top_gravity_nodes:
