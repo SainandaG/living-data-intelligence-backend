@@ -318,6 +318,7 @@ def _check_data_quality(
         )
 
     # 3. High-cardinality ID columns (unique ratio > 90%)
+    high_card_cols = []
     df = pd.DataFrame(rows[:500])  # sample for speed
     for col in feature_cols:
         if col == target_col or col not in df.columns:
@@ -327,18 +328,36 @@ def _check_data_quality(
             continue
         unique_ratio = series.nunique() / len(series)
         if unique_ratio > 0.90 and not pd.api.types.is_numeric_dtype(series.dtype):
+            high_card_cols.append(col)
+
+    if len(high_card_cols) > 3:
+        warnings.append(
+            f"DATA QUALITY: {len(high_card_cols)} features look like IDs or unique identifiers "
+            f"({', '.join(high_card_cols[:3])}...). These are automatically excluded to prevent overfitting."
+        )
+    else:
+        for col in high_card_cols:
             warnings.append(
-                f"DATA QUALITY: Feature '{col}' has {series.nunique()} unique values in "
-                f"{len(series)} rows ({unique_ratio:.0%} unique) — looks like an ID or free-text column. "
+                f"DATA QUALITY: Feature '{col}' has high uniqueness — looks like an ID column. "
                 "ID columns memorise row identity, not patterns. Remove it from features."
             )
 
     # 4. Constant features (zero variance)
+    constant_cols = []
     for col in feature_cols:
         if col == target_col or col not in df.columns:
             continue
         series = df[col].dropna()
-        if pd.api.types.is_numeric_dtype(series.dtype) and series.nunique() <= 1:
+        if series.nunique() <= 1:
+            constant_cols.append(col)
+
+    if len(constant_cols) > 3:
+        warnings.append(
+            f"DATA QUALITY: {len(constant_cols)} features are constant (all values are the same) "
+            f"({', '.join(constant_cols[:3])}...). These carry no predictive information and are ignored."
+        )
+    else:
+        for col in constant_cols:
             warnings.append(
                 f"DATA QUALITY: Feature '{col}' is constant (all values are the same). "
                 "It carries no information and should be removed."
@@ -395,18 +414,18 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
 
         # Detect and skip ID-like columns (High cardinality strings/IDs/Dates)
         col_lower = col.lower()
-        is_id_ext = col_lower in ['id', 'uuid', 'pk', 'guid', 'index'] or col_lower.endswith('_id')
+        is_id_ext = col_lower in ['id', 'uuid', 'pk', 'guid', 'index', 'serial_number'] or col_lower.endswith('_id')
         
-        if not pd.api.types.is_numeric_dtype(series.dtype):
-            if n_total > 10:
-                # If it's an ID-like name AND highly unique, skip it
-                if is_id_ext and n_unique / n_total > 0.80:
-                    logger.debug("Skipping ID-like column: %s", col)
-                    continue
-                # If it's just very high cardinality (>90% unique), skip it (catches unique timestamps/text)
-                if n_unique / n_total > 0.90:
-                    logger.debug("Skipping high-cardinality column: %s", col)
-                    continue
+        if n_total > 10:
+            # If it's an ID-like name AND highly unique, skip it
+            if is_id_ext and n_unique / n_total > 0.80:
+                logger.debug("Skipping ID-like column: %s", col)
+                continue
+            # If it's just very high cardinality (>95% unique) and not purely numeric, skip it
+            # Or if it's 100% unique, even if numeric, it's likely a primary key
+            if n_unique / n_total >= 1.0 or (n_unique / n_total > 0.95 and not pd.api.types.is_numeric_dtype(series.dtype)):
+                logger.debug("Skipping high-cardinality column: %s", col)
+                continue
 
         if pd.api.types.is_numeric_dtype(series.dtype):
             med = series.median()
@@ -1318,34 +1337,36 @@ async def run_ml_analysis(req: AnalysisRequest):
                 best_h = {}
                 if len(X_internal) >= 50:
                     try:
-                        best_h, _ = hyperparameter_optimizer.optimize(
-                            req.algo, req.family, X_internal, y_internal, n_trials=5
+                        best_h, _ = await loop.run_in_executor(
+                            None, 
+                            hyperparameter_optimizer.optimize,
+                            req.algo, req.family, X_internal, y_internal, 5  # n_trials=5
                         )
                     except Exception as e:
                         logger.warning("Hyperparameter optimization failed: %s", e)
 
                 # Route to the correct engine
                 if req.algo == "pytorch_nn":
-                    return await loop.run_in_executor(
+                    metrics, fi, predictions, model, X_tr = await loop.run_in_executor(
                         None, _run_neural_net, X_internal, y_internal, req.family, feature_names_internal, best_h
                     )
                 elif req.algo == "tensorflow_nn":
-                    return await loop.run_in_executor(
+                    metrics, fi, predictions, model, X_tr = await loop.run_in_executor(
                         None, _run_tensorflow_nn, X_internal, y_internal, req.family, feature_names_internal, best_h
                     )
-                
-                if req.family == "classification":
-                    return await loop.run_in_executor(
+                elif req.family == "classification":
+                    metrics, fi, predictions, model, X_tr = await loop.run_in_executor(
                         None, _run_classification, X_internal, y_internal, req.algo, feature_names_internal, best_h
                     )
                 elif req.family == "regression":
-                    return await loop.run_in_executor(
+                    metrics, fi, predictions, model, X_tr = await loop.run_in_executor(
                         None, _run_regression, X_internal, y_internal, req.algo, feature_names_internal, best_h
                     )
                 else:
-                    return await loop.run_in_executor(
+                    metrics, fi, predictions, model, X_tr = await loop.run_in_executor(
                         None, _run_clustering, X_internal, req.algo, feature_names_internal, best_h
                     )
+                return metrics, fi, predictions, model, X_tr
 
             metrics, fi, predictions, model, X_tr = await _run_ml_core(X, y, feature_names)
             
@@ -1356,7 +1377,8 @@ async def run_ml_analysis(req: AnalysisRequest):
                 is_csv = not req.connection_id or req.connection_id == "csv"
                 ext = "keras" if req.algo == "tensorflow_nn" else ("pt" if req.algo == "pytorch_nn" else "pkl")
                 try:
-                    artifact_path = experiment_tracker.save_artifact(
+                    artifact_path = await asyncio.to_thread(
+                        experiment_tracker.save_artifact,
                         run.run_id, model, extension=ext, is_temp=is_csv
                     )
                 except Exception as e:
@@ -1510,8 +1532,10 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
             best_h = {}
             if len(X) >= 50:
                 try:
-                    best_h, _ = hyperparameter_optimizer.optimize(
-                        req.algo, req.family, X, y, n_trials=5
+                    best_h, _ = await bg_loop.run_in_executor(
+                        None, 
+                        hyperparameter_optimizer.optimize,
+                        req.algo, req.family, X, y, 5  # n_trials=5
                     )
                 except Exception as e:
                     logger.warning("Hyperparameter optimization failed, using defaults: %s", e)
@@ -1544,7 +1568,8 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
                 is_csv = not req.connection_id or req.connection_id == "csv"
                 ext = "keras" if req.algo == "tensorflow_nn" else ("pt" if req.algo == "pytorch_nn" else "pkl")
                 try:
-                    artifact_path = experiment_tracker.save_artifact(
+                    artifact_path = await asyncio.to_thread(
+                        experiment_tracker.save_artifact,
                         run.run_id, model, extension=ext, is_temp=is_csv
                     )
                 except Exception as e:
@@ -1684,14 +1709,36 @@ async def suggest_analysis(connection_id: str, table: str):
         cats = [c for c in columns if any(kw in (c.type or "").lower() for kw in
                 ["char", "varchar", "text", "bool", "enum"])]
 
+        # Fetch a small sample to detect constants and high-cardinality IDs
+        sample_rows = await _fetch_data(connection_id, table, [c.name for c in columns[:30]], n=100)
+        df_s = pd.DataFrame(sample_rows)
+        
+        usable_numeric = []
+        for c in numeric:
+            if c.name in df_s.columns:
+                s = df_s[c.name].dropna()
+                if len(s) > 0 and s.nunique() > 1: # not constant
+                    # Check if it's an ID (100% unique in sample)
+                    if not (s.nunique() / len(s) >= 1.0 and len(s) > 10):
+                        usable_numeric.append(c)
+        
+        usable_cats = []
+        for c in cats:
+            if c.name in df_s.columns:
+                s = df_s[c.name].dropna()
+                if len(s) > 0 and s.nunique() > 1: # not constant
+                    # Skip high cardinality strings
+                    if s.nunique() / len(s) < 0.90:
+                        usable_cats.append(c)
+
         # Skip ID/FK columns as regression targets — pick domain-meaningful columns first
-        _id_re = re.compile(r'^id$|_id$|^fk_', re.IGNORECASE)
+        _id_re = re.compile(r'^id$|_id$|^fk_|^pk_|^serial', re.IGNORECASE)
         _pref_re = re.compile(
             r'amount|price|rate|duration|score|count|total|soc|pct|percent|'
             r'revenue|cost|age|weight|temp|value|salary|balance|distance|health|charge',
             re.IGNORECASE,
         )
-        non_id_numeric = [c for c in numeric if not _id_re.match(c.name)]
+        non_id_numeric = [c for c in usable_numeric if not _id_re.match(c.name)]
 
         def _pick_target(candidates):
             preferred = [c for c in candidates if _pref_re.search(c.name)]
@@ -1708,21 +1755,21 @@ async def suggest_analysis(connection_id: str, table: str):
             family, algo = "regression", "xgboost"
             tgt = _pick_target(non_id_numeric)
             target = tgt.name if tgt else non_id_numeric[0].name
-            features = [c.name for c in non_id_numeric if c.name != target][:4] + [c.name for c in cats[:2]]
-            reason = (f"'{table}' has {len(non_id_numeric)} numeric columns and "
-                      f"{table_obj.row_count:,} rows. GradientBoosting excels on tabular data.")
+            features = [c.name for c in non_id_numeric if c.name != target][:4] + [c.name for c in usable_cats[:2]]
+            reason = (f"'{table}' has {len(non_id_numeric)} predictive numeric columns. "
+                      f"GradientBoosting excels on tabular data.")
             confidence = 91
-        elif cats:
+        elif usable_cats:
             family, algo = "classification", "rf_clf"
-            target = cats[0].name
-            features = [c.name for c in non_id_numeric[:4]] + [c.name for c in cats[1:3]]
-            reason = (f"Categorical target '{cats[0].name}' detected. "
+            target = usable_cats[0].name
+            features = [c.name for c in non_id_numeric[:4]] + [c.name for c in usable_cats[1:3]]
+            reason = (f"Categorical target '{usable_cats[0].name}' detected. "
                       "Random Forest handles mixed types robustly.")
             confidence = 85
         else:
             family, algo = "clustering", "kmeans"
             target = None
-            features = [c.name for c in non_id_numeric[:5]] or [c.name for c in columns[:5]]
+            features = [c.name for c in non_id_numeric[:5]] or [c.name for c in usable_numeric[:5]]
             reason = f"No clear target. K-Means will discover hidden segments in '{table}'."
             confidence = 74
 

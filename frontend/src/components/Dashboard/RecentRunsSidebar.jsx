@@ -61,7 +61,7 @@ export default function RecentRunsSidebar({ isOpen, onClose, runs, onSelectRun, 
             <p className="text-xs text-gray-500">No recent runs found for this connection.</p>
           </div>
         ) : (
-          runs.map((run) => {
+          runs.map((run, index) => {
             const Icon = ALGO_ICONS[run.family] || BarChart2;
             const colorClass = COLOR_MAP[FAMILY_COLORS[run.family]] || 'text-gray-400 bg-white/5 border-white/10';
             const date = new Date(run.created_at * 1000).toLocaleString(undefined, {
@@ -70,7 +70,7 @@ export default function RecentRunsSidebar({ isOpen, onClose, runs, onSelectRun, 
 
             return (
               <motion.button
-                key={run.run_id}
+                key={`${run.run_id}-${index}`}
                 whileHover={{ x: -4, backgroundColor: 'rgba(255,255,255,0.04)' }}
                 onClick={() => onSelectRun(run)}
                 className="w-full text-left p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] group transition-all"

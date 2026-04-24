@@ -126,6 +126,25 @@ class ExperimentTracker:
         if self._mlflow_available:
             self._log_to_mlflow(run)
 
+        # Persistence: Save snapshot to Database for Enterprise Lineage
+        if run.status == "success" and run.connection_id and run.connection_id != "csv":
+            try:
+                from app.services.db_connector import db_connector
+                sql = """
+                INSERT INTO evolution.neural_snapshots (run_id, table_name, family, algo, metrics, artifact_path, tenant_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """
+                # JSONB requires json.dumps
+                await db_connector.execute(
+                    run.connection_id, sql, 
+                    run.run_id, run.table, run.family, run.algo, 
+                    json.dumps(run.metrics), run.artifacts_path, run.tenant_id
+                )
+                logger.info("Saved neural snapshot to DB: %s", run.run_id)
+            except Exception as e:
+                # Non-critical: database snapshot failure shouldn't crash the ML job
+                logger.warning("Database neural snapshot failed (non-critical): %s", e)
+
         logger.debug("run_finish run_id=%s status=%s", run.run_id, status)
         return run
 
@@ -177,10 +196,11 @@ class ExperimentTracker:
         tenant_id: str = "default",
         limit: int = 50,
     ) -> List[Dict]:
-        runs = []
+        # Deduplicate by run_id, keeping the latest entry for each run
+        run_map = {}
         if not self._log_path.exists():
-            return runs
-        # T5-3: hold lock during read to prevent partial-line reads during rotation
+            return []
+            
         with self._lock:
             with open(self._log_path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -191,11 +211,18 @@ class ExperimentTracker:
                         rec = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    
                     if rec.get("tenant_id") != tenant_id:
                         continue
                     if experiment and rec.get("experiment") != experiment:
                         continue
-                    runs.append(rec)
+                        
+                    rid = rec.get("run_id")
+                    if rid:
+                        # Overwrite with later entries (e.g. success/failed replaces running)
+                        run_map[rid] = rec
+        
+        runs = list(run_map.values())
         # newest first
         runs.sort(key=lambda r: r.get("created_at", 0), reverse=True)
         return runs[:limit]

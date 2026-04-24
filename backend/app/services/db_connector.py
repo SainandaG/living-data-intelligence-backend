@@ -346,6 +346,49 @@ class DatabaseConnector:
             logger.error(f"FAIL: Async Query Error after {duration:.3f}s: {str(e)}")
             raise
 
+    async def execute(self, connection_id: str, sql: str, *params):
+        """Execute a non-returning query (INSERT, UPDATE, DELETE, CREATE)"""
+        # Reuse the placeholder conversion logic if needed
+        if params and "%s" in sql:
+            sql = self._convert_psycopg2_to_asyncpg_params(sql)
+
+        # Delegate file-based connections
+        try:
+            from app.services import file_connector as _fc
+            if _fc.is_file_connection(connection_id):
+                # DuckDB execute is usually same as query for our wrapper
+                return await _fc.query_file(connection_id, sql, params)
+        except Exception:
+            if 'file_' in str(connection_id):
+                raise
+
+        try:
+            connection = self.get_connection(connection_id)
+            db_type = connection['type']
+            client = connection['client']
+
+            if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
+                async with client.acquire() as conn:
+                    if params:
+                        return await conn.execute(sql, *params)
+                    else:
+                        return await conn.execute(sql)
+            
+            elif db_type == 'mysql':
+                async with client.acquire() as conn:
+                    async with conn.cursor() as cur:
+                        if params:
+                            await cur.execute(sql, params)
+                        else:
+                            await cur.execute(sql)
+                        return cur.rowcount
+            else:
+                # Fallback to query if execute not specialized
+                return await self.query(connection_id, sql, params)
+        except Exception as e:
+            logger.error(f"FAIL: Async Execute Error: {str(e)}")
+            raise
+
     async def reconnect(self, connection_id: str):
         """Reconnect a broken connection in-place, reusing the same connection_id."""
         existing = self.connections.get(connection_id)

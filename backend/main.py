@@ -166,6 +166,11 @@ async def lifespan(app: FastAPI):
         try:
             conn_info = await db_connector.connect(db_config)
             logger.info("✅ Auto-connection established.")
+            
+            # Run essential migrations (schema creation)
+            from app.services.db_migrations import run_essential_migrations
+            await run_essential_migrations(conn_info['id'])
+
             logger.info("🔥 Warming up primary database...")
             await db_connector.query(conn_info['id'], "SELECT 1")
             logger.info("✨ Primary database is warm and ready.")
