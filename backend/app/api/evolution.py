@@ -2,10 +2,11 @@
 Evolution API Endpoints
 Endpoints for temporal database genesis playback.
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from datetime import datetime
 from app.services.temporal_analyzer import temporal_analyzer
 from app.services.evolution_engine import evolution_engine
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/evolution", tags=["Evolution"])
 
 @router.get("/analyze/{connection_id}")
-async def analyze_evolution(connection_id: str):
+async def analyze_evolution(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Analyze the evolution timeline of a connected database."""
     try:
         data = await temporal_analyzer.analyze_evolution(connection_id)
@@ -23,7 +24,7 @@ async def analyze_evolution(connection_id: str):
         raise HTTPException(status_code=500, detail="Evolution analysis failed")
 
 @router.get("/timeline/{connection_id}")
-async def get_timeline(connection_id: str):
+async def get_timeline(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Get the full evolution timeline for a connection."""
     try:
         result = temporal_analyzer.get_result(connection_id)
@@ -40,7 +41,8 @@ async def get_timeline(connection_id: str):
 @router.get("/snapshot/{connection_id}")
 async def get_snapshot(
     connection_id: str, 
-    timestamp: str = Query(..., description="ISO 8601 timestamp")
+    timestamp: str = Query(..., description="ISO 8601 timestamp"),
+    _user: dict = Depends(require_role("viewer")),
 ):
     """Get a database state snapshot for a specific point in time."""
     try:
@@ -58,7 +60,8 @@ async def get_snapshot(
 @router.get("/playback/{connection_id}")
 async def get_playback_keyframes(
     connection_id: str,
-    steps: int = Query(50, ge=10, le=200)
+    steps: int = Query(50, ge=10, le=200),
+    _user: dict = Depends(require_role("viewer")),
 ):
     """Get a sequence of keyframes for smooth evolution animation."""
     try:
@@ -73,7 +76,7 @@ async def get_playback_keyframes(
         raise HTTPException(status_code=500, detail="Playback generation failed")
 
 @router.get("/analysis/table/{connection_id}/{table_name}")
-async def get_table_analysis(connection_id: str, table_name: str):
+async def get_table_analysis(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """Get deep intelligence analysis for a specific table"""
     from app.services.analysis_engine import analysis_engine
     try:
@@ -83,7 +86,7 @@ async def get_table_analysis(connection_id: str, table_name: str):
         raise HTTPException(status_code=500, detail="Table analysis failed")
 
 @router.get("/analysis/insight/{connection_id}/{table_name}")
-async def get_ai_insight(connection_id: str, table_name: str):
+async def get_ai_insight(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Generate a Groq-powered sci-fi insight for a specific table node.
     """

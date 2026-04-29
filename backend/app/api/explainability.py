@@ -3,10 +3,12 @@ Explainability API - Path Tracing & NLP Explanations
 Connects to backend/explainability/path_tracer.py
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import logging
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ if EXPLAINABILITY_AVAILABLE and USE_ADVANCED_EXPLAINABILITY:
         logger.warning(f"⚠️ PathTracer initialization failed: {e}")
 
 @router.post("/explain", response_model=ExplainResponse)
-async def explain_decision(request: ExplainRequest):
+async def explain_decision(request: ExplainRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Explain a decision using path tracing
     
@@ -93,7 +95,7 @@ async def explain_decision(request: ExplainRequest):
         raise HTTPException(status_code=500, detail="Decision explanation failed")
 
 @router.get("/status")
-async def explainability_status():
+async def explainability_status(_user: dict = Depends(require_role("viewer"))):
     """Check explainability availability"""
     return {
         "available": EXPLAINABILITY_AVAILABLE and _tracer is not None,
@@ -102,7 +104,7 @@ async def explainability_status():
     }
 
 @router.get("/justification/{connection_id}/{table_name}")
-async def get_node_justification(connection_id: str, table_name: str):
+async def get_node_justification(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """
     Get a natural language justification for a node's metrics.
     """
@@ -114,7 +116,7 @@ async def get_node_justification(connection_id: str, table_name: str):
         raise HTTPException(status_code=500, detail="Internal explainability service error")
 
 @router.post("/trace")
-async def get_reasoning_trace(request: Dict[str, Any]):
+async def get_reasoning_trace(request: Dict[str, Any], _user: dict = Depends(require_role("analyst"))):
     """
     Get a reasoning trace for an agent action.
     """
@@ -123,6 +125,13 @@ async def get_reasoning_trace(request: Dict[str, Any]):
     parameters = request.get("parameters", {})
     if not action:
         raise HTTPException(status_code=400, detail="Missing action field")
+    
+    try:
+        explanation = await xai_service.explain_agent_action(action, parameters)
+        return {"action": action, "explanation": explanation}
+    except Exception as e:
+        logger.error(f"Node justification failure: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal explainability service error")
     
     try:
         explanation = await xai_service.explain_agent_action(action, parameters)

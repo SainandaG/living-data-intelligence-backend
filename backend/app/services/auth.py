@@ -27,7 +27,7 @@ REFRESH_TOKEN_EXPIRE = 10080  # 7 days in minutes
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 Scheme (extracts token from HTTP Authorization header)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 def hash_password(password: str) -> str:
     """Hash a plaintext password"""
@@ -38,7 +38,14 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 def create_access_token(data: dict) -> str:
-    """Create a new JWT access token"""
+    """Create a new JWT access token.
+
+    Args:
+        data: Token payload dict.  Must include:
+            - **sub** (str): User email / principal identifier.
+            - **role** (str): RBAC role (viewer, editor, analyst, admin, super_admin).
+            - **tenant_id** (str): Tenant scope for multi-tenancy isolation.
+    """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE)
     to_encode.update({"exp": expire})
@@ -65,7 +72,24 @@ def verify_token(token: str) -> Optional[dict]:
         return None
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """FastAPI Dependency to enforce valid HTTP Bearer token"""
+    """FastAPI Dependency to enforce valid HTTP Bearer token.
+    
+    Respects ``DISABLE_AUTH=true`` (except in production).
+    """
+    import os
+    is_prod = os.getenv("APP_ENV", "development") == "production"
+    disable_auth = os.getenv("DISABLE_AUTH", "false").lower() == "true"
+
+    if disable_auth and not is_prod:
+        return {"sub": "disabled-auth-user", "role": "super_admin", "tenant_id": "default"}
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     payload = verify_token(token)
     if not payload:
         raise HTTPException(

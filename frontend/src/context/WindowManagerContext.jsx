@@ -9,7 +9,7 @@ export const useWindowManager = () => useContext(WindowManagerContext);
 export const WindowManagerProvider = ({ children }) => {
     const [windows, setWindows] = useState([]);
     const [activeWindowId, setActiveWindowId] = useState(null);
-    const [highestZIndex, setHighestZIndex] = useState(100);
+    const [highestZIndex, setHighestZIndex] = useState(1000);
     const { connectionId, setConnectionId } = useConnectionStore();
     const [isGenerationLogVisible, setIsGenerationLogVisible] = useState(false);
 
@@ -33,7 +33,7 @@ export const WindowManagerProvider = ({ children }) => {
                     title,
                     component,
                     isMinimized: false,
-                    isMaximized: false,
+                    isMaximized: !!defaultProps.startMaximized,
                     zIndex: highestZIndex + 1,
                     position: { x: 50 + prev.length * 20, y: 50 + prev.length * 20 },
                     // Pass connectionId to apps

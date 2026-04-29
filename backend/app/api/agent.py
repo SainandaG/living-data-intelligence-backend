@@ -2,10 +2,12 @@
 Agent API Endpoints
 Provides REST API for T0/T1 voice agent system.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import logging
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +81,7 @@ class CommandHistory(BaseModel):
 # ============ API ENDPOINTS ============
 
 @router.post("/intent", response_model=IntentResponse)
-async def process_intent(request: IntentRequest):
+async def process_intent(request: IntentRequest, _user: dict = Depends(require_role("analyst"))):
 
     """
     Process voice command text and classify intent.
@@ -99,7 +101,7 @@ async def process_intent(request: IntentRequest):
 
 
 @router.post("/execute", response_model=ExecuteResponse)
-async def execute_action(request: ExecuteRequest):
+async def execute_action(request: ExecuteRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Execute a platform action.
     
@@ -121,7 +123,7 @@ async def execute_action(request: ExecuteRequest):
 
 
 @router.get("/state", response_model=StateResponse)
-async def get_agent_state():
+async def get_agent_state(_user: dict = Depends(require_role("viewer"))):
     """
     Get current state of T0 and T1 agents.
     
@@ -138,7 +140,7 @@ async def get_agent_state():
 
 
 @router.get("/logs", response_model=CommandHistory)
-async def get_command_logs(limit: int = 10):
+async def get_command_logs(limit: int = 10, _user: dict = Depends(require_role("viewer"))):
     """
     Get recent command history.
     """
@@ -158,7 +160,7 @@ async def get_command_logs(limit: int = 10):
 
 
 @router.get("/commands")
-async def get_available_commands():
+async def get_available_commands(_user: dict = Depends(require_role("viewer"))):
     """
     Get list of available voice commands.
     
@@ -179,7 +181,7 @@ async def get_available_commands():
 
 
 @router.get("/statistics")
-async def get_agent_statistics():
+async def get_agent_statistics(_user: dict = Depends(require_role("viewer"))):
     """
     Get overall agent performance statistics.
     
@@ -197,7 +199,7 @@ async def get_agent_statistics():
 
 
 @router.post("/context/clear")
-async def clear_context():
+async def clear_context(_user: dict = Depends(require_role("admin"))):
     """
     Clear conversation context for T0 agent.
     
@@ -215,7 +217,7 @@ async def clear_context():
 
 
 @router.post("/reset")
-async def reset_agents():
+async def reset_agents(_user: dict = Depends(require_role("admin"))):
     """
     Reset both T0 and T1 agents to IDLE state.
     
@@ -236,7 +238,7 @@ async def reset_agents():
 
 
 @router.get("/command/{command_id}")
-async def get_command_details(command_id: str):
+async def get_command_details(command_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Get details of a specific command by ID.
     
@@ -263,7 +265,7 @@ async def get_command_details(command_id: str):
 
 
 @router.get("/config")
-async def get_system_config():
+async def get_system_config(_user: dict = Depends(require_role("viewer"))):
     """
     Get system configuration and feature flags.
     """

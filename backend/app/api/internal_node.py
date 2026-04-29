@@ -1,14 +1,15 @@
 """
 Internal Node API - Provides detailed column-level cluster data for Latent World visualization
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.services.rbac_service import require_role
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.get("/internal-node/clusters/{connection_id}/{table_name}")
-async def get_table_clusters(connection_id: str, table_name: str):
+async def get_table_clusters(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """
     Get column clusters for a specific table (for Internal Node / Latent World visualization)
     

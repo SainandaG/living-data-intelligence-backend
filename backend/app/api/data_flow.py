@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.data_flow_analyzer import data_flow_analyzer
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -7,7 +8,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/data-flow/{connection_id}/{table_name}")
-async def get_data_flow(connection_id: str, table_name: str):
+async def get_data_flow(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     "Get AI-analyzed data flow for a specific table"
     try:
         flow_graph = await data_flow_analyzer.analyze_table_flow(connection_id, table_name)
@@ -27,7 +28,7 @@ async def get_data_flow(connection_id: str, table_name: str):
         raise HTTPException(status_code=500, detail="Internal data flow service error")
 
 @router.get("/data-flow/path/{connection_id}/{from_table}/{to_table}")
-async def get_flow_path(connection_id: str, from_table: str, to_table: str):
+async def get_flow_path(connection_id: str, from_table: str, to_table: str, _user: dict = Depends(require_role("viewer"))):
     """Get the data flow path between two tables"""
     try:
         path = await data_flow_analyzer.get_flow_path(connection_id, from_table, to_table)

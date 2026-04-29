@@ -431,6 +431,7 @@ if __name__ == "__main__":
             "*.log", "*.tmp", "*.pyc",
             "app.log", "__pycache__",
             "*/__pycache__/*", "*/data/*", "*/static/*",
+            "*/scratch/*",
         ] if is_dev else [],
         log_level="info"
     )

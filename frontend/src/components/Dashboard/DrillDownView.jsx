@@ -10,6 +10,7 @@ import NodeFormationSimulation from '../Evolution/NodeFormationSimulation';
 import soundSystem from '../../utils/SoundSystem';
 import { logger } from '../../utils/logger';
 import ErrorBoundary from '../ErrorBoundary';
+import { authFetch } from '../../utils/apiClient';
 
 // Intelligence Panel Integration - Deep Analysis Feature
 function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initialShowSimulation = false }) {
@@ -59,7 +60,7 @@ function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initia
         const fetchFlowData = async () => {
             try {
                 setLoading(true);
-                const response = await fetch(`/api/data-flow/${connectionId}/${tableName}`);
+                const response = await authFetch(`/api/data-flow/${connectionId}/${tableName}`);
                 if (!response.ok) throw new Error('Failed to fetch flow data');
                 const data = await response.json();
                 setFlowData(data);
@@ -73,7 +74,7 @@ function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initia
 
                 // Auto-fetch records for the primary table
                 setSelectedNode(tableName);
-                const recordsResponse = await fetch(`/api/drilldown/${connectionId}/table/${tableName}?limit=10`);
+                const recordsResponse = await authFetch(`/api/drilldown/${connectionId}/table/${tableName}?limit=10`);
                 if (recordsResponse.ok) {
                     const recordsData = await recordsResponse.json();
                     if (recordsData.error) {
@@ -96,7 +97,7 @@ function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initia
     const handleNodeClick = async (nodeId) => {
         setSelectedNode(nodeId);
         try {
-            const response = await fetch(`/api/drilldown/${connectionId}/table/${nodeId}?limit=10`);
+            const response = await authFetch(`/api/drilldown/${connectionId}/table/${nodeId}?limit=10`);
             if (response.ok) {
                 const data = await response.json();
                 setRecordData(data);

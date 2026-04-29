@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.hierarchical_flow import hierarchical_flow_service
+from app.services.rbac_service import require_role
 
 router = APIRouter()
 
 @router.get("/hierarchy/{connection_id}/table/{table_name}")
-async def get_table_hierarchy(connection_id: str, table_name: str):
+async def get_table_hierarchy(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """Get hierarchical circle packing structure for a table"""
     result = await hierarchical_flow_service.get_table_hierarchy(connection_id, table_name)
     
@@ -14,7 +15,7 @@ async def get_table_hierarchy(connection_id: str, table_name: str):
     return result
 
 @router.get("/hierarchy/{connection_id}/table/{table_name}/flow")
-async def get_historical_flow(connection_id: str, table_name: str, hours: int = 24):
+async def get_historical_flow(connection_id: str, table_name: str, hours: int = 24, _user: dict = Depends(require_role("viewer"))):
     """Get historical flow data with timestamps"""
     result = await hierarchical_flow_service.get_historical_flow(connection_id, table_name, hours)
     
@@ -25,7 +26,7 @@ async def get_historical_flow(connection_id: str, table_name: str, hours: int = 
     }
 
 @router.get("/hierarchy/{connection_id}/table/{table_name}/animate/{timestamp}")
-async def get_flow_animation(connection_id: str, table_name: str, timestamp: str):
+async def get_flow_animation(connection_id: str, table_name: str, timestamp: str, _user: dict = Depends(require_role("viewer"))):
     """Get flow animation data for a specific timestamp"""
     result = await hierarchical_flow_service.get_flow_animation_data(connection_id, table_name, timestamp)
     

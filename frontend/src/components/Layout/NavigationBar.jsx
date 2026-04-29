@@ -1,5 +1,6 @@
 import { Home, GitBranch, BarChart3, Database, ChevronRight, MessageSquare, Activity, Layers, Brain, Share2, Terminal } from 'lucide-react';
 import { useWindowManager } from '../../context/WindowManagerContext';
+import { useAuthStore } from '../../stores/authStore';
 
 export default function NavigationBar({
     currentView,
@@ -112,10 +113,17 @@ export default function NavigationBar({
                     <div
                         className="w-7 h-7 rounded-full border border-black/30 flex items-center justify-center text-[10px] font-bold text-white shadow-lg relative z-10"
                         style={{ backgroundColor: persona.color, zIndex: 50 }}
-                        title={`${persona.name} (You)`}
+                        title={`${persona.name} (You) | Role: ${useAuthStore.getState().userRole?.toUpperCase()}`}
                     >
                         {persona.name.charAt(0)}
                     </div>
+
+                    {/* Role Badge for Viewers */}
+                    {useAuthStore.getState().userRole === 'viewer' && (
+                        <div className="absolute -top-3 left-0 bg-slate-500/80 text-[8px] px-1 rounded border border-white/10 text-white font-black tracking-tighter">
+                            READ_ONLY
+                        </div>
+                    )}
 
                     {/* Active Peers */}
                     {Object.entries(activePeers).slice(0, 4).map(([id, peer], idx) => (
@@ -139,7 +147,7 @@ export default function NavigationBar({
             )}
 
             {/* Copy Deep Link Button */}
-            {onShareView && (
+            {onShareView && useAuthStore.getState().canDo('editor') && (
                 <button
                     onClick={onShareView}
                     className="ml-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--primary)] bg-[var(--primary)]/10 border border-[var(--primary)]/30 hover:bg-[var(--primary)]/20 transition-all shadow-[0_0_10px_rgba(99,102,241,0.15)]"

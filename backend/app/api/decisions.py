@@ -9,9 +9,11 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ async def list_decisions(
     severity:  Optional[str] = None,
     status:    Optional[str] = None,
     limit:     int = 50,
+    _user: dict = Depends(require_role("viewer")),
 ) -> Dict[str, Any]:
     from app.services.decisions.alert_engine import alert_engine
     decisions = alert_engine.list_decisions(
@@ -61,7 +64,7 @@ async def list_decisions(
 
 
 @router.post("")
-async def create_decision(req: CreateDecisionRequest) -> Dict[str, Any]:
+async def create_decision(req: CreateDecisionRequest, _user: dict = Depends(require_role("editor"))) -> Dict[str, Any]:
     from app.services.decisions.alert_engine import alert_engine
     decision = await alert_engine.create(
         title=req.title,
@@ -81,13 +84,13 @@ async def create_decision(req: CreateDecisionRequest) -> Dict[str, Any]:
 
 
 @router.get("/stats")
-async def get_stats(tenant_id: str = "default") -> Dict[str, int]:
+async def get_stats(tenant_id: str = "default", _user: dict = Depends(require_role("viewer"))) -> Dict[str, int]:
     from app.services.decisions.alert_engine import alert_engine
     return alert_engine.stats(tenant_id=tenant_id)
 
 
 @router.get("/stream")
-async def stream_decisions(request: Request, tenant_id: str = "default"):
+async def stream_decisions(request: Request, tenant_id: str = "default", _user: dict = Depends(require_role("viewer"))):
     """
     SSE stream — pushes real-time decision events to connected clients.
 
@@ -136,7 +139,7 @@ async def stream_decisions(request: Request, tenant_id: str = "default"):
 
 
 @router.get("/{decision_id}")
-async def get_decision(decision_id: str) -> Dict[str, Any]:
+async def get_decision(decision_id: str, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
     from app.services.decisions.alert_engine import alert_engine
     decision = alert_engine.get_decision(decision_id)
     if not decision:
@@ -146,7 +149,7 @@ async def get_decision(decision_id: str) -> Dict[str, Any]:
 
 
 @router.patch("/{decision_id}/status")
-async def update_status(decision_id: str, req: UpdateStatusRequest) -> Dict[str, Any]:
+async def update_status(decision_id: str, req: UpdateStatusRequest, _user: dict = Depends(require_role("admin"))) -> Dict[str, Any]:
     valid = {"approved", "rejected", "actioned", "pending"}
     if req.status not in valid:
         raise HTTPException(status_code=422, detail=f"Status must be one of {valid}")
@@ -174,7 +177,7 @@ async def update_status(decision_id: str, req: UpdateStatusRequest) -> Dict[str,
 
 
 @router.post("/{decision_id}/dispatch")
-async def dispatch_decision(decision_id: str, req: DispatchRequest) -> Dict[str, Any]:
+async def dispatch_decision(decision_id: str, req: DispatchRequest, _user: dict = Depends(require_role("admin"))) -> Dict[str, Any]:
     """Manually trigger notifications for an existing decision."""
     from app.services.decisions.alert_engine import alert_engine
     from app.services.decisions.notification_router import notification_router

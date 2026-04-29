@@ -13,8 +13,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,7 @@ class AddEvidenceRequest(BaseModel):
 async def list_workspaces(
     tenant_id: str = "default",
     limit: int = 20,
+    _user: dict = Depends(require_role("viewer")),
 ) -> Dict[str, Any]:
     all_ws = [w for w in _workspaces.values() if w.get("tenant_id") == tenant_id]
 
@@ -101,7 +104,7 @@ async def list_workspaces(
 
 
 @router.post("")
-async def create_workspace(req: CreateWorkspaceRequest) -> Dict[str, Any]:
+async def create_workspace(req: CreateWorkspaceRequest, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
     wid = str(uuid.uuid4())
     now = time.time()
     ws = {
@@ -123,7 +126,7 @@ async def create_workspace(req: CreateWorkspaceRequest) -> Dict[str, Any]:
 
 
 @router.get("/{workspace_id}")
-async def get_workspace(workspace_id: str) -> Dict[str, Any]:
+async def get_workspace(workspace_id: str, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
     ws = _load_workspace(workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
@@ -131,7 +134,7 @@ async def get_workspace(workspace_id: str) -> Dict[str, Any]:
 
 
 @router.patch("/{workspace_id}")
-async def update_workspace(workspace_id: str, req: UpdateWorkspaceRequest) -> Dict[str, Any]:
+async def update_workspace(workspace_id: str, req: UpdateWorkspaceRequest, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
     ws = _load_workspace(workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")
@@ -182,7 +185,7 @@ async def remove_evidence(workspace_id: str, evidence_id: str) -> Dict[str, str]
 
 
 @router.delete("/{workspace_id}")
-async def delete_workspace(workspace_id: str) -> Dict[str, str]:
+async def delete_workspace(workspace_id: str, _user: dict = Depends(require_role("admin"))) -> Dict[str, str]:
     ws = _load_workspace(workspace_id)
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found.")

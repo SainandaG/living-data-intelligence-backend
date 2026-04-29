@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.models.schemas import Schema, ErrorResponse
 from app.services.schema_analyzer import schema_analyzer
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/schema/{connection_id}", response_model=Schema, responses={500: {"model": ErrorResponse}})
-async def get_schema(connection_id: str):
+async def get_schema(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Get database schema analysis"""
     try:
         schema = await schema_analyzer.analyze_schema(connection_id)

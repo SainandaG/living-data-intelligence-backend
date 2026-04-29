@@ -1,6 +1,8 @@
 import React, {
     useState, useEffect, useMemo, useRef, useCallback,
 } from 'react';
+import { logger } from '../../utils/logger';
+import { authFetch } from '../../utils/apiClient';
 import { Canvas } from '@react-three/fiber';
 import { 
     TABLE_COLORS,
@@ -116,7 +118,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
         setSchemaLoading(true);
         setSchemaError(null);
         const params = new URLSearchParams({ tables: selectedTableNames.join(',') });
-        fetch(`/api/multi-table/schema/${connectionId}?${params}`)
+        authFetch(`/api/multi-table/schema/${connectionId}?${params}`)
             .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
             .then(d => {
                 if (!d.tables || d.tables.length === 0) {
@@ -150,7 +152,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
             fk_column: incomingConnections.map(c => c.from_column).join(','),
         });
 
-        fetch(`/api/multi-table/rows/${connectionId}/${encodeURIComponent(tbl.name)}?${params}`)
+        authFetch(`/api/multi-table/rows/${connectionId}/${encodeURIComponent(tbl.name)}?${params}`)
             .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
             .then(d => { 
                 if (append) {
@@ -173,7 +175,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
 
     const loadSelections = useCallback(() => {
         if (!selectedTable || !connectionId) return;
-        fetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}`)
+        authFetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}`)
             .then(r => r.ok ? r.json() : [])
             .then(setSavedSelections)
             .catch(err => console.error("Load selections failed:", err));
@@ -187,7 +189,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
 
     const handleSaveSelection = async (title) => {
         if (!selectedTable || !connectionId) return;
-        const res = await fetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}`, {
+        const res = await authFetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -217,7 +219,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
 
     const handleDeleteSelection = async (selId) => {
         if (!selectedTable || !connectionId) return;
-        const res = await fetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}/${selId}`, {
+        const res = await authFetch(`/api/selections/${connectionId}/${encodeURIComponent(selectedTable.name)}/${selId}`, {
             method: 'DELETE'
         });
         if (res.ok) {
@@ -255,7 +257,7 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
             linked_tables: linkedTableNames.join(','),
         });
 
-        fetch(`/api/multi-table/row-detail/${connectionId}/${encodeURIComponent(selectedTable.name)}/${encodeURIComponent(pkValues)}?${params}`)
+        authFetch(`/api/multi-table/row-detail/${connectionId}/${encodeURIComponent(selectedTable.name)}/${encodeURIComponent(pkValues)}?${params}`)
             .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
                         .then(d => { 
                 setRowDetailData(d); 

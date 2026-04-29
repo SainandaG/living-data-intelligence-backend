@@ -14,7 +14,8 @@ import {
     Maximize2,
     Box
 } from 'lucide-react';
-import apiClient from '../../utils/apiClient';
+import { useRegisterCommand } from '../../context/CommandRegistryContext';
+import { authFetch } from '../../utils/apiClient';
 import {
     TABLE_COLORS,
     CombinedInspectionScene
@@ -105,7 +106,7 @@ export default function DeepSelectionPage() {
                         linked_tables: linkedTableNames.join(','),
                     });
 
-                    const detailRes = await fetch(`/api/multi-table/row-detail/${connectionId}/${encodeURIComponent(sourceTable)}/${encodeURIComponent(pksString)}?${detailParams}`);
+                    const detailRes = await authFetch(`/api/multi-table/row-detail/${connectionId}/${encodeURIComponent(sourceTable)}/${encodeURIComponent(pksString)}?${detailParams}`);
                     if (detailRes.ok) {
                         const detailData = await detailRes.json();
                         setRowDetailData(detailData);

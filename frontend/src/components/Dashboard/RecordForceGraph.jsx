@@ -223,7 +223,7 @@ const RecordForceGraph = ({ table, column, visible, onClose, connectionId }) => 
                 const url = connectionId
                     ? `/api/data/sample/${table}/${column}?connection_id=${encodeURIComponent(connectionId)}`
                     : `/api/data/sample/${table}/${column}`;
-                const response = await fetch(url);
+                const response = await authFetch(url);
                 if (response.status === 404) {
                     setServiceUnavailable(true);
                     setData([]);

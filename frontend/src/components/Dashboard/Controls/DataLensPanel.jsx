@@ -63,7 +63,7 @@ const DataLensPanel = ({ dataClusters, connectionId, onFilterChange, activeFilte
             try {
                 // Use default connection if none provided (backend handles this too)
                 const url = `/api/data/distinct/${encodeURIComponent(selectedTable)}/${encodeURIComponent(selectedCol)}${connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : ''}`;
-                const response = await fetch(url);
+                const response = await authFetch(url);
                 const data = await response.json();
 
                 if (data.success) {

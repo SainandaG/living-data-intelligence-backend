@@ -23,12 +23,13 @@ import { getLensCategories } from '../components/Dashboard/LatentSpaceLogic.jsx'
 import soundSystem from '../utils/SoundSystem';
 import { logger } from '../utils/logger';
 import { MODAL_DELAY, STATUS_CLEAR_DELAY, DRILLDOWN_CAMERA_DELAY, SHARE_TOAST_DURATION } from '../config/timing';
+const UserManagementPanel = React.lazy(() => import('../components/Admin/UserManagementPanel'));
 
 export function useDashboard(graphRef) {
   const throwAsyncError = useAsyncError();
 
   // ── Stores ───────────────────────────────────────────────────────────────────
-  const { isAuthenticated, isCheckingAuth, login, logout, initialize } = useAuthStore();
+  const { isAuthenticated, isCheckingAuth, login, logout, initialize, canDo } = useAuthStore();
   const { loading, showConnectModal, connectionId, setLoading, setShowConnectModal, setConnectionId } = useConnectionStore();
   const {
     graphData, selectedNode, hoveredNode, hoveredEdge, hoveredEdgePos,
@@ -65,7 +66,7 @@ export function useDashboard(graphRef) {
   const [activeConnections, setActiveConnections] = React.useState([]);
 
   // ── Router ───────────────────────────────────────────────────────────────────
-  const { windows } = useWindowManager();
+  const { windows, openWindow } = useWindowManager();
   const { executeCommand } = useCommandRegistry();
   const navigate = useNavigate();
   const location = useLocation();
@@ -283,6 +284,7 @@ export function useDashboard(graphRef) {
 
   // ── Initial load ──────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!isAuthenticated) return;
     apiClient.get('/agent/config')
       .then((config) => {
         window.SYSTEM_FEATURES = config.features;
@@ -290,19 +292,21 @@ export function useDashboard(graphRef) {
         else if (!connectionId) setTimeout(() => setShowConnectModal(true), MODAL_DELAY);
       })
       .catch((err) => { logger.error('Could not fetch system config:', err); if (!connectionId) setTimeout(() => setShowConnectModal(true), MODAL_DELAY); });
-  }, [connectionId, fetchRealGraphData, setConnectionId, setShowConnectModal]);
+  }, [connectionId, fetchRealGraphData, setConnectionId, setShowConnectModal, isAuthenticated]);
 
   // --- DATA SYNC: Fetch graph when connection changes from ANY source (Modal, Sidebar, Agent) ---
   useEffect(() => {
+    if (!isAuthenticated) return;
     // If we have a connectionId but no graph data (or data from another connection), fetch it.
     // This handles the case where ConnectionModal sets the connectionId but doesn't trigger a fetch.
     if (connectionId && (!graphData || graphData.nodes.length === 0 || graphData.connectionId !== connectionId)) {
       logger.log(`[useDashboard] Connection changed to ${connectionId}, fetching graph data...`);
       fetchRealGraphData(connectionId);
     }
-  }, [connectionId, graphData, fetchRealGraphData]);
+  }, [connectionId, graphData, fetchRealGraphData, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     if (!showConnectModal && !connectionId) {
       apiClient.get('/connections')
         .then((conns) => {
@@ -313,7 +317,7 @@ export function useDashboard(graphRef) {
         })
         .catch((err) => logger.error('[useDashboard] Auto-discovery failed:', err));
     }
-  }, [showConnectModal, connectionId, setConnectionId]);
+  }, [showConnectModal, connectionId, setConnectionId, isAuthenticated]);
 
   const fetchActiveConnections = useCallback(async () => {
     try {
@@ -323,10 +327,11 @@ export function useDashboard(graphRef) {
   }, []);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     fetchActiveConnections();
     const interval = setInterval(fetchActiveConnections, 10000);
     return () => clearInterval(interval);
-  }, [fetchActiveConnections]);
+  }, [fetchActiveConnections, isAuthenticated]);
 
   // ── Node interaction ──────────────────────────────────────────────────────────
   const handleNodeClick = useCallback((node, shiftKey = false) => {
@@ -404,6 +409,16 @@ export function useDashboard(graphRef) {
   useRegisterCommand('ui_audio', handleAudioCmd);
   useRegisterCommand('ui_time_machine', handleTimeMachine);
 
+  useRegisterCommand('admin.rbac', () => {
+    if (!canDo('admin')) return;
+    openWindow(
+      'rbac-manager',
+      'Security & Dynamic RBAC',
+      UserManagementPanel,
+      { width: 900, height: 650, icon: 'shield', startMaximized: true }
+    );
+  });
+
   const handleAgentAction = useCallback((result) => {
     if (!result.success || !result.result) return;
     const { instruction, target, action_type, parameters } = result.result;
@@ -417,17 +432,19 @@ export function useDashboard(graphRef) {
   const resolvedGraphLayoutMode = (viewMode === 'globalLatent' || viewMode === 'latent') ? 'latent' : activeLayoutMode;
 
   const sidebarProps = {
-    actions: { 
-      loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); }, 
-      toggleRL: handleToggleRL, 
-      rlActive, 
-      clusteringMethod, 
-      toggleClusteringMethod: handleToggleClusteringMethod, 
-      recalculateGravity: handleRecalculateGravity, 
+    actions: {
+      loadSystem: () => { if (connectionId) fetchRealGraphData(connectionId); else setShowConnectModal(true); },
+      toggleRL: handleToggleRL,
+      rlActive,
+      clusteringMethod,
+      toggleClusteringMethod: handleToggleClusteringMethod,
+      recalculateGravity: handleRecalculateGravity,
       navigateTo: handleNavigate,
       switchConnection: (id) => { setConnectionId(id); fetchRealGraphData(id); },
       openConnectModal: () => setShowConnectModal(true),
-      activeConnections
+      logout: logout,
+      activeConnections,
+      executeCommand
     },
     clusters: mlInsights?.clusters || [], onClusterClick: () => { },
     selectedNode, impactedNodes: graphData.nodes.filter((n) => n.propagationState === 'impacted'),

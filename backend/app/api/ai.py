@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from app.services.rl_optimizer import rl_optimizer
 from app.services.graph_optimizer_nx import graph_optimizer_nx
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class OptimizationRequest(BaseModel):
 from app.services.chat_service import chat_service
 
 @router.post("/chat")
-async def ai_chat(request: ChatRequest):
+async def ai_chat(request: ChatRequest, _user: dict = Depends(require_role("analyst"))):
     try:
         # Use the real AI ChatService
         result = await chat_service.generate_response(request.query, request.connection_id)
@@ -32,7 +33,7 @@ async def ai_chat(request: ChatRequest):
 
 
 @router.get("/gravity-suggestions/{connection_id}")
-async def get_gravity_suggestions(connection_id: str):
+async def get_gravity_suggestions(connection_id: str, _user: dict = Depends(require_role("analyst"))):
     """Get AI-powered suggestions for gravity recalculation"""
     from app.services.schema_analyzer import schema_analyzer
     from app.services.agent_service import agent_service
@@ -46,7 +47,7 @@ async def get_gravity_suggestions(connection_id: str):
         raise HTTPException(status_code=500, detail="Failed to retrieve AI gravity suggestions")
 
 @router.post("/optimize")
-async def optimize_system(request: OptimizationRequest):
+async def optimize_system(request: OptimizationRequest, _user: dict = Depends(require_role("editor"))):
     """
     Enable or Disable Layout Optimization with choice of clustering method.
     

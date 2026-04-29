@@ -20,9 +20,12 @@ const LoginPage = ({ onLoginSuccess }) => {
                 localStorage.setItem('token', data.access_token);
                 localStorage.setItem('refresh_token', data.refresh_token);
                 apiClient.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`;
+                
+                // data contains: { access_token, refresh_token, user: { role, permissions, ... } }
+                onLoginSuccess(data.access_token, data.user);
+                
                 // Clear password from state before handing off — don't leave credentials in memory
                 setPassword('');
-                onLoginSuccess();
             } else {
                 setError('Invalid server response');
             }

@@ -206,7 +206,7 @@ const DashboardLayout = ({
             <div className="flex flex-1 overflow-hidden p-0 gap-0 relative">
 
                 {/* FLOATING ACTION RAIL (Left) */}
-                <aside className="absolute left-6 top-6 bottom-6 w-12 flex flex-col items-center py-4 gap-4 glass-panel rounded-xl z-[6000] shadow-2xl backdrop-blur-xl border-white/5">
+                <aside className="absolute left-6 top-6 bottom-6 w-12 flex flex-col items-center py-4 gap-4 glass-panel rounded-xl z-40 shadow-2xl backdrop-blur-xl border-white/5">
 
                     <LeftSidebar {...sidebarProps} collapsed />
 

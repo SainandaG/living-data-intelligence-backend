@@ -1,11 +1,14 @@
 import json
 import os
+import ssl
 import time
 import logging
 import threading
 from fastapi import APIRouter, Request, HTTPException, status
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, Optional
+
+import asyncpg
 
 from app.services.auth import (
     create_access_token,
@@ -135,11 +138,82 @@ class RefreshRequest(BaseModel):
 
 @router.post("/login")
 async def login(request: Request, login_data: LoginRequest):
-    """Authenticate and return JWT tokens"""
-    valid_users = _get_valid_users()
-    hashed_pwd = valid_users.get(login_data.email)
+    """Authenticate and return JWT tokens.
+    
+    Respects ``DISABLE_AUTH=true`` (except in production).
+    """
+    import os
+    is_prod = os.getenv("APP_ENV", "development") == "production"
+    disable_auth = os.getenv("DISABLE_AUTH", "false").lower() == "true"
 
-    if not hashed_pwd or not verify_password(login_data.password, hashed_pwd):
+    if disable_auth and not is_prod:
+        email = login_data.email
+        token_data = {"sub": email, "role": "super_admin", "tenant_id": "default"}
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer"
+        }
+
+    email = login_data.email
+    role: str = "viewer"
+    tenant_id: str = "default"
+    authenticated = False
+
+    # ── Primary path: look up user in the platform `users` table ──────────
+    try:
+        db_host = os.getenv("DB_HOST")
+        if db_host:
+            ssl_ctx = None
+            if "neon.tech" in db_host:
+                ssl_ctx = ssl.create_default_context()
+                ssl_ctx.check_hostname = True
+                ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+
+            conn = await asyncpg.connect(
+                host=db_host,
+                port=int(os.getenv("DB_PORT", "5432")),
+                user=os.getenv("DB_USER", "postgres"),
+                password=os.getenv("DB_PASSWORD", ""),
+                database=os.getenv("DB_NAME", "wezu_backend"),
+                ssl=ssl_ctx,
+                timeout=10,
+            )
+            try:
+                row = await conn.fetchrow(
+                    "SELECT hashed_password as password_hash, role, tenant_id, is_active "
+                    "FROM users WHERE email = $1",
+                    email,
+                )
+                if row:
+                    if not row["is_active"]:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Account is deactivated",
+                        )
+                    if verify_password(login_data.password, row["password_hash"]):
+                        role = row["role"]
+                        tenant_id = row["tenant_id"]
+                        authenticated = True
+            finally:
+                await conn.close()
+    except HTTPException:
+        raise
+    except Exception as db_err:
+        logger.warning("Platform DB lookup unavailable, falling back to env: %s", db_err)
+
+    # ── Fallback: env-var bootstrap admin ──────────────────────────────────
+    if not authenticated:
+        valid_users = _get_valid_users()
+        hashed_pwd = valid_users.get(email)
+        if hashed_pwd and verify_password(login_data.password, hashed_pwd):
+            role = "admin"
+            tenant_id = "default"
+            authenticated = True
+
+    if not authenticated:
         # Do not log the email — it is PII and leaks valid account enumeration
         logger.warning("Failed login attempt from %s", request.client.host if request.client else "unknown")
         raise HTTPException(
@@ -148,19 +222,57 @@ async def login(request: Request, login_data: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(data={"sub": login_data.email})
-    refresh_token = create_refresh_token(data={"sub": login_data.email})
+    # ── Final Response ───────────────────────────────────────────────────
+    token_data = {"sub": email, "role": role, "tenant_id": tenant_id}
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
+
+    # Fetch permissions for the role if possible
+    permissions = {}
+    try:
+        if db_host:
+            ssl_ctx = None
+            if "neon.tech" in db_host:
+                ssl_ctx = ssl.create_default_context()
+                ssl_ctx.check_hostname = True
+                ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+
+            conn = await asyncpg.connect(
+                host=db_host,
+                port=int(os.getenv("DB_PORT", "5432")),
+                user=os.getenv("DB_USER", "postgres"),
+                password=os.getenv("DB_PASSWORD", ""),
+                database=os.getenv("DB_NAME", "wezu_backend"),
+                ssl=ssl_ctx,
+            )
+            try:
+                row = await conn.fetchrow("SELECT permissions FROM roles WHERE name = $1", role)
+                if row and row["permissions"]:
+                    permissions = row["permissions"]
+            finally:
+                await conn.close()
+    except Exception as e:
+        logger.warning("Could not fetch permissions for role %s: %s", role, e)
 
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user": {
+            "email": email,
+            "role": role,
+            "permissions": permissions
+        }
     }
 
 
 @router.post("/refresh")
 async def refresh_token(body: RefreshRequest):
-    """Exchange a valid refresh token for a new access token"""
+    """Exchange a valid refresh token for a new access token.
+
+    Carries role and tenant_id forward from the original token so
+    downstream middleware continues to see the correct claims.
+    """
     token = body.refresh_token
 
     if _is_revoked(token):
@@ -174,7 +286,13 @@ async def refresh_token(body: RefreshRequest):
     if not email:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    new_access_token = create_access_token(data={"sub": email})
+    # Carry forward role + tenant_id from the original refresh token
+    role = payload.get("role", "viewer")
+    tenant_id = payload.get("tenant_id", "default")
+
+    new_access_token = create_access_token(
+        data={"sub": email, "role": role, "tenant_id": tenant_id}
+    )
     return {"access_token": new_access_token}
 
 

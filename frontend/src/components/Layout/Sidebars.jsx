@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus } from 'lucide-react';
+import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus, LogOut, Shield } from 'lucide-react';
 import CollapsiblePanel from '../UI/CollapsiblePanel';
 import { cn } from '../../utils/cn';
 import AgentStatusPanel from '../Voice/AgentStatusPanel';
@@ -260,10 +260,13 @@ const ConnectionsPopover = ({ connections, activeId, onSelect, onAdd, onClose })
 );
 
 /* ── Left sidebar ──────────────────────────────────────────────────────────── */
+import { useAuthStore } from '../../stores/authStore';
+
 const LeftSidebar = React.memo(({ actions }) => {
     const [showIntelMenu, setShowIntelMenu] = useState(false);
     const [showConnMenu, setShowConnMenu] = useState(false);
     const [isAgentHubOpen, setIsAgentHubOpen] = useState(false);
+    const canDo = useAuthStore(state => state.canDo);
 
     React.useEffect(() => {
         const handleToggle = (e) => {
@@ -345,61 +348,81 @@ const LeftSidebar = React.memo(({ actions }) => {
             <RailSep />
 
             {/* ── Intelligence ───────────────────────────── */}
-            <div className="relative w-full flex justify-center">
-                <RailButton
-                    icon={Brain}
-                    label="Intelligence Core"
-                    accentColor="var(--secondary)"
-                    active={showIntelMenu}
-                    onClick={() => {
-                        const next = !showIntelMenu;
-                        setShowIntelMenu(next);
-                        if (next) window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
-                    }}
-                />
-                <AnimatePresence>
-                    {showIntelMenu && (
-                        <IntelPopover actions={actions} onClose={() => setShowIntelMenu(false)} />
-                    )}
-                </AnimatePresence>
-            </div>
+            {canDo('analyst') && (
+                <div className="relative w-full flex justify-center">
+                    <RailButton
+                        icon={Brain}
+                        label="Intelligence Core"
+                        accentColor="var(--secondary)"
+                        active={showIntelMenu}
+                        onClick={() => {
+                            const next = !showIntelMenu;
+                            setShowIntelMenu(next);
+                            if (next) window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
+                        }}
+                    />
+                    <AnimatePresence>
+                        {showIntelMenu && (
+                            <IntelPopover actions={actions} onClose={() => setShowIntelMenu(false)} />
+                        )}
+                    </AnimatePresence>
+                </div>
+            )}
 
             {/* ── Agent hub ──────────────────────────────── */}
-            <div className="relative w-full flex justify-center">
-                <RailButton
-                    icon={Bot}
-                    label="Neural Agent Hub"
-                    accentColor="#818cf8"
-                    active={isAgentHubOpen}
-                    badge={actions.activeAgentCount}
-                    onClick={() => {
-                        const next = !isAgentHubOpen;
-                        window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: next } }));
-                        if (next) setShowIntelMenu(false);
-                    }}
-                />
-                <AgentStatusPanel />
-            </div>
+            {canDo('analyst') && (
+                <div className="relative w-full flex justify-center">
+                    <RailButton
+                        icon={Bot}
+                        label="Neural Agent Hub"
+                        accentColor="#818cf8"
+                        active={isAgentHubOpen}
+                        badge={actions.activeAgentCount}
+                        onClick={() => {
+                            const next = !isAgentHubOpen;
+                            window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: next } }));
+                            if (next) setShowIntelMenu(false);
+                        }}
+                    />
+                    <AgentStatusPanel />
+                </div>
+            )}
 
             <RailSep />
 
             {/* ── Simulation ─────────────────────────────── */}
-            <RailButton
-                icon={Play}
-                label="Run Simulation"
-                accentColor="#34d399"
-                onClick={() => { }}
-            />
+            {canDo('editor') && (
+                <RailButton
+                    icon={Play}
+                    label="Run Simulation"
+                    accentColor="#34d399"
+                    onClick={() => { }}
+                />
+            )}
 
             {/* ── Spacer ─────────────────────────────────── */}
             <div className="flex-1" />
 
             {/* ── Settings (bottom) ──────────────────────── */}
             <RailSep />
+            {canDo('admin') && (
+                <RailButton
+                    icon={Shield}
+                    label="Security Matrix"
+                    accentColor="#f43f5e"
+                    onClick={() => actions.executeCommand?.('admin.rbac')}
+                />
+            )}
             <RailButton
                 icon={Settings}
                 label="Settings"
                 onClick={() => { }}
+            />
+            <RailButton
+                icon={LogOut}
+                label="Logout"
+                danger
+                onClick={actions.logout}
             />
         </div>
     );

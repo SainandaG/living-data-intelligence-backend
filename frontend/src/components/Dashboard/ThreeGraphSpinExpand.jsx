@@ -2,6 +2,8 @@ import React, {
     useRef, useMemo, useState, useEffect,
     forwardRef, useImperativeHandle, useCallback,
 } from 'react';
+import { Filter } from 'lucide-react';
+import { authFetch } from '../../utils/apiClient';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, Stars } from '@react-three/drei';
 import * as THREE from 'three';
@@ -360,18 +362,18 @@ function TableEllipsoid({ table, isSelected, isHighlighted, onClick, onHover, ta
             {isHighlighted && (
                 <mesh scale={[1.65, 1.02, 0.72]}>
                     <sphereGeometry args={[1, 32, 32]} />
-                    <meshBasicMaterial color={table.glow} transparent opacity={0.55} depthWrite={false} />
+                    <meshBasicMaterial color={table.glow} transparent opacity={0.65} depthWrite={false} />
                 </mesh>
             )}
             {/* Outer glow */}
             <mesh scale={[2.8, 1.7, 1.2]}>
                 <sphereGeometry args={[1, 32, 32]} />
-                <meshBasicMaterial color={table.glow} transparent opacity={isSelected ? 0.15 : isHighlighted ? 0.35 : isDimmed ? 0.0 : 0.07} depthWrite={false} />
+                <meshBasicMaterial color={table.glow} transparent opacity={isSelected ? 0.25 : isHighlighted ? 0.45 : isDimmed ? 0.0 : 0.18} depthWrite={false} />
             </mesh>
             {/* Mid glow */}
             <mesh scale={[2.2, 1.35, 0.95]}>
                 <sphereGeometry args={[1, 32, 32]} />
-                <meshBasicMaterial color={table.glow} transparent opacity={isSelected ? 0.2 : isHighlighted ? 0.45 : isDimmed ? 0.0 : 0.1} depthWrite={false} />
+                <meshBasicMaterial color={table.glow} transparent opacity={isSelected ? 0.35 : isHighlighted ? 0.55 : isDimmed ? 0.0 : 0.22} depthWrite={false} />
             </mesh>
             {/* Main ellipsoid */}
             <mesh
@@ -384,21 +386,21 @@ function TableEllipsoid({ table, isSelected, isHighlighted, onClick, onHover, ta
                 <meshStandardMaterial
                     color={isDimmed ? '#111111' : table.color}
                     emissive={isDimmed ? '#000000' : table.color}
-                    emissiveIntensity={hovered ? 2.0 : isHighlighted ? 1.2 : isDimmed ? 0.0 : 0.85}
-                    roughness={0.2}
-                    metalness={0.5}
+                    emissiveIntensity={hovered ? 2.5 : isHighlighted ? 1.8 : isDimmed ? 0.0 : 1.4}
+                    roughness={0.1}
+                    metalness={0.3}
                     transparent
-                    opacity={hovered ? 1.0 : isHighlighted ? 1.0 : isDimmed ? 0.06 : 0.82}
+                    opacity={hovered ? 1.0 : isHighlighted ? 1.0 : isDimmed ? 0.06 : 0.92}
                     depthWrite={false}
                 />
             </mesh>
             {/* Label */}
             <Html center distanceFactor={40} style={{ pointerEvents: 'none' }}>
                 <div style={{
-                    color: table.glow, // Premium upgrade: Use table glow instead of white
+                    color: '#ffffff',
                     textAlign: 'center',
                     fontFamily: "'Inter', system-ui, sans-serif",
-                    textShadow: `0 0 20px ${table.color}, 0 0 40px ${table.color}, 0 2px 8px rgba(0,0,0,0.8)`,
+                    textShadow: '0 0 20px rgba(0,0,0,0.8), 0 2px 8px rgba(0,0,0,0.8)',
                     whiteSpace: 'nowrap',
                     pointerEvents: 'none',
                     opacity: isDimmed ? 0.15 : 1.0,
@@ -409,12 +411,12 @@ function TableEllipsoid({ table, isSelected, isHighlighted, onClick, onHover, ta
                         fontSize: 13,
                         fontWeight: 900,
                         marginTop: 4,
-                        color: table.color,
+                        color: '#ffffff',
                         background: 'rgba(0,0,0,0.6)',
                         padding: '2px 10px',
                         borderRadius: '20px',
                         display: 'inline-block',
-                        border: `1px solid ${table.color}60`
+                        border: `1px solid rgba(255,255,255,0.3)`
                     }}>
                         {table.displayCount}
                     </div>
@@ -816,10 +818,10 @@ function NeuralCore({ tables }) {
             </mesh>
             <Html center distanceFactor={45} style={{ pointerEvents: 'none' }}>
                 <div style={{
-                    color: '#fef3c7',
+                    color: '#ffffff',
                     textAlign: 'center',
                     fontFamily: "'Inter', system-ui, sans-serif",
-                    textShadow: '0 0 20px #f59e0b, 0 0 40px #f59e0b',
+                    textShadow: '0 0 20px rgba(0,0,0,0.8), 0 0 40px rgba(0,0,0,0.6)',
                     whiteSpace: 'nowrap',
                     opacity: 0.8
                 }}>
@@ -1224,8 +1226,8 @@ function PKValueNode({ node: n }) {
                     fontFamily: "'JetBrains Mono', monospace",
                     textAlign: 'center', whiteSpace: 'nowrap',
                     fontSize: 9, fontWeight: 700,
-                    color: n.glow,
-                    textShadow: `0 0 10px ${n.glow}, 0 0 20px ${n.glow}80`,
+                    color: '#ffffff',
+                    textShadow: '0 0 10px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.6)',
                 }}>{n.label}</div>
             </Html>
         </group>
@@ -1313,15 +1315,13 @@ function FKDistNode({ node: n }) {
                 <div style={{ fontFamily: "'Inter', system-ui, sans-serif", textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <div style={{
                         fontSize: 13, fontWeight: 900, lineHeight: 1,
-                        background: `linear-gradient(90deg, ${n.refGlow}, ${n.pkGlow})`,
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        filter: `drop-shadow(0 0 6px ${n.refGlow}80)`,
+                        color: '#ffffff',
+                        textShadow: '0 0 6px rgba(0,0,0,0.8)',
                     }}>{n.pctLabel}</div>
                     {hovered && (
                         <div style={{ marginTop: 3 }}>
-                            <div style={{ fontSize: 8, fontWeight: 700, color: n.pkGlow, textShadow: `0 0 8px ${n.pkGlow}` }}>{n.pkLabel}</div>
-                            <div style={{ fontSize: 8, fontWeight: 600, color: n.refGlow, textShadow: `0 0 6px ${n.refGlow}` }}>{n.countLabel}</div>
+                            <div style={{ fontSize: 8, fontWeight: 700, color: '#ffffff', textShadow: '0 0 8px rgba(0,0,0,0.8)' }}>{n.pkLabel}</div>
+                            <div style={{ fontSize: 8, fontWeight: 600, color: '#ffffff', textShadow: '0 0 6px rgba(0,0,0,0.8)' }}>{n.countLabel}</div>
                         </div>
                     )}
                 </div>
@@ -1447,15 +1447,15 @@ function RefTableNode({ node: n }) {
                 <div style={{ fontFamily: "'Inter', system-ui, sans-serif", textAlign: 'center', whiteSpace: 'nowrap' }}>
                     <div style={{
                         fontSize: 12, fontWeight: 900,
-                        color: n.glow, // Premium upgrade: Match theme
-                        textShadow: `0 0 16px ${n.glow}, 0 0 32px ${n.glow}50`,
+                        color: '#ffffff',
+                        textShadow: '0 0 16px rgba(0,0,0,0.8), 0 0 32px rgba(0,0,0,0.5)',
                         letterSpacing: 0.5,
                     }}>{n.label}</div>
                     {n.fkColumn && (
                         <div style={{
                             fontSize: 8, fontWeight: 700, marginTop: 1,
-                            color: n.glow,
-                            textShadow: `0 0 8px ${n.glow}`,
+                            color: '#ffffff',
+                            textShadow: '0 0 8px rgba(0,0,0,0.8)',
                         }}>FK · {n.fkColumn}</div>
                     )}
                 </div>
@@ -1549,22 +1549,21 @@ function ColumnEllipsoid({ col, isHighlighted, onHover }) {
                     {col.badge && (
                         <div style={{
                             fontSize: 9, fontWeight: 900, letterSpacing: '0.12em',
-                            color: ringColor, // Match badge text to its ring color for better visual integration
+                            color: '#ffffff',
                             textTransform: 'uppercase',
                             marginBottom: 3,
-                            // PK: dark amber bg. FK: always dark navy bg (blue ring = FK identity).
-                            background: isPK ? 'rgba(90,45,0,0.90)' : 'rgba(0,10,60,0.90)',
-                            border: `1px solid ${ringColor}`,
+                            background: 'rgba(0,0,0,0.85)',
+                            border: '1px solid rgba(255,255,255,0.4)',
                             padding: '1px 6px',
                             borderRadius: 4,
-                            boxShadow: `0 0 8px ${ringColor}80`,
+                            boxShadow: '0 0 8px rgba(0,0,0,0.6)',
                             display: 'inline-block',
                         }}>{col.badge}</div>
                     )}
                     <div style={{
                         fontSize: 10, fontWeight: 700,
-                        color: col.glow, // Premium upgrade: Thematic label
-                        textShadow: `0 0 10px ${col.glow}, 0 1px 4px rgba(0,0,0,0.95)`,
+                        color: '#ffffff',
+                        textShadow: '0 0 10px rgba(0,0,0,0.8), 0 1px 4px rgba(0,0,0,0.95)',
                     }}>{col.label}</div>
                 </div>
             </Html>
@@ -1640,18 +1639,18 @@ function PhantomRefNode({ phantom: ph, isHighlighted, targetPosition }) {
                 }}>
                     <div style={{
                         fontSize: 8, fontWeight: 900, letterSpacing: '0.15em',
-                        color: ph.glow,
-                        textShadow: `0 0 8px ${ph.glow}`,
+                        color: '#ffffff',
+                        textShadow: '0 0 8px rgba(0,0,0,0.8)',
                         textTransform: 'uppercase', marginBottom: 2,
                         background: 'rgba(0,0,0,0.6)',
                         padding: '1px 6px',
                         borderRadius: 3,
-                        border: `1px solid ${ph.glow}60`,
+                        border: '1px solid rgba(255,255,255,0.3)',
                     }}>REF</div>
                     <div style={{
                         fontSize: 9, fontWeight: 700,
-                        color: isHighlighted ? '#ffffff' : ph.glow,
-                        textShadow: `0 0 10px ${ph.glow}, 0 1px 4px rgba(0,0,0,0.9)`,
+                        color: '#ffffff',
+                        textShadow: '0 0 10px rgba(0,0,0,0.8), 0 1px 4px rgba(0,0,0,0.9)',
                     }}>{ph.label}</div>
                 </div>
             </Html>
@@ -1943,7 +1942,7 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
     useEffect(() => {
         if (!connectionId || !node.id) return;
         setFreqLoading(true);
-        fetch(`/api/graph/${connectionId}/node-frequency/${encodeURIComponent(node.id)}`)
+        authFetch(`/api/graph/${connectionId}/node-frequency/${encodeURIComponent(node.id)}`)
             .then(r => r.ok ? r.json() : null)
             .then(d => { setFreqData(d); setFreqLoading(false); })
             .catch(() => setFreqLoading(false));
@@ -2002,7 +2001,7 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
 
         setPkDistLoading(true);
         pkDistLoadingRef.current = true;
-        fetch(`/api/graph/${connectionId}/pk-distribution/${encodeURIComponent(node.id)}/${encodeURIComponent(colNode.id)}`)
+        authFetch(`/api/graph/${connectionId}/pk-distribution/${encodeURIComponent(node.id)}/${encodeURIComponent(colNode.id)}`)
             .then(r => r.ok ? r.json() : null)
             .then(d => {
                 if (d) pkDistCache.current.set(colNode.id, d);
@@ -2594,7 +2593,7 @@ const ThreeGraphSpinExpand = forwardRef(({
         if (!actualConnectionId || !selectMode) return;
         setSavedGroupsLoading(true);
         try {
-            const resp = await fetch(`/api/table-groups/${actualConnectionId}`);
+            const resp = await authFetch(`/api/table-groups/${actualConnectionId}`);
             if (resp.ok) {
                 const data = await resp.json();
                 setSavedGroups(data);
@@ -2616,7 +2615,7 @@ const ThreeGraphSpinExpand = forwardRef(({
         if (!title) return;
 
         try {
-            const resp = await fetch(`/api/table-groups/${actualConnectionId}`, {
+            const resp = await authFetch(`/api/table-groups/${actualConnectionId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2636,7 +2635,7 @@ const ThreeGraphSpinExpand = forwardRef(({
         e.stopPropagation();
         if (!confirm("Delete this saved group?")) return;
         try {
-            const resp = await fetch(`/api/table-groups/${actualConnectionId}/${groupId}`, {
+            const resp = await authFetch(`/api/table-groups/${actualConnectionId}/${groupId}`, {
                 method: 'DELETE'
             });
             if (resp.ok) {

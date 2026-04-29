@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Brain, Activity, Zap, Info, Play, ChartBarIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '../../utils/logger';
+import { authFetch } from '../../utils/apiClient';
 
 export default function IntelligencePanel({ connectionId, tableName, onSimulate }) {
     const [analysis, setAnalysis] = useState(null);
@@ -13,7 +14,7 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
             try {
                 setLoading(true);
                 setError(null);
-                const response = await fetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
+                const response = await authFetch(`/api/evolution/analysis/table/${connectionId}/${tableName}`);
                 if (response.status === 404) throw new Error('Evolution service not loaded');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const data = await response.json();
@@ -38,7 +39,7 @@ export default function IntelligencePanel({ connectionId, tableName, onSimulate 
         const fetchXAI = async () => {
             if (!connectionId || !tableName) return;
             try {
-                const res = await fetch(`/api/explainability/justification/${connectionId}/${tableName}`);
+                const res = await authFetch(`/api/explainability/justification/${connectionId}/${tableName}`);
                 if (res.status === 404) return; // Explainability service not loaded
                 if (res.ok) {
                     const data = await res.json();

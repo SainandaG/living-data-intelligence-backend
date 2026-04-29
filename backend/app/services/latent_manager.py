@@ -13,15 +13,19 @@ import threading
 
 # Import the ML core
 try:
+    # Try absolute path from workspace root first
+    from backend.ml.graph_neural_core import graph_neural_core
+except ImportError:
     try:
-        from backend.ml.graph_neural_core import graph_neural_core
+        # Fallback for when backend directory is the root
+        from ml.graph_neural_core import graph_neural_core # type: ignore
     except ImportError:
         try:
-            from ml.graph_neural_core import graph_neural_core
+            # Fallback for relative import
+            from ...ml.graph_neural_core import graph_neural_core # type: ignore
         except ImportError:
-             from ...ml.graph_neural_core import graph_neural_core
-except ImportError:
-    from ml.graph_neural_core import graph_neural_core
+            logger.error("❌ Could not import graph_neural_core from any known path")
+            graph_neural_core = None # type: ignore
 
 logger = logging.getLogger(__name__)
 

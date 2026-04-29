@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
+from app.services.rbac_service import require_role
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -66,12 +68,12 @@ def _save_selections(connection_id: str, table_name: str, selections: List[Dict]
         raise HTTPException(status_code=500, detail="Failed to persist selection")
 
 @router.get("/selections/{connection_id}/{table_name}")
-async def get_selections(connection_id: str, table_name: str):
+async def get_selections(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """List all saved selections for a specific table under a connection"""
     return _load_selections(connection_id, table_name)
 
 @router.post("/selections/{connection_id}/{table_name}")
-async def save_selection(connection_id: str, table_name: str, req: CreateSelectionRequest):
+async def save_selection(connection_id: str, table_name: str, req: CreateSelectionRequest, _user: dict = Depends(require_role("editor"))):
     """Save a new multi-node selection"""
     selections = _load_selections(connection_id, table_name)
     
@@ -91,7 +93,7 @@ async def save_selection(connection_id: str, table_name: str, req: CreateSelecti
     return new_item
 
 @router.delete("/selections/{connection_id}/{table_name}/{selection_id}")
-async def delete_selection(connection_id: str, table_name: str, selection_id: str):
+async def delete_selection(connection_id: str, table_name: str, selection_id: str, _user: dict = Depends(require_role("editor"))):
     """Delete a saved selection"""
     selections = _load_selections(connection_id, table_name)
     filtered = [s for s in selections if s["id"] != selection_id]

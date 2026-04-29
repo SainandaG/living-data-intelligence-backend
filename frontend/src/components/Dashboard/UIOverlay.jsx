@@ -14,7 +14,7 @@ export const Header = React.memo(({ onConnect }) => {
         if (!connectionId) return;
         setSeeding(true);
         try {
-            const resp = await fetch(`/api/seed/${connectionId}`, { method: 'POST' });
+            const resp = await authFetch(`/api/seed/${connectionId}`, { method: 'POST' });
             if (resp.ok) {
                 alert("Database seeded successfully with temporal data!");
                 // Reload to see new tables

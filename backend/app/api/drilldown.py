@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.drill_down import drill_down_service
 from app.services.gravity_engine import gravity_engine
+from app.services.rbac_service import require_role
 from pydantic import BaseModel
 import logging
 
@@ -15,7 +16,7 @@ class GravityRequest(BaseModel):
     limit: int = 200
 
 @router.get("/drilldown/{connection_id}/table/{table_name}")
-async def get_table_records(connection_id: str, table_name: str, limit: int = 100):
+async def get_table_records(connection_id: str, table_name: str, limit: int = 100, _user: dict = Depends(require_role("viewer"))):
     """Get sample records from a table"""
     if table_name.lower() == 'hub':
         return {"columns": [], "rows": [], "total_rows": 0}
@@ -31,7 +32,7 @@ async def get_table_records(connection_id: str, table_name: str, limit: int = 10
     return result
 
 @router.get("/drilldown/{connection_id}/table/{table_name}/record/{record_id}")
-async def get_specific_record(connection_id: str, table_name: str, record_id: str):
+async def get_specific_record(connection_id: str, table_name: str, record_id: str, _user: dict = Depends(require_role("viewer"))):
     """Get a specific record by ID"""
     result = await drill_down_service.get_record_by_id(connection_id, table_name, record_id)
     
@@ -41,7 +42,7 @@ async def get_specific_record(connection_id: str, table_name: str, record_id: st
     return result
 
 @router.get("/drilldown/{connection_id}/table/{table_name}/search")
-async def search_table_records(connection_id: str, table_name: str, column: str, value: str, limit: int = 50):
+async def search_table_records(connection_id: str, table_name: str, column: str, value: str, limit: int = 50, _user: dict = Depends(require_role("viewer"))):
     """Search for records in a table"""
     result = await drill_down_service.search_table(connection_id, table_name, column, value, limit)
     
@@ -51,7 +52,7 @@ async def search_table_records(connection_id: str, table_name: str, column: str,
     return result
 
 @router.get("/drilldown/clustered-records/{connection_id}/{table_name}/{column}")
-async def get_clustered_records(connection_id: str, table_name: str, column: str):
+async def get_clustered_records(connection_id: str, table_name: str, column: str, _user: dict = Depends(require_role("viewer"))):
     """Get records clustered in 3D space with classification colors"""
     try:
         result = await drill_down_service.get_clustered_records(connection_id, table_name, column)
@@ -61,7 +62,7 @@ async def get_clustered_records(connection_id: str, table_name: str, column: str
         raise HTTPException(status_code=500, detail="Internal drill-down service error")
 
 @router.post("/gravity/calculate")
-async def calculate_gravity(request: GravityRequest):
+async def calculate_gravity(request: GravityRequest, _user: dict = Depends(require_role("editor"))):
     """Calculate Gravity scores for records in a table column"""
     try:
         results = await gravity_engine.calculate_gravity(
@@ -75,7 +76,7 @@ async def calculate_gravity(request: GravityRequest):
         logger.error(f"Gravity calculation failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Gravity calculation failed")
 @router.get("/drilldown/{connection_id}/semantic-discovery/{table_name}")
-async def get_semantic_discovery(connection_id: str, table_name: str):
+async def get_semantic_discovery(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """Get predicted semantic relationships for a table"""
     try:
         from app.services.neural_core import neural_core
@@ -93,7 +94,7 @@ async def get_semantic_discovery(connection_id: str, table_name: str):
         logger.error(f"Drilldown operation failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal drill-down service error")
 @router.get("/drilldown/{connection_id}/column-intelligence/{table_name}/{column_name}")
-async def get_column_intelligence(connection_id: str, table_name: str, column_name: str):
+async def get_column_intelligence(connection_id: str, table_name: str, column_name: str, _user: dict = Depends(require_role("analyst"))):
     """Get granular intelligence for a specific column"""
     try:
         from app.services.analysis_engine import analysis_engine # Added import for analysis_engine
@@ -129,7 +130,7 @@ async def get_column_intelligence(connection_id: str, table_name: str, column_na
         raise HTTPException(status_code=500, detail="Internal drill-down service error")
 
 @router.get("/drilldown/{connection_id}/impact-analysis/{table_name}")
-async def get_impact_analysis(connection_id: str, table_name: str):
+async def get_impact_analysis(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """Analyze the impact of an issue in a specific table"""
     try:
         from app.services.root_cause_analyzer import root_cause_analyzer

@@ -2,7 +2,8 @@
 Node X-Ray API — Aggregated deep analytics for a single table node.
 Powers the Node X-Ray overlay in the 3D Latent Space view.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.services.rbac_service import require_role
 import asyncio
 import logging
 
@@ -12,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/node-xray/{connection_id}/{table_name}")
-async def get_node_xray(connection_id: str, table_name: str):
+async def get_node_xray(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Returns comprehensive analytics for a single table node — 
     the kind of deep analysis a data analyst would normally do manually.

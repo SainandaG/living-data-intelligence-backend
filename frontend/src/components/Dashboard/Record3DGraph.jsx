@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { authFetch } from '../../utils/apiClient';
 import { useWindowManager } from '../../context/WindowManagerContext';
 import { logger } from '../../utils/logger';
 
@@ -25,7 +26,7 @@ const Record3DGraph = ({ table, column, onClose }) => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const response = await fetch(`/api/drilldown/clustered-records/${connectionId}/${table}/${column}`);
+                const response = await authFetch(`/api/drilldown/clustered-records/${connectionId}/${table}/${column}`);
                 if (!response.ok) throw new Error('Failed to fetch clustered record data');
                 const data = await response.json();
 

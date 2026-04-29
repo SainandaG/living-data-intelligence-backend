@@ -7,11 +7,13 @@ Flow:
   Level 2 → GET /multi-table/rows          → top 50 rows + search for a selected table
   Level 3 → GET /multi-table/row-detail    → full cross-table metrics for one selected row
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Dict, Any, List, Optional
 import logging
 import asyncio
 import time
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -37,6 +39,7 @@ def _cache_set(key: str, val):
 async def get_multi_table_schema(
     connection_id: str,
     tables: str = Query(..., description="Comma-separated table names"),
+    _user: dict = Depends(require_role("viewer")),
 ):
     """
     Returns metadata and FK→PK links for the selected tables.
@@ -145,6 +148,7 @@ async def get_table_rows(
     pk_column: Optional[str] = Query(None, description="PK column of this table"),
     limit: int = Query(40, description="Number of rows to fetch"),
     offset: int = Query(0, description="Number of rows to skip"),
+    _user: dict = Depends(require_role("viewer")),
 ):
     """
     Returns rows for the inner ring of the Level 2 scene.
@@ -383,6 +387,7 @@ async def get_row_detail(
     pk_values: str,
     pk_column: str = Query(...),
     linked_tables: str = Query("", description="Comma-separated linked table names"),
+    _user: dict = Depends(require_role("viewer")),
 ):
     """
     For one or MORE selected rows (e.g. products A, B, and C):
@@ -409,6 +414,10 @@ async def get_row_detail(
         except AttributeError:
             schema = await schema_analyzer.analyze_schema(connection_id)
         
+        if not schema or not hasattr(schema, "tables"):
+            logger.error(f"Failed to retrieve schema for connection {connection_id}")
+            raise HTTPException(status_code=500, detail="Schema intelligence unavailable for this connection")
+
         # Find source table schema
         src_schema = next((t for t in schema.tables if t.name == table_name), None)
         if not src_schema:

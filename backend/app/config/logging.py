@@ -48,8 +48,8 @@ def configure_logging(level: int = logging.INFO) -> None:
     root.handlers.clear()
     root.addHandler(handler)
     
-    # Only add FileHandler in non-development environments to prevent infinite restart loops
-    if os.getenv("APP_ENV", "development") != "development":
+    # Always add FileHandler to capture logs even in development
+    if True:
         from logging.handlers import RotatingFileHandler
         file_handler = RotatingFileHandler("app.log", maxBytes=5*1024*1024, backupCount=3)
         file_handler.setFormatter(logging.Formatter(log_format, datefmt="%Y-%m-%dT%H:%M:%S"))

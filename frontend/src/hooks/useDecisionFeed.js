@@ -63,7 +63,7 @@ export function useDecisionFeed({ tenantId = 'default', autoStart = true } = {})
         const headers = { Accept: 'text/event-stream' };
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        const resp = await fetch(
+        const resp = await authFetch(
           `${baseUrl}/decisions/stream?tenant_id=${encodeURIComponent(tenantId)}`,
           { headers, signal: controller.signal },
         );

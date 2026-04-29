@@ -3,24 +3,38 @@ ML API - Graph Neural Network Endpoints
 Connects to backend/ml/graph_neural_core.py
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import logging
 
+from app.services.rbac_service import require_role
+
 logger = logging.getLogger(__name__)
 
-# Import the GNN that exists but is orphaned
+import os
+import sys
+
+# Ensure the backend root is in sys.path so 'ml' and 'app' can be imported absolutely
+# regardless of whether the process was started from the root or the backend directory.
+_backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _backend_root not in sys.path:
+    sys.path.append(_backend_root)
+
 try:
-    try:
-        from ml.graph_neural_core import GraphNeuralCore
-    except ImportError:
-        from backend.ml.graph_neural_core import GraphNeuralCore
+    # Try the absolute path from the workspace root (fixes IDE warnings)
+    # This works because we added backend/__init__.py
+    from backend.ml.graph_neural_core import GraphNeuralCore
     GNN_AVAILABLE = True
 except ImportError:
-    GNN_AVAILABLE = False
-    logger.warning("⚠️ Warning: GraphNeuralCore not available")
+    try:
+        # Fallback for when the backend directory is the search root
+        from ml.graph_neural_core import GraphNeuralCore # type: ignore
+        GNN_AVAILABLE = True
+    except ImportError:
+        GNN_AVAILABLE = False
+        logger.warning("⚠️ Warning: GraphNeuralCore not available")
 
-from ..config.feature_flags import USE_GNN_INFERENCE
+from app.config.feature_flags import USE_GNN_INFERENCE
 
 router = APIRouter(prefix="/api/ml", tags=["machine-learning"])
 
@@ -48,7 +62,7 @@ if GNN_AVAILABLE and USE_GNN_INFERENCE:
         logger.warning(f"⚠️ GNN initialization failed: {e}")
 
 @router.post("/gnn/predict", response_model=NodePredictionResponse)
-async def predict_node_importance(request: NodePredictionRequest):
+async def predict_node_importance(request: NodePredictionRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Predict node importance using Graph Neural Network
     
@@ -117,7 +131,7 @@ async def predict_node_importance(request: NodePredictionRequest):
         raise HTTPException(status_code=500, detail="GNN inference error")
 
 @router.post("/gnn/predict/batch")
-async def predict_batch_importance(request: BatchPredictionRequest):
+async def predict_batch_importance(request: BatchPredictionRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Batch predict importance for multiple nodes
     
@@ -149,7 +163,7 @@ async def predict_batch_importance(request: BatchPredictionRequest):
         raise HTTPException(status_code=500, detail="GNN batch inference error")
 
 @router.get("/gnn/status")
-async def gnn_status():
+async def gnn_status(_user: dict = Depends(require_role("analyst"))):
     """Check GNN availability and status"""
     return {
         "available": GNN_AVAILABLE and _gnn is not None,

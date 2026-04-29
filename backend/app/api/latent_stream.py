@@ -1,6 +1,8 @@
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, WebSocket, Depends
 import asyncio
 import logging
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,6 +47,6 @@ class TestDiffPayload(BaseModel):
     changed_fields: dict
 
 @router.post("/api/test-emit/{node_id}")
-async def test_emit_route(node_id: str, payload: TestDiffPayload):
+async def test_emit_route(node_id: str, payload: TestDiffPayload, _user: dict = Depends(require_role("admin"))):
     await emit_node_diff(node_id, payload.changed_fields)
     return {"status": "success", "msg": f"Emitted {payload.changed_fields} to {node_id}"}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { GitBranch, Database, ArrowRight, Zap, Search, Layers, Activity } from 'lucide-react';
+import { authFetch } from '../../utils/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '../../utils/logger';
 
@@ -18,7 +19,7 @@ const DataFlowView = React.memo(({ connectionId }) => {
 
         const fetchFlowStats = async () => {
             try {
-                const response = await fetch(`/api/schema/${connectionId}`);
+                const response = await authFetch(`/api/schema/${connectionId}`);
                 if (response.ok) {
                     const data = await response.json();
                     // Calculate flow statistics
@@ -50,11 +51,11 @@ const DataFlowView = React.memo(({ connectionId }) => {
             setFlowVolume(null);
             try {
                 // 1. Structure
-                const hRes = await fetch(`/api/hierarchy/${connectionId}/table/${selectedTable}`);
+                const hRes = await authFetch(`/api/hierarchy/${connectionId}/table/${selectedTable}`);
                 if (hRes.ok) setHierarchyData(await hRes.json());
 
                 // 2. Flow Volume
-                const fRes = await fetch(`/api/hierarchy/${connectionId}/table/${selectedTable}/flow`);
+                const fRes = await authFetch(`/api/hierarchy/${connectionId}/table/${selectedTable}/flow`);
                 if (fRes.ok) {
                     const fData = await fRes.json();
                     // Sum volume for a simple stat

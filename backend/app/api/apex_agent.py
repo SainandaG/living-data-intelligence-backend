@@ -14,9 +14,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from app.services.rbac_service import require_role
 
 _SESSION_STORE = Path("data/agent_sessions/_index.jsonl")
 
@@ -86,7 +88,7 @@ _load_sessions()
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/run")
-async def run_agent(req: AgentRunRequest, request: Request):
+async def run_agent(req: AgentRunRequest, request: Request, _user: dict = Depends(require_role("analyst"))):
     """
     Start an agent run.  Returns a Server-Sent Events stream.
 
@@ -183,6 +185,7 @@ async def run_agent(req: AgentRunRequest, request: Request):
 async def list_sessions(
     tenant_id: str = "default",
     limit: int = 20,
+    _user: dict = Depends(require_role("viewer")),
 ) -> Dict[str, Any]:
     """Return recent agent sessions for this tenant."""
     sessions = [
@@ -194,7 +197,7 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str) -> Dict[str, Any]:
+async def get_session(session_id: str, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
     """Return full session detail including memory."""
     session = _sessions.get(session_id)
     if not session:
@@ -203,7 +206,7 @@ async def get_session(session_id: str) -> Dict[str, Any]:
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str) -> Dict[str, str]:
+async def delete_session(session_id: str, _user: dict = Depends(require_role("admin"))) -> Dict[str, str]:
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Session not found.")
     del _sessions[session_id]

@@ -2,9 +2,10 @@
 Graph API Endpoints
 Generates 3D graph visualizations from database schema with Neural Core Intelligence.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.graph_generator import graph_generator
 from app.models.schemas import ErrorResponse, StatusResponse
+from app.services.rbac_service import require_role
 from typing import Dict, Any
 import logging
 import time
@@ -46,7 +47,7 @@ async def _enrich_node(
         # GNN importance (optional, may not be installed)
         try:
             try:
-                from backend.ml.graph_neural_core import graph_neural_core # type: ignore
+                from backend.ml.graph_neural_core import graph_neural_core
             except ImportError:
                 from ml.graph_neural_core import graph_neural_core # type: ignore
             
@@ -143,7 +144,7 @@ def _build_graph_response(
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/graph/{connection_id}", responses={500: {"model": ErrorResponse}})
-async def get_graph(connection_id: str):
+async def get_graph(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Generate 3D graph from schema with Neural Core Intelligence."""
     try:
         logger.info(f"Generating graph for connection: {connection_id}")
@@ -241,7 +242,7 @@ async def get_graph(connection_id: str):
 
 
 @router.get("/graph/generation-logs/{session_id}")
-async def get_generation_logs(session_id: str):
+async def get_generation_logs(session_id: str, _user: dict = Depends(require_role("viewer"))):
     """Retrieve history of process logs for a generation session."""
     from app.services.generation_log_service import generation_log_service
 
@@ -253,7 +254,7 @@ async def get_generation_logs(session_id: str):
     response_model=Dict[str, Any],
     responses={500: {"model": ErrorResponse}},
 )
-async def get_neural_metrics(connection_id: str):
+async def get_neural_metrics(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Get neural core metrics only (distinct from /api/metrics which returns realtime_monitor data)."""
     try:
         from app.services.neural_core import neural_core
@@ -266,7 +267,7 @@ async def get_neural_metrics(connection_id: str):
 
 
 @router.post("/recalculate-gravity", response_model=StatusResponse, responses={500: {"model": ErrorResponse}})
-async def recalculate_gravity(payload: dict):
+async def recalculate_gravity(payload: dict, _user: dict = Depends(require_role("editor"))):
     """Manually trigger neural core recalculation."""
     try:
         from app.services.neural_core import neural_core
@@ -285,7 +286,7 @@ async def recalculate_gravity(payload: dict):
     response_model=Dict[str, Any],
     responses={500: {"model": ErrorResponse}},
 )
-async def get_cluster_metadata(connection_id: str):
+async def get_cluster_metadata(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Get cluster metadata for 3D Tables visualization (tier3 lens).
 
@@ -327,7 +328,7 @@ async def get_cluster_metadata(connection_id: str):
     response_model=Dict[str, Any],
     responses={500: {"model": ErrorResponse}},
 )
-async def get_node_frequency(connection_id: str, table_name: str):
+async def get_node_frequency(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """
     Real-time FK frequency distribution for single-node inspector.
 
@@ -421,7 +422,7 @@ async def get_node_frequency(connection_id: str, table_name: str):
     response_model=Dict[str, Any],
     responses={500: {"model": ErrorResponse}},
 )
-async def get_pk_distribution(connection_id: str, table_name: str, pk_column: str):
+async def get_pk_distribution(connection_id: str, table_name: str, pk_column: str, _user: dict = Depends(require_role("viewer"))):
     """
     PK → FK distribution for single-node inspector PK hover view.
 

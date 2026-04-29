@@ -39,8 +39,8 @@ const Window = ({ id, title, component: Component, props, isMinimized, isMaximiz
                 className={`fixed flex flex-col glass-panel overflow-hidden shadow-2xl backdrop-blur-md`}
                 style={{
                     zIndex,
-                    width: isMaximized ? '100vw' : '800px',
-                    height: isMaximized ? '100vh' : '600px',
+                    width: isMaximized ? '100vw' : (props?.width ? `${props.width}px` : '800px'),
+                    height: isMaximized ? '100vh' : (props?.height ? `${props.height}px` : '600px'),
                     top: isMaximized ? 0 : undefined,
                     left: isMaximized ? 0 : undefined,
                 }}

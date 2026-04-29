@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Database, Link, AlertCircle, Upload, FileText, Table, CheckCircle, X } from 'lucide-react';
 import { useWindowManager } from '../../context/WindowManagerContext';
+import { authFetch } from '../../utils/apiClient';
 import apiClient from '../../utils/apiClient';
 import { logger } from '../../utils/logger';
 
@@ -150,7 +151,7 @@ const FileUploadTab = ({ onClose }) => {
             formData.append('file', file);
             const token = localStorage.getItem('token');
             const baseUrl = import.meta.env.VITE_API_URL ?? '';
-            const response = await fetch(`${baseUrl}/api/files/upload`, {
+            const response = await authFetch(`${baseUrl}/api/files/upload`, {
                 method: 'POST',
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
                 body: formData,

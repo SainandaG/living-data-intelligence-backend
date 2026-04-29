@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json.schemastore.org/package",
+  "$schema": "./package.schema.json",
   "name": "frontend",
   "private": true,
   "version": "0.0.0",

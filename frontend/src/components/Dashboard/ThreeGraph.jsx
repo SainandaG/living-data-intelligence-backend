@@ -4,6 +4,7 @@ import { EventBus } from '../../agents/eventBus';
 import soundSystem from '../../utils/SoundSystem';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { authFetch } from '../../utils/apiClient';
 import {
     EffectComposer,
     RenderPass,
@@ -1004,7 +1005,7 @@ const ThreeGraph = forwardRef(({
             setClusterMetadataLoading(true);
 
             try {
-                const response = await fetch(`/api/graph/cluster-metadata/${data.connection_id}`);
+                const response = await authFetch(`/api/graph/cluster-metadata/${data.connection_id}`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -1477,7 +1478,7 @@ const ThreeGraph = forwardRef(({
                             // Find the satellite FK ball child that represents this FK
                             const fkBallChild = selMesh.children.find(
                                 c => c.userData.type === 'fk_ball' &&
-                                     (c.userData.fk?.referenced_table || '').toLowerCase() === ref
+                                    (c.userData.fk?.referenced_table || '').toLowerCase() === ref
                             );
 
                             // Get the ball's world-space position as the curve waypoint
@@ -1546,7 +1547,7 @@ const ThreeGraph = forwardRef(({
                             // Find the FK ball on the peer that points to the selected node
                             const peerBallChild = peerNode.mesh.children.find(
                                 c => c.userData.type === 'fk_ball' &&
-                                     (c.userData.fk?.referenced_table || '').toLowerCase() === selIdLower
+                                    (c.userData.fk?.referenced_table || '').toLowerCase() === selIdLower
                             );
                             const peerBallWorldPos = new THREE.Vector3();
                             if (peerBallChild) {
@@ -2554,7 +2555,7 @@ const ThreeGraph = forwardRef(({
                                 const nodeRadius = nodeData.size || 30;
 
                                 // Common Geometries (Smaller for Galaxy Mode)
-                                const ballR  = layoutMode === 'galaxy' ? Math.max(nodeRadius * 0.35, 8) : Math.max(nodeRadius * 0.65, 20);
+                                const ballR = layoutMode === 'galaxy' ? Math.max(nodeRadius * 0.35, 8) : Math.max(nodeRadius * 0.65, 20);
                                 const sphereGeo = new THREE.SphereGeometry(ballR, 8, 8);
 
                                 // 1. Primary Keys (Vibrant Green)

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.vitals_service import vitals_service
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -7,7 +8,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/vitals", tags=["vitals"])
 
 @router.get("/")
-async def get_vitals():
+async def get_vitals(_user: dict = Depends(require_role("viewer"))):
     """
     Get real-time system health metrics and agent statuses.
     """

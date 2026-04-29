@@ -3,11 +3,13 @@ Events API - Transaction Event Processing
 Connects to backend/events/tx_event_processor.py
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +54,7 @@ if EVENTS_AVAILABLE and USE_ADVANCED_EVENT_PROCESSING:
         logger.warning(f"⚠️ TxEventProcessor initialization failed: {e}")
 
 @router.post("/process", response_model=EventProcessResponse)
-async def process_event(request: EventProcessRequest):
+async def process_event(request: EventProcessRequest, _user: dict = Depends(require_role("editor"))):
     """
     Process transaction event with privacy hashing and time encoding
     
@@ -109,7 +111,7 @@ async def process_event(request: EventProcessRequest):
         raise HTTPException(status_code=500, detail="Transaction event processing failed")
 
 @router.get("/status")
-async def events_status():
+async def events_status(_user: dict = Depends(require_role("viewer"))):
     """Check event processing availability"""
     return {
         "available": EVENTS_AVAILABLE and _processor is not None,

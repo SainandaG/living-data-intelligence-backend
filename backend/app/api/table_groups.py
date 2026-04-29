@@ -9,8 +9,9 @@ import uuid
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +58,12 @@ def _save_groups(connection_id: str, groups: List[Dict]):
         raise HTTPException(status_code=500, detail="Failed to persist table group")
 
 @router.get("/table-groups/{connection_id}")
-async def get_table_groups(connection_id: str):
+async def get_table_groups(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """List all saved table groups for a specific connection"""
     return _load_groups(connection_id)
 
 @router.post("/table-groups/{connection_id}")
-async def save_table_group(connection_id: str, req: CreateTableGroupRequest):
+async def save_table_group(connection_id: str, req: CreateTableGroupRequest, _user: dict = Depends(require_role("editor"))):
     """Save a new table group"""
     if not req.table_names:
         raise HTTPException(status_code=400, detail="Table list cannot be empty")
@@ -85,7 +86,7 @@ async def save_table_group(connection_id: str, req: CreateTableGroupRequest):
     return new_item
 
 @router.delete("/table-groups/{connection_id}/{group_id}")
-async def delete_table_group(connection_id: str, group_id: str):
+async def delete_table_group(connection_id: str, group_id: str, _user: dict = Depends(require_role("editor"))):
     """Delete a saved table group"""
     groups = _load_groups(connection_id)
     filtered = [g for g in groups if g["id"] != group_id]

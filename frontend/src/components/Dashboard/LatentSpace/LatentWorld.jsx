@@ -4,6 +4,8 @@
  * Extracted from LatentSpaceLogic.jsx lines 1384-1768.
  */
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { Text, Html } from '@react-three/drei';
+import { authFetch } from '../../../utils/apiClient';
 import * as THREE from 'three';
 import { OrbitControls, TransformControls, EffectComposer, RenderPass, UnrealBloomPass } from 'three-stdlib';
 import { SeededRNG } from '../../../utils/mathUtils';
@@ -74,7 +76,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, mul
             setLoading(true);
             const fetchClusters = async () => {
                 try {
-                    const response = await fetch(`/api/internal-node/clusters/${connectionId}/${targetNode.name}`);
+                    const response = await authFetch(`/api/internal-node/clusters/${connectionId}/${targetNode.name}`);
                     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                     const data = await response.json();
                     if (data.status === 'success' && data.clusters && data.clusters.length > 0) {
@@ -122,7 +124,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, mul
         }
         const fetchIntel = async () => {
             try {
-                const resp = await fetch(`/api/drilldown/${connectionId}/column-intelligence/${targetNode.name}/${selectedSatellite.name}`);
+                const resp = await authFetch(`/api/drilldown/${connectionId}/column-intelligence/${targetNode.name}/${selectedSatellite.name}`);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
                 const data = await resp.json();
                 setIntelligence(data.intelligence);

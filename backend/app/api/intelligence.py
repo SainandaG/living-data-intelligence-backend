@@ -2,7 +2,7 @@
 Intelligence API Endpoints
 Provides business-friendly data intelligence and insights
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, List, Any, Tuple
 import logging
 import asyncio
@@ -51,10 +51,12 @@ except ImportError:
     latent_manager = None
 router = APIRouter()
 
+from app.services.rbac_service import require_role
+
 
 
 @router.get("/deep-status/{connection_id}/{table_name}")
-async def get_deep_status(connection_id: str, table_name: str):
+async def get_deep_status(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """
     Unified Deep Status Diagnostic
     Returns: global_health, node_specific_diagnostics, combined_summary
@@ -156,7 +158,7 @@ async def _hydrate_nodes(connection_id: str, nodes: List[Dict]) -> List[Dict]:
 
 
 @router.get("/health/{connection_id}")
-async def get_health_overview(connection_id: str):
+async def get_health_overview(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Dashboard 1: System Health Overview
     Returns: health_score, state, explanation, visual_config
@@ -202,7 +204,7 @@ async def get_health_overview(connection_id: str):
 
 
 @router.get("/data-analysis/{connection_id}/{table_name}")
-async def get_table_data_analysis(connection_id: str, table_name: str):
+async def get_table_data_analysis(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Comprehensive data analysis for specific table
     Returns: row_count, column_stats, quality_score, growth_info, summary
@@ -227,7 +229,7 @@ async def get_table_data_analysis(connection_id: str, table_name: str):
 
 
 @router.get("/data-quality/{connection_id}/{table_name}")
-async def get_data_quality_report(connection_id: str, table_name: str):
+async def get_data_quality_report(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Data quality score and issues
     Returns: quality_score (0-100), breakdown, issues
@@ -280,7 +282,7 @@ async def get_data_quality_report(connection_id: str, table_name: str):
 
 
 @router.get("/bulk-analysis/{connection_id}")
-async def get_bulk_analysis(connection_id: str):
+async def get_bulk_analysis(connection_id: str, _user: dict = Depends(require_role("analyst"))):
     """
     Get comprehensive neural analysis report for all nodes.
     """
@@ -297,7 +299,7 @@ async def get_bulk_analysis(connection_id: str):
 
 
 @router.get("/business-insights/{connection_id}/{table_name}")
-async def get_business_insights(connection_id: str, table_name: str):
+async def get_business_insights(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Business patterns, trends, and insights from data
     Returns: patterns, trends, segments, recommendations
@@ -336,7 +338,7 @@ async def get_business_insights(connection_id: str, table_name: str):
 
 
 @router.get("/patterns/{connection_id}/{table_name}")
-async def get_pattern_analysis(connection_id: str, table_name: str):
+async def get_pattern_analysis(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Dashboard 2: Pattern & Behavior Analysis
     Returns: daily_cycle, weekly_cycle, peaks, summary
@@ -358,7 +360,7 @@ async def get_pattern_analysis(connection_id: str, table_name: str):
 
 
 @router.get("/correlations/{connection_id}/{table_name}")
-async def get_data_correlations(connection_id: str, table_name: str):
+async def get_data_correlations(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Correlations between columns with business meaning
     Returns: correlated_columns, correlation_strength, explanations
@@ -388,7 +390,7 @@ async def get_data_correlations(connection_id: str, table_name: str):
 
 
 @router.get("/anomalies/{connection_id}")
-async def get_current_anomalies(connection_id: str):
+async def get_current_anomalies(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Dashboard 3: Current anomalies with severity and explanations
     Returns: list of anomalies (Low/Medium/High severity)
@@ -431,7 +433,7 @@ async def get_current_anomalies(connection_id: str):
 
 
 @router.get("/predictions/{connection_id}/{table_name}")
-async def get_predictions(connection_id: str, table_name: str):
+async def get_predictions(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Dashboard 4: Future Predictions
     Returns: current_size, predicted_size_30d, growth_percentage, forecast, risk_level
@@ -453,7 +455,7 @@ async def get_predictions(connection_id: str, table_name: str):
 
 
 @router.get("/root-cause/{connection_id}/{table_name}")
-async def get_root_cause_analysis(connection_id: str, table_name: str):
+async def get_root_cause_analysis(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
     Dashboard 5: Root Cause & Impact Analysis
     Returns: impact_path, summary, risk_score
@@ -487,7 +489,7 @@ def _default_table_for_connection(connection_id: str) -> str:
 
 
 @router.get("/recommendations/{connection_id}")
-async def get_recommendations_global(connection_id: str):
+async def get_recommendations_global(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """Action Plans: global recommendations when no table is selected."""
     table_name = _default_table_for_connection(connection_id)
     if not table_name:
@@ -496,7 +498,7 @@ async def get_recommendations_global(connection_id: str):
 
 
 @router.get("/recommendations/{connection_id}/{table_name}")
-async def get_recommendations(connection_id: str, table_name: str):
+async def get_recommendations(connection_id: str, table_name: str, _user: dict = Depends(require_role("viewer"))):
     """
     Dashboard 6: Recommendations & Actions
     Returns: list of prioritized recommendations
@@ -541,7 +543,7 @@ async def get_recommendations(connection_id: str, table_name: str):
 
 
 @router.get("/hub/{connection_id}")
-async def get_intelligence_hub(connection_id: str):
+async def get_intelligence_hub(connection_id: str, _user: dict = Depends(require_role("analyst"))):
     """
     Unified Intelligence Hub - The Central Nervous System
     Aggregates: Health, Diagnostics, Patterns, Risks, Forecasts, Impact, Actions.
@@ -685,7 +687,7 @@ async def get_intelligence_hub(connection_id: str):
 
 
 @router.get("/health/history/{connection_id}")
-async def get_health_history(connection_id: str):
+async def get_health_history(connection_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Returns historical health data for the trend chart
     """
@@ -708,7 +710,7 @@ async def get_health_history(connection_id: str):
 
 
 @router.get("/latent/projection")
-async def get_latent_projection():
+async def get_latent_projection(_user: dict = Depends(require_role("viewer"))):
     """Get 3D coordinates of all nodes in the Latent Space (for Latent View)."""
     if not latent_manager:
         return {"status": "unavailable", "nodes": {}}
@@ -719,7 +721,7 @@ async def get_latent_projection():
 
 
 @router.get("/latent/similar/{node_id}")
-async def find_similar_nodes(node_id: str, k: int = 5):
+async def find_similar_nodes(node_id: str, k: int = 5, _user: dict = Depends(require_role("analyst"))):
     """Find nodes semantically similar to the given node_id."""
     if not latent_manager:
         raise HTTPException(status_code=503, detail="Latent service not available")
@@ -730,7 +732,7 @@ async def find_similar_nodes(node_id: str, k: int = 5):
 
 
 @router.get("/semantic-search/{connection_id}")
-async def semantic_search(connection_id: str, query: str = "", categories: str = None, priority: str = None):
+async def semantic_search(connection_id: str, query: str = "", categories: str = None, priority: str = None, _user: dict = Depends(require_role("viewer"))):
     """
     Search and filter tables by importance and type.
     Enables user to "Discover & Import" critical nodes.

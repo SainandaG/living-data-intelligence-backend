@@ -290,11 +290,6 @@ const MainDashboard = () => {
           </div>
         </div>
 
-        <div className="relative z-[3000]">
-          <AnimatePresence>{d.windows.map((w) => <Window key={w.id} {...w} />)}</AnimatePresence>
-          {d.windows.length > 0 && <Taskbar />}
-        </div>
-
         <AnimatePresence>
           {d.evolutionMode && (
             <>
@@ -323,6 +318,13 @@ const MainDashboard = () => {
         <RemoteCursors activePeers={d.activePeers} />
         <GenerationLogPanel />
       </DashboardLayout>
+
+      <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 9999 }}>
+        <div className="pointer-events-auto">
+          <AnimatePresence>{d.windows.map((w) => <Window key={w.id} {...w} />)}</AnimatePresence>
+          {d.windows.length > 0 && <Taskbar />}
+        </div>
+      </div>
     </>
   );
 };

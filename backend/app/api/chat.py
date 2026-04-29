@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List
 from app.services.chat_service import chat_service
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = []
 
 @router.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Chat with the AI Data Analyst about your database.
     """

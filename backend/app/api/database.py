@@ -1,17 +1,19 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.models.schemas import ConnectionRequest, ConnectionResponse, ErrorResponse, StatusResponse
 from typing import List, Dict, Any
 from app.services.db_connector import db_connector
 from app.services.seeder import seeder
 import logging
 
+from app.services.rbac_service import require_role
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 @router.post("/connect", response_model=ConnectionResponse, responses={500: {"model": ErrorResponse}})
-async def connect_database(config: ConnectionRequest):
+async def connect_database(config: ConnectionRequest, _user: dict = Depends(require_role("admin"))):
     """Connect to a database"""
     try:
         # AUTO-DETECT: If user tries to connect to localhost but we have a Neon DB config, use that instead
@@ -64,12 +66,12 @@ async def connect_database(config: ConnectionRequest):
         raise exc
 
 @router.get("/connections", response_model=List[Dict[str, Any]], responses={500: {"model": ErrorResponse}})
-async def list_connections():
+async def list_connections(_user: dict = Depends(require_role("viewer"))):
     """List all active connections"""
     return db_connector.list_connections()
 
 @router.delete("/disconnect/{connection_id}", response_model=StatusResponse, responses={500: {"model": ErrorResponse}})
-async def disconnect_database(connection_id: str):
+async def disconnect_database(connection_id: str, _user: dict = Depends(require_role("admin"))):
     """Disconnect from database"""
     try:
         await db_connector.close(connection_id)
@@ -79,7 +81,7 @@ async def disconnect_database(connection_id: str):
         raise HTTPException(status_code=500, detail="Database service error")
 
 @router.post("/seed/{connection_id}", response_model=Dict[str, Any], responses={500: {"model": ErrorResponse}})
-async def seed_database(connection_id: str):
+async def seed_database(connection_id: str, _user: dict = Depends(require_role("admin"))):
     """Seed the database with temporal data for gravity/evolution playback"""
     try:
         result = await seeder.seed_database(connection_id)

@@ -21,8 +21,10 @@ from typing import Any, Dict, List, Literal, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Depends
 from pydantic import BaseModel, Field, model_validator
+
+from app.services.rbac_service import require_role
 
 logger = logging.getLogger(__name__)
 
@@ -1271,7 +1273,7 @@ def _build_insights(family: str, algo: str, table: str, target: Optional[str],
 # ─── Main endpoint ─────────────────────────────────────────────────────────────
 
 @router.post("/analyze", response_model=AnalysisResult)
-async def run_ml_analysis(req: AnalysisRequest):
+async def run_ml_analysis(req: AnalysisRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Run ML analysis on a database table.
 
@@ -1624,7 +1626,7 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
 
 
 @router.post("/run", status_code=202)
-async def start_ml_run(req: AnalysisRequest):
+async def start_ml_run(req: AnalysisRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Start an ML analysis job asynchronously.
 
@@ -1641,7 +1643,7 @@ async def start_ml_run(req: AnalysisRequest):
 
 
 @router.get("/run/{run_id}/status")
-async def get_run_status(run_id: str):
+async def get_run_status(run_id: str, _user: dict = Depends(require_role("viewer"))):
     """
     Poll the status of an async ML job started with POST /run.
 
@@ -1657,7 +1659,7 @@ async def get_run_status(run_id: str):
 
 
 @router.get("/run/{run_id}/model")
-async def download_model_file(run_id: str):
+async def download_model_file(run_id: str, _user: dict = Depends(require_role("analyst"))):
     """
     Download the trained model file (.pt) for a successful database analysis run.
     """
@@ -1681,7 +1683,7 @@ async def download_model_file(run_id: str):
 # ─── Suggest endpoint ─────────────────────────────────────────────────────────
 
 @router.get("/suggest")
-async def suggest_analysis(connection_id: str, table: str):
+async def suggest_analysis(connection_id: str, table: str, _user: dict = Depends(require_role("viewer"))):
     """
     Recommend the best algorithm and columns for a given table based on schema analysis.
 
@@ -1800,7 +1802,7 @@ import io as _io
 
 
 @router.post("/csv/upload")
-async def upload_csv_file(file: UploadFile):
+async def upload_csv_file(file: UploadFile, _user: dict = Depends(require_role("editor"))):
     """
     Upload a CSV file for offline ML analysis (no database connection required).
 
@@ -1894,7 +1896,7 @@ class AutoMLResult(BaseModel):
 
 
 @router.post("/automl", response_model=AutoMLResult)
-async def run_automl(req: AutoMLRequest):
+async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_role("analyst"))):
     """
     AutoML: rank candidate algorithms, optionally tune hyperparameters, return the best result.
 
@@ -2071,6 +2073,7 @@ async def list_experiments(
     connection_id: Optional[str] = None,
     tenant_id: str = "default",
     limit: int = 50,
+    _user: dict = Depends(require_role("viewer")),
 ):
     """
     Return recent ML runs scoped to `tenant_id`.
@@ -2090,6 +2093,7 @@ async def best_experiment(
     experiment: str,
     metric: str = "f1",
     tenant_id: str = "default",
+    _user: dict = Depends(require_role("viewer")),
 ):
     """Return the best run for an experiment by metric."""
     from app.services.ml.experiment_tracker import experiment_tracker
@@ -2100,7 +2104,7 @@ async def best_experiment(
 
 
 @router.delete("/run/{run_id}")
-async def cancel_run(run_id: str, tenant_id: str = "default"):
+async def cancel_run(run_id: str, tenant_id: str = "default", _user: dict = Depends(require_role("analyst"))):
     """
     Mark a run as cancelled in the experiment tracker.
 
@@ -2138,7 +2142,7 @@ async def cancel_run(run_id: str, tenant_id: str = "default"):
 
 # ─── PDF Report endpoint ────────────────────────────────────────────────────────
 @router.get("/run/{run_id}/pdf")
-async def download_run_pdf(run_id: str, tenant_id: str = "default"):
+async def download_run_pdf(run_id: str, tenant_id: str = "default", _user: dict = Depends(require_role("viewer"))):
     """Download a professional PDF report containing ML insights and SHAP values."""
     from app.services.ml.experiment_tracker import experiment_tracker
     from io import BytesIO
@@ -2263,7 +2267,7 @@ async def download_run_pdf(run_id: str, tenant_id: str = "default"):
 # ─── Health endpoint (T5-4) ───────────────────────────────────────────────────
 
 @router.get("/health")
-async def ml_health():
+async def ml_health(_user: dict = Depends(require_role("viewer"))):
     """
     Return operational health of the ML subsystem.
 
@@ -2327,7 +2331,7 @@ class WhatIfRequest(BaseModel):
 
 
 @router.post("/whatif")
-async def whatif_analysis(req: WhatIfRequest):
+async def whatif_analysis(req: WhatIfRequest, _user: dict = Depends(require_role("analyst"))):
     """
     Re-run ML analysis after applying per-feature multiplicative weights to the data.
 

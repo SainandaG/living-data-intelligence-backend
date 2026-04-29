@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Database, Search, Table, Key, GitBranch, Code, Download } from 'lucide-react';
+import { authFetch } from '../../utils/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '../../utils/logger';
 
@@ -14,7 +15,7 @@ export default function SchemaView({ connectionId }) {
 
         const fetchSchema = async () => {
             try {
-                const response = await fetch(`/api/schema/${connectionId}`);
+                const response = await authFetch(`/api/schema/${connectionId}`);
                 if (response.ok) {
                     const data = await response.json();
                     setSchema(data);

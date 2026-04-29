@@ -645,7 +645,7 @@ class NeuralCore:
         # Use the real importance score to weight the complexity
         try:
             try:
-                from backend.ml.graph_neural_core import graph_neural_core # type: ignore
+                from backend.ml.graph_neural_core import graph_neural_core
             except ImportError:
                 from ml.graph_neural_core import graph_neural_core # type: ignore
             

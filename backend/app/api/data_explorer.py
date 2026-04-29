@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.services.db_connector import db_connector
+from app.services.rbac_service import require_role
 import logging
 
 logger = logging.getLogger(__name__)
@@ -7,7 +8,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/data/sample/{table_name}/{column_name}")
-async def get_sample_data(table_name: str, column_name: str, connection_id: str = None):
+async def get_sample_data(table_name: str, column_name: str, connection_id: str = None, _user: dict = Depends(require_role("viewer"))):
     """Fetch sample records from a table for gravity visualization"""
     try:
         # If no connection_id provided, pick the last active one
@@ -37,7 +38,7 @@ async def get_sample_data(table_name: str, column_name: str, connection_id: str 
 
 
 @router.get("/data/distinct/{table_name}/{column_name}")
-async def get_distinct_values(table_name: str, column_name: str, connection_id: str = None):
+async def get_distinct_values(table_name: str, column_name: str, connection_id: str = None, _user: dict = Depends(require_role("viewer"))):
     """Fetch distinct categorical values from a column (e.g. Regions, Categories)"""
     try:
         if not connection_id:
