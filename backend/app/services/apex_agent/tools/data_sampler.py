@@ -1,5 +1,5 @@
 """
-Data Sampler Tool — fetches row samples from the primary table.
+Data Sampler Tool  fetches row samples from the primary table.
 Also handles engineer_features and compute_metric step aliases.
 """
 from __future__ import annotations
@@ -55,9 +55,9 @@ class DataSamplerTool:
 
             yield {
                 "type":    "result",
-                "text":    f"Sampled {len(rows):,} rows from '{table}'. {profile['numeric_count']} numeric · {profile['categorical_count']} categorical columns.",
+                "text":    f"Sampled {len(rows):,} rows from '{table}'. {profile['numeric_count']} numeric  {profile['categorical_count']} categorical columns.",
                 "data":    {"table": table, "row_count": len(rows), "profile": profile},
-                "summary": f"{len(rows):,} rows · {len(df.columns)} columns",
+                "summary": f"{len(rows):,} rows  {len(df.columns)} columns",
             }
 
         except Exception as exc:
@@ -83,3 +83,5 @@ def _profile_dataframe(df: Any) -> Dict:
         "null_pct":           {k: v for k, v in null_pct.items() if v > 0},
         "shape":              list(df.shape),
     }
+
+

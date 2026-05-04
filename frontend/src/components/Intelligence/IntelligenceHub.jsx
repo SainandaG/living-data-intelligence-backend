@@ -26,21 +26,29 @@ const AgentConsoleTab   = ({ connectionId }) => <div className="h-full"><AgentCh
 const DecisionHubTab    = ({ connectionId }) => <DecisionBoard connectionId={connectionId} />;
 
 const TABS = [
-    { id: 'agent',           label: 'APEX Agent',         short: 'Agent',     icon: Brain,          color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', component: AgentConsoleTab,        isNew: true },
-    { id: 'decisions',       label: 'Decision Hub',       short: 'Decisions', icon: Bell,           color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',  component: DecisionHubTab,         isNew: true },
-    { id: 'health',          label: 'System Health',      short: 'Health',    icon: Activity,       color: '#10b981', bg: 'rgba(16,185,129,0.12)',  component: HealthDashboard },
-    { id: 'search',          label: 'Discovery Search',   short: 'Search',    icon: Search,         color: '#06b6d4', bg: 'rgba(6,182,212,0.12)',   component: SemanticSearchDiscovery },
-    { id: 'ontology',        label: 'Ontology & Entities',short: 'Ontology',  icon: Layers,         color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)',  component: OntologyExplorer },
-    { id: 'deep-status',     label: 'Deep Diagnostics',   short: 'Diagnose',  icon: Zap,            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  component: DeepStatusDashboard },
-    { id: 'patterns',        label: 'Behavior Patterns',  short: 'Patterns',  icon: BarChart3,      color: '#6366f1', bg: 'rgba(99,102,241,0.12)',  component: PatternDashboard },
-    { id: 'anomalies',       label: 'Risk Detection',     short: 'Risks',     icon: AlertTriangle,  color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',   component: AnomalyDashboard },
-    { id: 'predictions',     label: 'Future Forecast',    short: 'Forecast',  icon: TrendingUp,     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  component: PredictionDashboard },
-    { id: 'root-cause',      label: 'Impact Analysis',    short: 'Impact',    icon: GitBranch,      color: '#a855f7', bg: 'rgba(168,85,247,0.12)',  component: RootCauseDashboard },
-    { id: 'recommendations', label: 'Action Plans',       short: 'Actions',   icon: Lightbulb,      color: '#f97316', bg: 'rgba(249,115,22,0.12)',  component: RecommendationDashboard },
-    { id: 'utils',           label: 'Platform Utils',     short: 'Utils',     icon: Wrench,         color: '#64748b', bg: 'rgba(100,116,139,0.12)', component: PlatformUtils },
+    { id: 'agent',           label: 'APEX Agent',         short: 'Agent',     icon: Brain,          color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', component: AgentConsoleTab,        isNew: true, permission: 'apex_chat' },
+    { id: 'decisions',       label: 'Decision Hub',       short: 'Decisions', icon: Bell,           color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',  component: DecisionHubTab,         isNew: true, permission: 'list_decisions' },
+    { id: 'health',          label: 'System Health',      short: 'Health',    icon: Activity,       color: '#10b981', bg: 'rgba(16,185,129,0.12)',  component: HealthDashboard, permission: 'health_overview' },
+    { id: 'search',          label: 'Discovery Search',   short: 'Search',    icon: Search,         color: '#06b6d4', bg: 'rgba(6,182,212,0.12)',   component: SemanticSearchDiscovery, permission: 'semantic_search' },
+    { id: 'ontology',        label: 'Ontology & Entities',short: 'Ontology',  icon: Layers,         color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)',  component: OntologyExplorer, permission: 'entity_mapping' },
+    { id: 'deep-status',     label: 'Deep Diagnostics',   short: 'Diagnose',  icon: Zap,            color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  component: DeepStatusDashboard, permission: 'deep_status' },
+    { id: 'patterns',        label: 'Behavior Patterns',  short: 'Patterns',  icon: BarChart3,      color: '#6366f1', bg: 'rgba(99,102,241,0.12)',  component: PatternDashboard, permission: 'patterns' },
+    { id: 'anomalies',       label: 'Risk Detection',     short: 'Risks',     icon: AlertTriangle,  color: '#f43f5e', bg: 'rgba(244,63,94,0.12)',   component: AnomalyDashboard, permission: 'anomalies' },
+    { id: 'predictions',     label: 'Future Forecast',    short: 'Forecast',  icon: TrendingUp,     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  component: PredictionDashboard, permission: 'predictions' },
+    { id: 'root-cause',      label: 'Impact Analysis',    short: 'Impact',    icon: GitBranch,      color: '#a855f7', bg: 'rgba(168,85,247,0.12)',  component: RootCauseDashboard, permission: 'root_cause' },
+    { id: 'recommendations', label: 'Action Plans',       short: 'Actions',   icon: Lightbulb,      color: '#f97316', bg: 'rgba(249,115,22,0.12)',  component: RecommendationDashboard, permission: 'recommendations' },
+    { id: 'utils',           label: 'Platform Utils',     short: 'Utils',     icon: Wrench,         color: '#64748b', bg: 'rgba(100,116,139,0.12)', component: PlatformUtils, permission: 'admin' },
 ];
 
+import { useAuthStore } from '../../stores/authStore';
+
 export default function IntelligenceHub({ connectionId, selectedNode }) {
+    const { canDo } = useAuthStore();
+    
+    // Filter tabs based on user permissions
+    const authorizedTabs = React.useMemo(() => {
+        return TABS.filter(tab => tab.permission ? canDo(tab.permission) : true);
+    }, [canDo]);
     const [activeTab, setActiveTab] = useState(() => {
         const saved = window.lastIntelligenceTab;
         if (saved) {
@@ -71,7 +79,14 @@ export default function IntelligenceHub({ connectionId, selectedNode }) {
     }, [connectionId]);
 
     const tableName = (selectedNode?.id && selectedNode.id !== 'hub') ? selectedNode.id : (firstTable || null);
-    const activeTabConfig = TABS.find(t => t.id === activeTab);
+    const activeTabConfig = authorizedTabs.find(t => t.id === activeTab);
+
+    // If active tab is not authorized (or empty), fallback to first available
+    React.useEffect(() => {
+        if (!activeTabConfig && authorizedTabs.length > 0) {
+            setActiveTab(authorizedTabs[0].id);
+        }
+    }, [activeTabConfig, authorizedTabs, setActiveTab]);
 
     if (!connectionId) {
         return (
@@ -128,7 +143,7 @@ export default function IntelligenceHub({ connectionId, selectedNode }) {
 
                 {/* ── Tab Bar ── */}
                 <div className="flex items-center gap-1 overflow-x-auto pb-px" style={{ scrollbarWidth: 'none' }}>
-                    {TABS.map(tab => {
+                    {authorizedTabs.map(tab => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
                         return (
@@ -162,8 +177,12 @@ export default function IntelligenceHub({ connectionId, selectedNode }) {
             {/* ── Content ── */}
             <div className="flex-1 overflow-y-auto">
                 {(() => {
-                    const tab = TABS.find(t => t.id === activeTab);
-                    if (!tab) return null;
+                    const tab = authorizedTabs.find(t => t.id === activeTab);
+                    if (!tab) return (
+                        <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                            No authorized panels available.
+                        </div>
+                    );
                     const Component = tab.component;
                     return (
                         <Component

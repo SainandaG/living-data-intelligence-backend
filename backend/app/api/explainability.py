@@ -21,7 +21,7 @@ try:
     EXPLAINABILITY_AVAILABLE = True
 except ImportError:
     EXPLAINABILITY_AVAILABLE = False
-    logger.warning("⚠️ Warning: PathTracer not available")
+    logger.warning(" Warning: PathTracer not available")
 
 from ..config.feature_flags import USE_ADVANCED_EXPLAINABILITY
 
@@ -45,9 +45,9 @@ _tracer = None
 if EXPLAINABILITY_AVAILABLE and USE_ADVANCED_EXPLAINABILITY:
     try:
         _tracer = PathTracer()
-        logger.info("✅ PathTracer initialized successfully")
+        logger.info(" PathTracer initialized successfully")
     except Exception as e:
-        logger.warning(f"⚠️ PathTracer initialization failed: {e}")
+        logger.warning(f" PathTracer initialization failed: {e}")
 
 @router.post("/explain", response_model=ExplainResponse)
 async def explain_decision(request: ExplainRequest, _user: dict = Depends(require_role("analyst"))):
@@ -139,3 +139,4 @@ async def get_reasoning_trace(request: Dict[str, Any], _user: dict = Depends(req
     except Exception as e:
         logger.error(f"Node justification failure: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal explainability service error")
+

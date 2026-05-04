@@ -1,5 +1,5 @@
 """
-Notification Router — dispatches decisions to Slack, email, and webhooks.
+Notification Router  dispatches decisions to Slack, email, and webhooks.
 
 All channels are optional and gracefully no-op when not configured.
 """
@@ -43,29 +43,29 @@ class NotificationRouter:
             logger.error("notification dispatch failed channel=%s: %s", channel, exc)
             return False
 
-    # ── Slack ─────────────────────────────────────────────────────────────────
+    #  Slack 
 
     async def _slack(self, decision: "Decision") -> bool:
         webhook_url = os.getenv("SLACK_WEBHOOK_URL")
         if not webhook_url:
-            logger.debug("SLACK_WEBHOOK_URL not set — skipping Slack notification")
+            logger.debug("SLACK_WEBHOOK_URL not set  skipping Slack notification")
             return False
 
         emoji   = SEVERITY_EMOJI.get(decision.severity, ":bell:")
         channel = os.getenv("SLACK_CHANNEL", "#alerts")
 
         findings_text = "\n".join(
-            f"  • {f.get('type', '')}: {f.get('value', '')}"
+            f"   {f.get('type', '')}: {f.get('value', '')}"
             for f in decision.findings[:5]
         )
         recs_text = "\n".join(
-            f"  • [{r.get('priority', '').upper()}] {r.get('action', '')}"
+            f"   [{r.get('priority', '').upper()}] {r.get('action', '')}"
             for r in decision.recommended_actions[:3]
         )
 
         payload = {
             "channel": channel,
-            "text":    f"{emoji} *APEX Alert — {decision.severity.upper()}*",
+            "text":    f"{emoji} *APEX Alert  {decision.severity.upper()}*",
             "blocks": [
                 {
                     "type": "header",
@@ -100,7 +100,7 @@ class NotificationRouter:
 
         return await self._http_post(webhook_url, payload)
 
-    # ── Email ─────────────────────────────────────────────────────────────────
+    #  Email 
 
     async def _email(self, decision: "Decision") -> bool:
         smtp_host  = os.getenv("SMTP_HOST")
@@ -110,7 +110,7 @@ class NotificationRouter:
         to_address = os.getenv("ALERT_EMAIL_TO")
 
         if not all([smtp_host, smtp_user, smtp_pass, to_address]):
-            logger.debug("SMTP not configured — skipping email notification")
+            logger.debug("SMTP not configured  skipping email notification")
             return False
 
         try:
@@ -158,7 +158,7 @@ class NotificationRouter:
         <html><body style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
         <div style="background:{severity_color};color:white;padding:16px;border-radius:8px 8px 0 0">
             <h2 style="margin:0">APEX Intelligence Alert</h2>
-            <p style="margin:4px 0 0">{decision.severity.upper()} — {decision.title}</p>
+            <p style="margin:4px 0 0">{decision.severity.upper()}  {decision.title}</p>
         </div>
         <div style="padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
             <p>{decision.description}</p>
@@ -169,12 +169,12 @@ class NotificationRouter:
             </p>
         </div></body></html>"""
 
-    # ── Generic Webhook ───────────────────────────────────────────────────────
+    #  Generic Webhook 
 
     async def _webhook(self, decision: "Decision") -> bool:
         url = os.getenv("WEBHOOK_URL")
         if not url:
-            logger.debug("WEBHOOK_URL not set — skipping webhook")
+            logger.debug("WEBHOOK_URL not set  skipping webhook")
             return False
         payload = {
             "event":    "apex.decision",
@@ -182,7 +182,7 @@ class NotificationRouter:
         }
         return await self._http_post(url, payload)
 
-    # ── HTTP helper ───────────────────────────────────────────────────────────
+    #  HTTP helper 
 
     async def _http_post(self, url: str, payload: Dict) -> bool:
         try:
@@ -195,10 +195,10 @@ class NotificationRouter:
                 ) as resp:
                     ok = resp.status < 300
                     if not ok:
-                        logger.warning("http_post %s → %d", url, resp.status)
+                        logger.warning("http_post %s  %d", url, resp.status)
                     return ok
         except ImportError:
-            # aiohttp not installed — fall back to urllib
+            # aiohttp not installed  fall back to urllib
             import urllib.request
             data = json.dumps(payload).encode()
             req = urllib.request.Request(url, data=data,
@@ -215,3 +215,4 @@ class NotificationRouter:
 
 # Singleton
 notification_router = NotificationRouter()
+

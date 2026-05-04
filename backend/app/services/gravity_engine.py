@@ -91,10 +91,10 @@ class GravityEngine:
                 max_dist = np.max(distances) if np.max(distances) > 0 else 1
                 gravity_scores = [(1 - (d / max_dist)) * 100 for d in distances]
                 
-                # print(f"✅ Statistical Proof: PCA variance explained ratio: {pca.explained_variance_ratio_}")
+                # print(f" Statistical Proof: PCA variance explained ratio: {pca.explained_variance_ratio_}")
 
             except ImportError:
-                # print("⚠️ sklearn not found, using simple heuristics")
+                # print(" sklearn not found, using simple heuristics")
                 # Fallback logic would go here
                 return self._assign_default_gravity(records)
             except Exception as e:
@@ -118,7 +118,7 @@ class GravityEngine:
                     "orbital_radius": float(np.linalg.norm(coords[i]) * 50),
                 })
                 
-            # print(f"🪐 GravityEngine: Processed {len(enriched_records)} records with Statistical Proof.")
+            # print(f" GravityEngine: Processed {len(enriched_records)} records with Statistical Proof.")
             return enriched_records
             
         except Exception as e:
@@ -133,7 +133,7 @@ class GravityEngine:
         """
         import logging as _log
         _log.getLogger(__name__).debug(
-            "GravityEngine: using default gravity for %d record(s) — stats unavailable", len(records)
+            "GravityEngine: using default gravity for %d record(s)  stats unavailable", len(records)
         )
         return [
             {
@@ -152,3 +152,4 @@ class GravityEngine:
         ]
 
 gravity_engine = GravityEngine()
+

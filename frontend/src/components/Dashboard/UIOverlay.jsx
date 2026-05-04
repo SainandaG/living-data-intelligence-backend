@@ -3,6 +3,7 @@ import * as d3 from 'd3';
 import { useWindowManager } from '../../context/WindowManagerContext';
 import { cn } from '../../utils/cn';
 import { GenerationLogPanel } from './GenerationLogPanel';
+import apiClient, { authFetch } from '../../utils/apiClient';
 import { logger } from '../../utils/logger';
 import { Layers, ScanEye } from 'lucide-react';
 

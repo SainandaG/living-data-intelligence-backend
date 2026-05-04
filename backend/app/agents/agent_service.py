@@ -28,14 +28,14 @@ class AgentService:
         self.is_running = True
         try:
             self._tasks.append(asyncio.create_task(self._exploration_worker()))
-            logger.info("🕵️ Agentic AI: Autonomous Explorer started.")
+            logger.info(" Agentic AI: Autonomous Explorer started.")
         except Exception as e:
-            logger.error(f"❌ CRITICAL: Failed to start Agentic AI loop: {e}")
+            logger.error(f" CRITICAL: Failed to start Agentic AI loop: {e}")
     async def stop(self):
         self.is_running = False
         for t in self._tasks:
             t.cancel()
-        logger.info("🕵️ Agentic AI: Explorer stopped.")
+        logger.info(" Agentic AI: Explorer stopped.")
     async def _exploration_worker(self):
         """Main loop for the autonomous agent - Uses real schema data"""
         from app.services.neural_core import neural_core
@@ -106,7 +106,7 @@ class AgentService:
         Called immediately after connection success.
         """
         from app.services.neural_core import neural_core
-        logger.info(f"🕵️ Agentic AI: Performing initial schema deep-scan for {connection_id}...")
+        logger.info(f" Agentic AI: Performing initial schema deep-scan for {connection_id}...")
         # Seed the Neural Core with context and the real connection ID
         await neural_core.update_schema_context(schema_data, connection_id=connection_id)
         
@@ -122,7 +122,7 @@ class AgentService:
         
         # Trigger an initial retraining cycle
         await neural_core.trigger_retraining(connection_id=connection_id)
-        logger.info("🕵️ Agentic AI: Schema analysis complete. Neural Core evolved.")
+        logger.info(" Agentic AI: Schema analysis complete. Neural Core evolved.")
     async def get_gravity_suggestions(self, schema_data: Dict) -> List[Dict]:
         """
         Suggest columns that would impact the 'gravity' of the flow data.
@@ -293,3 +293,4 @@ class AgentService:
 
 # Global Instance
 agent_service = AgentService()
+

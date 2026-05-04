@@ -103,7 +103,7 @@ class T1Agent:
         """
         start_time = time.time()
         
-        # Update state: IDLE → EXECUTING
+        # Update state: IDLE  EXECUTING
         self.state_manager.update_t1_state(T1State.EXECUTING)
         
         try:
@@ -140,7 +140,7 @@ class T1Agent:
             
             execution_time = int((time.time() - start_time) * 1000)
             
-            # Update state: EXECUTING → SUCCESS
+            # Update state: EXECUTING  SUCCESS
             self.state_manager.update_t1_state(T1State.SUCCESS)
             
             # Complete command tracking
@@ -164,7 +164,7 @@ class T1Agent:
             logger.warning(f"[T1Agent] Action execution failed: {e}")
             execution_time = int((time.time() - start_time) * 1000)
             
-            # Update state: EXECUTING → FAILED
+            # Update state: EXECUTING  FAILED
             self.state_manager.update_t1_state(T1State.FAILED)
             
             # Complete command with error
@@ -434,3 +434,4 @@ def get_t1_agent() -> T1Agent:
     if _t1_instance is None:
         _t1_instance = T1Agent()
     return _t1_instance
+

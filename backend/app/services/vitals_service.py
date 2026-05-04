@@ -6,10 +6,13 @@ Tracks CPU, Memory, API latency, and Agent performance metrics.
 
 import os
 import time
+import logging
 import psutil
 from typing import Dict, Any, List
 from datetime import datetime
 from app.services.agent_state_manager import get_agent_state_manager
+
+logger = logging.getLogger(__name__)
 
 class VitalsService:
     def __init__(self):
@@ -28,8 +31,10 @@ class VitalsService:
         """
         Collect real-time system and agent metrics with robust Windows error handling.
         """
-        # 1. CPU & Memory — psutil can raise AccessDenied or NoSuchProcess on Windows
+        logger.debug("VitalsService: Starting collection...")
+        # 1. CPU & Memory  psutil can raise AccessDenied or NoSuchProcess on Windows
         try:
+            logger.debug("VitalsService: Fetching CPU...")
             cpu_percent = self.process.cpu_percent()
         except Exception:
             try:
@@ -38,6 +43,7 @@ class VitalsService:
                 cpu_percent = 0.0
 
         try:
+            logger.debug("VitalsService: Fetching Memory...")
             memory_info = self.process.memory_info()
             memory_mb = memory_info.rss / (1024 * 1024)
         except Exception:
@@ -47,9 +53,11 @@ class VitalsService:
                 memory_mb = 0.0
 
         # 2. Latency Stats
+        logger.debug("VitalsService: Calculating Latency...")
         avg_latency = sum(self.latency_samples) / len(self.latency_samples) if self.latency_samples else 0
 
         # 3. Agent States
+        logger.debug("VitalsService: Fetching Agent States...")
         try:
             state_manager = get_agent_state_manager()
             t0_raw = getattr(state_manager, 't0_state', None)
@@ -57,7 +65,9 @@ class VitalsService:
             t0_state = t0_raw.value if hasattr(t0_raw, 'value') else str(t0_raw) if t0_raw else "UNKNOWN"
             t1_state = t1_raw.value if hasattr(t1_raw, 'value') else str(t1_raw) if t1_raw else "UNKNOWN"
             queue_depth = len(state_manager.command_history) if hasattr(state_manager, 'command_history') else 0
-        except Exception:
+            logger.debug(f"VitalsService: Agent states - t0:{t0_state}, t1:{t1_state}, q:{queue_depth}")
+        except Exception as e:
+            logger.warning(f"VitalsService: Agent state fetch failed: {e}")
             t0_state, t1_state, queue_depth = "UNKNOWN", "UNKNOWN", 0
 
         # 4. Uptime

@@ -1,5 +1,5 @@
 """
-Action Trigger Tool — creates a Decision record and optionally dispatches
+Action Trigger Tool  creates a Decision record and optionally dispatches
 notifications (Slack, email) based on confidence and severity thresholds.
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ class ActionTriggerTool:
         if not should_trigger and condition:
             yield {
                 "type":    "result",
-                "text":    f"Condition '{condition}' not met — decision not created.",
+                "text":    f"Condition '{condition}' not met  decision not created.",
                 "data":    {"triggered": False, "condition": condition},
                 "summary": "Condition not met",
             }
@@ -73,7 +73,7 @@ class ActionTriggerTool:
                 "type":    "result",
                 "text":    f"{severity.upper()} decision created: '{decision['title']}'",
                 "data":    decision,
-                "summary": f"{severity.upper()} · {len(findings)} findings · {len(recs)} recommendations",
+                "summary": f"{severity.upper()}  {len(findings)} findings  {len(recs)} recommendations",
             }
 
         except Exception as exc:
@@ -94,7 +94,7 @@ class ActionTriggerTool:
             if actual is None:
                 return True
             val = float(actual)
-            return eval(f"{val} {op} {threshold}")     # safe — only numbers/ops
+            return eval(f"{val} {op} {threshold}")     # safe  only numbers/ops
         except Exception:
             return True
 
@@ -105,3 +105,4 @@ class ActionTriggerTool:
         if anomaly_count > 0:
             return f"{severity.capitalize()}: {anomaly_count} anomalies in '{table}'"
         return f"Intelligence alert: {family} analysis on '{table}'"
+

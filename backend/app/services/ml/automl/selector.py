@@ -1,8 +1,8 @@
 """
-Algorithm Selector — scores candidate algorithms against a data profile
+Algorithm Selector  scores candidate algorithms against a data profile
 and returns a ranked shortlist with reasoning.
 
-No heavy deps — uses heuristic rules derived from years of AutoML research.
+No heavy deps  uses heuristic rules derived from years of AutoML research.
 """
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class AlgorithmSelector:
             return self._rank_timeseries(n_rows)
         return []
 
-    # ── Family rankers ────────────────────────────────────────────────────────
+    #  Family rankers 
 
     def _rank_classification(
         self,
@@ -107,7 +107,7 @@ class AlgorithmSelector:
     ) -> List[AlgoCandidate]:
         candidates = []
 
-        # GradientBoosting / XGBoost — best default for tabular
+        # GradientBoosting / XGBoost  best default for tabular
         xgb_score = 0.85
         if n_rows < 500:
             xgb_score -= 0.15   # overfits on tiny datasets
@@ -135,7 +135,7 @@ class AlgorithmSelector:
         # Logistic Regression
         lr_score = 0.60
         if n_features > n_rows:
-            lr_score += 0.15    # high-dim sparse → works well
+            lr_score += 0.15    # high-dim sparse  works well
         candidates.append(AlgoCandidate(
             algo_id="logreg", family="classification",
             score=min(lr_score, 1.0),
@@ -143,7 +143,7 @@ class AlgorithmSelector:
             hyperparams={"C": 1.0, "max_iter": 500, "class_weight": "balanced" if has_imbalance else None},
         ))
 
-        # SVM — only worth it for medium datasets
+        # SVM  only worth it for medium datasets
         svm_score = 0.65 if 500 <= n_rows <= 10_000 else 0.40
         candidates.append(AlgoCandidate(
             algo_id="svm", family="classification",
@@ -167,7 +167,7 @@ class AlgorithmSelector:
             hyperparams={"n_estimators": 200, "max_depth": 5, "learning_rate": 0.05},
         ))
 
-        # Ridge — good when features are correlated
+        # Ridge  good when features are correlated
         candidates.append(AlgoCandidate(
             algo_id="ridge", family="regression",
             score=0.72,
@@ -183,7 +183,7 @@ class AlgorithmSelector:
             hyperparams={},
         ))
 
-        # Lasso — when feature selection matters
+        # Lasso  when feature selection matters
         lasso_score = 0.65 if n_features > 20 else 0.55
         candidates.append(AlgoCandidate(
             algo_id="lasso", family="regression",

@@ -15,7 +15,7 @@ import {
     Box
 } from 'lucide-react';
 import { useRegisterCommand } from '../../context/CommandRegistryContext';
-import { authFetch } from '../../utils/apiClient';
+import apiClient, { authFetch } from '../../utils/apiClient';
 import {
     TABLE_COLORS,
     CombinedInspectionScene

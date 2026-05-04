@@ -419,6 +419,17 @@ export function useDashboard(graphRef) {
     );
   });
 
+  useRegisterCommand('admin.audit', () => {
+    if (!canDo('admin')) return;
+    openWindow(
+      'audit-logs',
+      'Audit Logs',
+      React.lazy(() => import('../components/Admin/AuditLogPage')),
+      { width: 1000, height: 700, icon: 'fingerprint', startMaximized: true }
+    );
+  });
+
+
   const handleAgentAction = useCallback((result) => {
     if (!result.success || !result.result) return;
     const { instruction, target, action_type, parameters } = result.result;

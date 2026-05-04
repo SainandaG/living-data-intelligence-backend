@@ -38,7 +38,7 @@ class AIQueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000)
     connection_id: str = Field(..., pattern=r'^[a-zA-Z0-9_\-]+$')
 
-# DatabaseConfig was a duplicate of ConnectionRequest — removed.
+# DatabaseConfig was a duplicate of ConnectionRequest  removed.
 
 class ConnectionResponse(BaseModel):
     success: bool
@@ -122,4 +122,4 @@ class Metrics(BaseModel):
 class RealtimeUpdate(BaseModel):
     type: str  # 'transaction', 'fraud', 'metric'
     data: Dict[str, Any]
-    timestamp: datetime
+    timestamp: datetime

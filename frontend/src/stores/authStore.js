@@ -54,20 +54,34 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
-   * canDo('feature_id') or canDo('category')
-   * Checks if user has 'read' or 'execute' permission for a feature.
+   * canDo(featureId, minRole)
+   * 
+   * Priority: admin/super_admin bypass → explicit granular permission check → hierarchical role check fallback
    */
-  canDo: (featureId) => {
+  canDo: (featureOrRole, fallbackRole = null) => {
     const { userRole, userPermissions } = get();
+    
+    // Admin/super_admin bypass everything
     if (userRole === 'admin' || userRole === 'super_admin') return true;
     
-    // Check nested permissions
+    // Explicit Granular feature permission check
     for (const category in userPermissions) {
-      if (userPermissions[category][featureId]) {
-        const level = userPermissions[category][featureId];
-        return level === 'read' || level === 'execute';
+      if (userPermissions[category] && userPermissions[category][featureOrRole]) {
+        const level = userPermissions[category][featureOrRole];
+        return level === 'read' || level === 'execute'; // Explicitly grant or deny
       }
     }
+    
+    // If not explicitly defined in DB, fallback to hierarchical check
+    const checkRole = fallbackRole || featureOrRole;
+    const ROLE_HIERARCHY = { viewer: 1, editor: 2, analyst: 3, admin: 4, super_admin: 5 };
+    const requiredLevel = ROLE_HIERARCHY[checkRole];
+    
+    if (requiredLevel !== undefined) {
+      const userLevel = ROLE_HIERARCHY[userRole] || 0;
+      return userLevel >= requiredLevel;
+    }
+    
     return false;
   }
 }));

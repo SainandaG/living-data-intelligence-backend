@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus, LogOut, Shield } from 'lucide-react';
+import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus, LogOut, Shield, Fingerprint } from 'lucide-react';
 import CollapsiblePanel from '../UI/CollapsiblePanel';
 import { cn } from '../../utils/cn';
 import AgentStatusPanel from '../Voice/AgentStatusPanel';
@@ -406,12 +406,20 @@ const LeftSidebar = React.memo(({ actions }) => {
             {/* ── Settings (bottom) ──────────────────────── */}
             <RailSep />
             {canDo('admin') && (
-                <RailButton
-                    icon={Shield}
-                    label="Security Matrix"
-                    accentColor="#f43f5e"
-                    onClick={() => actions.executeCommand?.('admin.rbac')}
-                />
+                <>
+                    <RailButton
+                        icon={Shield}
+                        label="Security Matrix"
+                        accentColor="#f43f5e"
+                        onClick={() => actions.executeCommand?.('admin.rbac')}
+                    />
+                    <RailButton
+                        icon={Fingerprint}
+                        label="Audit Logs"
+                        accentColor="#f59e0b"
+                        onClick={() => actions.executeCommand?.('admin.audit')}
+                    />
+                </>
             )}
             <RailButton
                 icon={Settings}

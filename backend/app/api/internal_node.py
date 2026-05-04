@@ -82,7 +82,7 @@ async def get_table_clusters(connection_id: str, table_name: str, _user: dict = 
             logger.warning(f"Could not fetch sample rows for {table_name}: {e}")
             rows = []
 
-        logger.info(f"✅ Generated {len(clusters)} clusters for {table_name} with {len(rows)} sample rows")
+        logger.info(f" Generated {len(clusters)} clusters for {table_name} with {len(rows)} sample rows")
         
         return {
             "status": "success",
@@ -95,7 +95,7 @@ async def get_table_clusters(connection_id: str, table_name: str, _user: dict = 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error generating clusters for {table_name}: {e}")
+        logger.error(f" Error generating clusters for {table_name}: {e}")
         return {
             "status": "error",
             "error": str(e),
@@ -231,3 +231,4 @@ def _get_fallback_clusters(table_name: str) -> list:
             "count": 2
         }
     ]
+

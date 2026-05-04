@@ -71,14 +71,14 @@ class ChatService:
                 db_connector.get_connection(connection_id)
             except Exception as e:
                 logger.warning(f"DB connection check failed: {e}")
-                return response_text + "\n\n⚠️ Could not execute query: Database connection not found."
+                return response_text + "\n\n Could not execute query: Database connection not found."
             
             results = []
             for query in sql_queries:
                 query = query.strip()
                 # Only allow SELECT queries for safety
                 if not query.upper().startswith('SELECT'):
-                    results.append("⚠️ Skipped non-SELECT query for safety")
+                    results.append(" Skipped non-SELECT query for safety")
                     continue
                 
                 try:
@@ -108,7 +108,7 @@ class ChatService:
                         
                 except Exception as e:
                     logger.debug(f"Schema serialization failed: {e}")
-                    results.append(f"\n⚠️ Query error: {str(e)}")
+                    results.append(f"\n Query error: {str(e)}")
             
             # Append results to response
             if results:
@@ -117,7 +117,7 @@ class ChatService:
             
         except Exception as e:
             logger.debug(f"Schema serialization failed: {e}")
-            return response_text + f"\n\n⚠️ SQL execution error: {str(e)}"
+            return response_text + f"\n\n SQL execution error: {str(e)}"
 
 
     def _build_schema_str(self, schema_context) -> str:
@@ -171,8 +171,8 @@ MYSQL QUERY EXAMPLES:
   ```
 
 RESPONSE STYLE:
-✅ "The primary key of `staff` is `staff_id` (tinyint, NOT NULL)."
-❌ "To determine the primary key, I will write a query... Let me try..."
+ "The primary key of `staff` is `staff_id` (tinyint, NOT NULL)."
+ "To determine the primary key, I will write a query... Let me try..."
 
 RULES:
 - Be DIRECT - no "Let me...", "I will...", "Assuming..."

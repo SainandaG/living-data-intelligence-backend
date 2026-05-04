@@ -81,26 +81,26 @@ class GraphGenerator:
         from app.services.schema_analyzer import schema_analyzer
         from app.services.generation_log_service import generation_log_service
         
-        await generation_log_service.log_step(connection_id, "🎨 Initiating Neural Graph Core generation", progress=5)
+        await generation_log_service.log_step(connection_id, " Initiating Neural Graph Core generation", progress=5)
         
         if cluster_assignments:
-            await generation_log_service.log_step(connection_id, f"📍 Applying {clustering_method} cluster layout", progress=10)
+            await generation_log_service.log_step(connection_id, f" Applying {clustering_method} cluster layout", progress=10)
             
         # 1. Get Base Schema
-        await generation_log_service.log_step(connection_id, "🔍 Extracting schema and table metadata", progress=20)
+        await generation_log_service.log_step(connection_id, " Extracting schema and table metadata", progress=20)
         schema_obj = await schema_analyzer.analyze_schema(connection_id)
         schema = schema_obj.model_dump() if hasattr(schema_obj, 'model_dump') else schema_obj
         
         tables = schema.get('tables', [])
         if not tables:
-            await generation_log_service.log_step(connection_id, "❌ No tables found in database", level="error", progress=100)
+            await generation_log_service.log_step(connection_id, " No tables found in database", level="error", progress=100)
             return {'nodes': [], 'edges': []}
             
         nodes = []
         edges = []
         
         # 2. Add the Neural Core Hub (Dynamic size based on database)
-        await generation_log_service.log_step(connection_id, "🧠 Synthesizing Neural Core central hub", progress=30)
+        await generation_log_service.log_step(connection_id, " Synthesizing Neural Core central hub", progress=30)
         core_metrics = await neural_core.get_core_metrics(connection_id)
         num_tables = len(tables)
         # Scale core size: 70 for small DBs, 100 for large DBs (prominent central hub)
@@ -138,9 +138,9 @@ class GraphGenerator:
                     'z': (i % 3 - 1) * 100  # Spread vertically across 3 levels
                 }
             
-            logger.info(f"📍 Positioned {num_clusters} clusters in 3D space")
+            logger.info(f" Positioned {num_clusters} clusters in 3D space")
         # 4. Process Tables with CLUSTER-AWARE or STATISTICAL LOGIC
-        await generation_log_service.log_step(connection_id, f"📍 Placing {num_tables} nodes in latency space", progress=50)
+        await generation_log_service.log_step(connection_id, f" Placing {num_tables} nodes in latency space", progress=50)
         table_map = {t['name']: t for t in tables}
         
         for i, table in enumerate(tables):
@@ -276,7 +276,7 @@ class GraphGenerator:
             
         # Execute all in parallel
         # This reduces 120 sequential awaits to 1 concurrent block
-        await generation_log_service.log_step(connection_id, "🔗 AI Link Prediction: Deep Relationship Discovery", progress=80)
+        await generation_log_service.log_step(connection_id, " AI Link Prediction: Deep Relationship Discovery", progress=80)
         all_predictions = await asyncio.gather(*prediction_tasks, return_exceptions=True)
         
         for i, predictions in enumerate(all_predictions):
@@ -409,7 +409,7 @@ class GraphGenerator:
             # Update visual size based on NEW vitality/gravity if needed
             # (Optional: we can keep the size logic from Pass 1 or update it here)
 
-        await generation_log_service.log_step(connection_id, "✅ Neural Graph Core generation complete", level="success", progress=100)
+        await generation_log_service.log_step(connection_id, " Neural Graph Core generation complete", level="success", progress=100)
         return {
             'nodes': nodes, 
             'edges': edges
@@ -514,9 +514,10 @@ class GraphGenerator:
         char_sum = sum(ord(c) for c in str(cluster_name))
         return palette[char_sum % len(palette)]
 
-    # _build_connections_map removed — was returning {} with no callers
+    # _build_connections_map removed  was returning {} with no callers
 
 
 
 # Global instance
+
 graph_generator = GraphGenerator()

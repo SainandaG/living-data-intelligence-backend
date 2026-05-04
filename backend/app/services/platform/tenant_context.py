@@ -1,5 +1,5 @@
 """
-Tenant Context — lightweight tenant isolation for the current request.
+Tenant Context  lightweight tenant isolation for the current request.
 
 In development (single-tenant) mode every request is assigned to the
 default tenant so all existing code paths continue to work without change.
@@ -34,7 +34,7 @@ class TenantContext:
 
 def get_tenant_id(request: Request) -> str:
     """
-    FastAPI dependency — returns the tenant_id for the current request.
+    FastAPI dependency  returns the tenant_id for the current request.
 
     Resolution order:
       1. `request.state.tenant_id`  (set by auth middleware in production)
@@ -67,3 +67,4 @@ def get_tenant_context(request: Request) -> TenantContext:
         plan=plan,
         is_default=(tid == DEFAULT_TENANT),
     )
+

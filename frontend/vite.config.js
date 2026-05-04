@@ -15,12 +15,12 @@ export default defineConfig({
     proxy: {
 
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         secure: false,
       },
       '/ws': {
-        target: 'ws://localhost:8001',
+        target: 'ws://127.0.0.1:8001',
         ws: true,
         changeOrigin: true,
       },

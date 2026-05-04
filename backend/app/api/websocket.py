@@ -1,14 +1,14 @@
 """
 WebSocket Protocol for Living Data Intelligence Platform
 
-SERVER → CLIENT (JSON):
+SERVER  CLIENT (JSON):
   {"type": "ping", "timestamp": int} - Heartbeat
   {"type": "connected", "connection_id": str, "client_count": int} - Connection ack
   {"type": "metrics_update", "data": MetricsPayload, ...} - Real-time statistics
   {"type": "db_reconnecting", "message": str} - DB wake-up notification
   {"type": "error", "message": str, "code": str} - Protocol or DB errors
 
-CLIENT → SERVER (JSON/Text):
+CLIENT  SERVER (JSON/Text):
   {"type": "pong"} - Heartbeat response
   "ping" - Legacy health check (deprecated)
   {"type": "presence_update", "user_id": str, "cursor": {x, y}} - Real-time presence
@@ -37,7 +37,7 @@ active_connections: dict[str, list[WebSocket]] = {}
 _graph_cache: dict[str, tuple[float, dict]] = {}
 _GRAPH_CACHE_TTL: float = float(os.getenv("WS_GRAPH_CACHE_TTL_SECONDS", "30"))
 
-# Live tables monitored per connection — override via WS_LIVE_TABLES env var (comma-separated)
+# Live tables monitored per connection  override via WS_LIVE_TABLES env var (comma-separated)
 _LIVE_TABLES: list[str] = [
     t.strip() for t in os.getenv("WS_LIVE_TABLES", "").split(",") if t.strip()
 ]
@@ -62,7 +62,7 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
     """
     if os.getenv("APP_ENV", "development") == "production":
         if not token or not verify_token(token):
-            logger.warning("WebSocket auth failed for connection %s — closing with 1008", connection_id)
+            logger.warning("WebSocket auth failed for connection %s  closing with 1008", connection_id)
             await websocket.close(code=1008)
             return
 
@@ -74,7 +74,7 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
     active_connections[connection_id].append(websocket)
     
     total_clients = get_total_client_count()
-    logger.info(f"🔌 WS connect: {connection_id} | total clients: {total_clients}")
+    logger.info(f" WS connect: {connection_id} | total clients: {total_clients}")
     
     # 2. Send Greeting
     await safe_send(websocket, {
@@ -107,7 +107,7 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                                 # Unexpected message instead of pong, process it?
                                 data = pong_data
                         except asyncio.TimeoutError:
-                            logger.warning(f"💔 Heartbeat timeout: {connection_id}")
+                            logger.warning(f" Heartbeat timeout: {connection_id}")
                             break
                     else:
                         break
@@ -141,11 +141,11 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                 active_connections[connection_id].remove(websocket)
             if not active_connections[connection_id]:
                 del active_connections[connection_id]
-                # Evict graph cache — no clients left for this connection
+                # Evict graph cache  no clients left for this connection
                 _graph_cache.pop(connection_id, None)
         
         total_remaining = get_total_client_count()
-        logger.info(f"❌ WS disconnect: {connection_id} | total clients: {total_remaining}")
+        logger.info(f" WS disconnect: {connection_id} | total clients: {total_remaining}")
         try:
             await websocket.close()
         except Exception as e:
@@ -171,7 +171,7 @@ async def websocket_logs_endpoint(websocket: WebSocket, session_id: str):
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
-        logger.info(f"❌ Log WS disconnected: {ws_id}")
+        logger.info(f" Log WS disconnected: {ws_id}")
     except Exception as e:
         logger.error(f"Error in Log WebSocket {ws_id}: {e}")
     finally:
@@ -315,5 +315,9 @@ async def stream_metrics():
 async def start_streaming_task():
     """Starts the streaming task. Note: main.py now tracks this directly."""
     return asyncio.create_task(stream_metrics())
+
+
+
+
 
 

@@ -24,14 +24,14 @@ class UnifiedIntentClassifier:
             try:
                 self.v2 = IntentClassifierV2()
                 self.version = "v2"
-                logger.info("✅ Using IntentClassifier V2 (Transformer-based)")
+                logger.info(" Using IntentClassifier V2 (Transformer-based)")
             except Exception as e:
-                logger.warning(f"⚠️ V2 failed to load: {e}, falling back to V1")
+                logger.warning(f" V2 failed to load: {e}, falling back to V1")
                 self.v2 = None
                 self.version = "v1"
         else:
             self.version = "v1"
-            logger.info("✅ Using IntentClassifier V1 (Rule-based)")
+            logger.info(" Using IntentClassifier V1 (Rule-based)")
     
     async def classify(self, text: str, context: Optional[List[str]] = None, ui_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -74,3 +74,4 @@ def get_intent_classifier() -> UnifiedIntentClassifier:
     if _unified_classifier is None:
         _unified_classifier = UnifiedIntentClassifier()
     return _unified_classifier
+

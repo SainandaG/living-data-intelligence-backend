@@ -128,7 +128,7 @@ def _r_squared(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def _confidence_interval(residuals: np.ndarray, confidence: float = 0.95) -> float:
-    """Return ±half-width for the given confidence level."""
+    """Return half-width for the given confidence level."""
     z = 1.96 if confidence == 0.95 else 2.576
     std = float(np.std(residuals)) if len(residuals) > 1 else 0.0
     return z * std
@@ -138,7 +138,7 @@ class PredictiveEngine:
     """
     Production-grade forecasting service.
     Algorithms: Linear Regression, Polynomial (degree-2), Exponential Weighted Moving Average.
-    Model selection via holdout RMSE. Confidence intervals and R² included in responses.
+    Model selection via holdout RMSE. Confidence intervals and R included in responses.
     """
 
     def __init__(self):

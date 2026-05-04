@@ -3,8 +3,9 @@ import apiClient from '../../utils/apiClient';
 import { BrainCircuit, Sparkles, ArrowRight, Table } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { logger } from '../../utils/logger';
+import { withRBAC } from '../../hoc/withRBAC';
 
-export default function SemanticDiscoveryPanel({ connectionId, tableName, onNodeClick }) {
+function SemanticDiscoveryPanel({ connectionId, tableName, onNodeClick }) {
     const [predictions, setPredictions] = useState([]);
     const [loading, setLoading] = useState(false);
 
@@ -86,3 +87,5 @@ export default function SemanticDiscoveryPanel({ connectionId, tableName, onNode
         </div>
     );
 }
+
+export default withRBAC(SemanticDiscoveryPanel, 'semantic_discovery', 'analyst');

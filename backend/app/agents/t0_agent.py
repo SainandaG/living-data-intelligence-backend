@@ -55,11 +55,11 @@ class T0Agent:
         """
         start_time = time.time()
         
-        # Update state: IDLE → LISTENING
+        # Update state: IDLE  LISTENING
         self.state_manager.update_t0_state(T0State.LISTENING)
         
         try:
-            # Update state: LISTENING → PROCESSING
+            # Update state: LISTENING  PROCESSING
             self.state_manager.update_t0_state(T0State.PROCESSING)
             
             # Classify the intent
@@ -150,7 +150,7 @@ class T0Agent:
                     result=result
                 )
             
-            # Update state: PROCESSING → DISPATCHING
+            # Update state: PROCESSING  DISPATCHING
             self.state_manager.update_t0_state(T0State.DISPATCHING)
             
             # Back to IDLE after dispatch
@@ -254,3 +254,4 @@ def get_t0_agent() -> T0Agent:
     if _t0_instance is None:
         _t0_instance = T0Agent()
     return _t0_instance
+

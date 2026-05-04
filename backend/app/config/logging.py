@@ -38,7 +38,8 @@ def configure_logging(level: int = logging.INFO) -> None:
 
     log_format = "%(asctime)s | %(levelname)-8s | %(name)s | req=%(request_id)s | %(message)s"
 
-    handler = logging.StreamHandler()
+    import sys
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter(log_format, datefmt="%Y-%m-%dT%H:%M:%S"))
     handler.addFilter(request_filter)
 
@@ -51,7 +52,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     # Always add FileHandler to capture logs even in development
     if True:
         from logging.handlers import RotatingFileHandler
-        file_handler = RotatingFileHandler("app.log", maxBytes=5*1024*1024, backupCount=3)
+        file_handler = RotatingFileHandler("app.log", maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
         file_handler.setFormatter(logging.Formatter(log_format, datefmt="%Y-%m-%dT%H:%M:%S"))
         file_handler.addFilter(request_filter)
         root.addHandler(file_handler)

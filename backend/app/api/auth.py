@@ -30,83 +30,62 @@ _REVOKE_TTL_SECONDS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")) * 86400
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# Token Revocation Store — Thread-safe, TTL-pruning, container-safe
-# =============================================================================
-# In-memory store with periodic file persistence. Designed so that:
-#  1. Revoked tokens are always checked from fast in-memory dict (zero I/O per request)
-#  2. File persistence is best-effort — if the container restarts, tokens naturally expire
-#  3. Thread-safe via a lock (important for concurrent request handling)
-#  4. Stale entries are pruned on every write to keep memory bounded
-#
-# For multi-instance / HA deployments: swap this for a Redis SET with TTL.
-# =============================================================================
+from app.services.redis_client import get_redis
 
-_REVOKE_STORE_PATH = os.path.join("data", "auth", "revoked_tokens.json")
 _revoked_tokens: Dict[str, float] = {}
-_revoke_lock = threading.Lock()
 
+async def _is_revoked(token: str) -> bool:
+    """Check if a token is revoked, using Redis with in-memory fallback."""
+    payload = verify_token(token)
+    if not payload:
+        return True # Invalid tokens are effectively revoked
+        
+    jti = payload.get("jti")
+    if not jti:
+        return False
+        
+    redis = await get_redis()
+    if redis:
+        try:
+            return bool(await redis.exists(f"revoked:{jti}"))
+        except Exception as e:
+            logger.warning(f"Redis check failed: {e}")
+            
+    # Fallback to in-memory check if Redis is unavailable
+    expiry = _revoked_tokens.get(jti)
+    if expiry is None:
+        return False
+    if time.time() > expiry:
+        _revoked_tokens.pop(jti, None)
+        return False
+    return True
 
-def _load_revoked() -> None:
-    """Load persisted revocation list on startup, pruning any already-expired entries."""
-    global _revoked_tokens
-    try:
-        if os.path.exists(_REVOKE_STORE_PATH):
-            with open(_REVOKE_STORE_PATH, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            now = time.time()
-            _revoked_tokens = {t: exp for t, exp in raw.items() if exp > now}
-            logger.info("auth: loaded %d active revocations from disk", len(_revoked_tokens))
-    except Exception as exc:
-        logger.warning("auth: could not load revocation store (starting fresh): %s", exc)
-        _revoked_tokens = {}
-
-
-def _persist_revoked() -> None:
-    """Best-effort persist to disk. Non-critical — tokens have natural expiry."""
-    try:
-        os.makedirs(os.path.dirname(_REVOKE_STORE_PATH), exist_ok=True)
-        # Atomic-ish write: write to temp then rename
-        tmp_path = _REVOKE_STORE_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(_revoked_tokens, f)
-        os.replace(tmp_path, _REVOKE_STORE_PATH)
-    except Exception as exc:
-        logger.warning("auth: failed to persist revocation store: %s", exc)
-
-
-def _prune_expired() -> int:
-    """Remove expired entries. Returns count of pruned entries. Caller must hold _revoke_lock."""
-    now = time.time()
-    stale = [t for t, exp in _revoked_tokens.items() if exp <= now]
-    for t in stale:
-        del _revoked_tokens[t]
-    return len(stale)
-
-
-def _is_revoked(token: str) -> bool:
-    """Thread-safe check if a token is revoked."""
-    with _revoke_lock:
-        expiry = _revoked_tokens.get(token)
-        if expiry is None:
-            return False
-        if time.time() > expiry:
-            # Token has naturally expired — evict
-            _revoked_tokens.pop(token, None)
-            return False
-        return True
-
-
-def _revoke_token(token: str) -> None:
-    """Thread-safe revocation with pruning and best-effort persistence."""
-    with _revoke_lock:
-        _revoked_tokens[token] = time.time() + _REVOKE_TTL_SECONDS
-        _prune_expired()
-        _persist_revoked()
-
-
-# Hydrate on import
-_load_revoked()
+async def _revoke_token(token: str) -> None:
+    """Revoke a token, using Redis with in-memory fallback."""
+    payload = verify_token(token)
+    if not payload:
+        return
+        
+    jti = payload.get("jti")
+    if not jti:
+        return
+        
+    exp = payload.get("exp")
+    if not exp:
+        ttl = _REVOKE_TTL_SECONDS
+    else:
+        ttl = max(1, int(exp - time.time()))
+        
+    redis = await get_redis()
+    if redis:
+        try:
+            await redis.setex(f"revoked:{jti}", ttl, "")
+            return
+        except Exception as e:
+            logger.warning(f"Redis set failed: {e}")
+            
+    # Fallback to in-memory if Redis is unavailable
+    _revoked_tokens[jti] = time.time() + ttl
 
 router = APIRouter(tags=["authentication"])
 
@@ -154,7 +133,12 @@ async def login(request: Request, login_data: LoginRequest):
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "token_type": "bearer"
+            "token_type": "bearer",
+            "user": {
+                "email": email,
+                "role": "super_admin",
+                "permissions": {}
+            }
         }
 
     email = login_data.email
@@ -162,7 +146,7 @@ async def login(request: Request, login_data: LoginRequest):
     tenant_id: str = "default"
     authenticated = False
 
-    # ── Primary path: look up user in the platform `users` table ──────────
+    #  Primary path: look up user in the platform `users` table 
     try:
         db_host = os.getenv("DB_HOST")
         if db_host:
@@ -183,7 +167,7 @@ async def login(request: Request, login_data: LoginRequest):
             )
             try:
                 row = await conn.fetchrow(
-                    "SELECT hashed_password as password_hash, role, tenant_id, is_active "
+                    "SELECT hashed_password as password_hash, role, tenant_id, is_active, mfa_enabled "
                     "FROM users WHERE email = $1",
                     email,
                 )
@@ -204,7 +188,7 @@ async def login(request: Request, login_data: LoginRequest):
     except Exception as db_err:
         logger.warning("Platform DB lookup unavailable, falling back to env: %s", db_err)
 
-    # ── Fallback: env-var bootstrap admin ──────────────────────────────────
+    #  Fallback: env-var bootstrap admin 
     if not authenticated:
         valid_users = _get_valid_users()
         hashed_pwd = valid_users.get(email)
@@ -214,7 +198,7 @@ async def login(request: Request, login_data: LoginRequest):
             authenticated = True
 
     if not authenticated:
-        # Do not log the email — it is PII and leaks valid account enumeration
+        # Do not log the email  it is PII and leaks valid account enumeration
         logger.warning("Failed login attempt from %s", request.client.host if request.client else "unknown")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -222,7 +206,21 @@ async def login(request: Request, login_data: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # ── Final Response ───────────────────────────────────────────────────
+    #  Final Response 
+    # Check if MFA is enabled for this user (only from DB, env-users don't have MFA)
+    mfa_enabled = False
+    if authenticated and 'row' in locals() and row:
+        mfa_enabled = row.get("mfa_enabled", False)
+
+    if mfa_enabled:
+        # Issue a temporary token for MFA challenge
+        mfa_token = create_access_token(data={"sub": email, "mfa_pending": True})
+        return {
+            "mfa_required": True,
+            "mfa_token": mfa_token,
+            "message": "MFA challenge required"
+        }
+
     token_data = {"sub": email, "role": role, "tenant_id": tenant_id}
     access_token = create_access_token(data=token_data)
     refresh_token = create_refresh_token(data=token_data)
@@ -275,7 +273,7 @@ async def refresh_token(body: RefreshRequest):
     """
     token = body.refresh_token
 
-    if _is_revoked(token):
+    if await _is_revoked(token):
         raise HTTPException(status_code=401, detail="Refresh token has been revoked")
 
     payload = verify_token(token)
@@ -299,7 +297,7 @@ async def refresh_token(body: RefreshRequest):
 @router.post("/logout")
 async def logout(body: RefreshRequest):
     """Invalidate a refresh token"""
-    _revoke_token(body.refresh_token)
+    await _revoke_token(body.refresh_token)
     return {"status": "success", "message": "Successfully logged out"}
 
 

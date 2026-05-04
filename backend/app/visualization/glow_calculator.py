@@ -4,8 +4,8 @@ Computes visual intensity scores for graph nodes and edges.
 
 DATA PROVENANCE:
   All glow/vitality scores are CALCULATED values derived from graph structure:
-    NodeGlow(v) = α·log(row_count + 1) + β·centrality
-    EdgeGlow(u,v) = γ·log(relationship_count + 1) + δ·semantic_similarity
+    NodeGlow(v) = log(row_count + 1) + centrality
+    EdgeGlow(u,v) = log(relationship_count + 1) + semantic_similarity
 
   These are mathematical proxies for "visual importance" in the 3D graph.
   They do NOT measure actual database query performance, latency, or real-time load.
@@ -23,7 +23,7 @@ class GlowCalculator:
     def calculate_node_glow(self, record_count: int, centrality: float,
                            alpha: float = 0.3, beta: float = 0.5) -> float:
         """
-        Formula: NodeGlow(v) = α·log(N_v + 1) + β·C_v
+        Formula: NodeGlow(v) = log(N_v + 1) + C_v
         Source:
           - N_v (row_count): real schema metadata count
           - C_v (centrality): computed from graph in/out-degree topology
@@ -41,10 +41,10 @@ class GlowCalculator:
                            semantic_similarity: float,
                            gamma: float = 0.2, delta: float = 0.5) -> float:
         """
-        Formula: EdgeGlow(u,v) = γ·log(R_uv + 1) + δ·cos(θ_uv)
+        Formula: EdgeGlow(u,v) = log(R_uv + 1) + cos(_uv)
         Source:
           - R_uv (relationship_count): FK/join count from schema analysis
-          - θ_uv (semantic_similarity): cosine similarity of feature vectors
+          - _uv (semantic_similarity): cosine similarity of feature vectors
           - Result: visual intensity proxy, not a query frequency measurement
         Returns a value typically between 0.0 and 1.0.
         """
@@ -79,7 +79,7 @@ class GlowCalculator:
             '_meta': {
                 'source': 'formula_derived',
                 'description': (
-                    'Glow scores are computed values: α·log(row_count+1) + β·centrality. '
+                    'Glow scores are computed values: log(row_count+1) + centrality. '
                     'They represent visual structural importance, not runtime performance metrics.'
                 ),
                 'inputs': {

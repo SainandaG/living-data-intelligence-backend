@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def _autocorrelation(series: List[float], max_lag: int = 14) -> Dict[int, float]:
     """
     Compute normalized autocorrelation for lags 1..max_lag.
-    Returns {lag: correlation} dict. Values near ±1 indicate strong periodicity.
+    Returns {lag: correlation} dict. Values near 1 indicate strong periodicity.
     """
     n = len(series)
     if n < 4:
@@ -47,8 +47,8 @@ def _dominant_period(autocorr: Dict[int, float], min_corr: float = 0.3) -> Optio
 
 def _seasonality_score(series: List[float]) -> float:
     """
-    Score 0–1 indicating how seasonal/periodic the series is.
-    Uses the max autocorrelation at lags 2–14.
+    Score 01 indicating how seasonal/periodic the series is.
+    Uses the max autocorrelation at lags 214.
     """
     if len(series) < 4:
         return 0.0
@@ -60,7 +60,7 @@ def _seasonality_score(series: List[float]) -> float:
 
 def _linear_trend(series: List[float]) -> Dict[str, float]:
     """
-    Fit a linear trend and return slope, intercept, and R².
+    Fit a linear trend and return slope, intercept, and R.
     Positive slope = growth, negative = decline.
     """
     n = len(series)
@@ -209,7 +209,7 @@ class PatternAnalyzer:
         r2 = trend.get("r_squared", 0)
         if r2 > 0.5:
             direction = "growing" if slope > 0 else "declining"
-            parts.append(f"activity is {direction} (slope={slope:+.2f}/h, R²={r2:.2f})")
+            parts.append(f"activity is {direction} (slope={slope:+.2f}/h, R={r2:.2f})")
 
         return "; ".join(parts) + "."
 

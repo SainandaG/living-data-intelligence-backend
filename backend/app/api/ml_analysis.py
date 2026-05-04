@@ -1,5 +1,5 @@
 """
-ML Analysis API  —  /api/ml/analyze
+ML Analysis API    /api/ml/analyze
 Real ML analysis using scikit-learn for Classification, Regression,
 Time Series, and Clustering on actual database table data.
 
@@ -24,17 +24,17 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Response, Depends
 from pydantic import BaseModel, Field, model_validator
 
-from app.services.rbac_service import require_role
+from app.services.rbac_service import require_role, require_feature
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ml", tags=["ml-analysis"])
 
-# In-memory store for async job results: run_id → {status, result?, error?, _ts}
+# In-memory store for async job results: run_id  {status, result?, error?, _ts}
 # The JSONL file in experiment_tracker is the durable store; this is the hot path.
 _pending_results: Dict[str, Dict[str, Any]] = {}
 _PENDING_TTL_S = 3600       # evict completed/failed entries after 1 hour
-_PENDING_MAX   = 500        # hard cap — oldest entries dropped first
+_PENDING_MAX   = 500        # hard cap  oldest entries dropped first
 
 def _pending_set(run_id: str, value: Dict[str, Any]) -> None:
     """Write to _pending_results with a timestamp, enforcing TTL and size cap."""
@@ -66,8 +66,8 @@ VALID_ALGOS: Dict[str, set] = {
     "timeseries":     {"arima"},
 }
 
-# ─── CSV upload store ─────────────────────────────────────────────────────────
-# csv_id → {"rows": List[Dict], "columns": List[Dict], "filename": str, "_ts": float}
+#  CSV upload store 
+# csv_id  {"rows": List[Dict], "columns": List[Dict], "filename": str, "_ts": float}
 _csv_store: Dict[str, Dict[str, Any]] = {}
 _CSV_TTL_S = 7200   # 2 hours
 _CSV_MAX   = 20     # max 20 simultaneous uploads
@@ -138,13 +138,13 @@ class AnalysisResult(BaseModel):
     feature_importances: List[FeatureImportance]
     predictions: List[Prediction]
     insights: List[str]
-    data_warnings: List[str] = []   # populated by _check_data_quality — read these first
+    data_warnings: List[str] = []   # populated by _check_data_quality  read these first
     scatter_sample: Optional[List[Dict]] = []
     status: str = "success"
     run_id: Optional[str] = None    # set by /run endpoint; absent for direct /analyze calls
 
 
-# ─── Data fetching ────────────────────────────────────────────────────────────
+#  Data fetching 
 
 def _safe_quote(name: str, db_type: str) -> str:
     """
@@ -259,7 +259,7 @@ async def _merge_secondary_tables(
                 join_col_p, join_col_s = fallback_col, fallback_col
 
             if not join_col_p or not join_col_s:
-                logger.debug("No join column found between %s and %s — skipping", primary_table, sec_table)
+                logger.debug("No join column found between %s and %s  skipping", primary_table, sec_table)
                 continue
 
             lookup: Dict = {}
@@ -277,7 +277,7 @@ async def _merge_secondary_tables(
     return primary_rows
 
 
-# ─── Preprocessing ────────────────────────────────────────────────────────────
+#  Preprocessing 
 
 def _check_data_quality(
     rows: List[Dict],
@@ -291,7 +291,7 @@ def _check_data_quality(
     - Target column included in features (leakage)
     - Too few rows for reliable test-set evaluation
     - High-cardinality columns that are likely ID/primary-key columns
-    - Features that are constant (zero variance — carry no information)
+    - Features that are constant (zero variance  carry no information)
     """
     warnings: List[str] = []
     if not rows:
@@ -301,7 +301,7 @@ def _check_data_quality(
     if target_col and target_col in feature_cols:
         warnings.append(
             f"DATA QUALITY: Target column '{target_col}' is also listed as a feature. "
-            "This causes target leakage — accuracy will be artificially inflated. "
+            "This causes target leakage  accuracy will be artificially inflated. "
             "Remove it from the feature list."
         )
 
@@ -309,13 +309,13 @@ def _check_data_quality(
     n = len(rows)
     if n < 50:
         warnings.append(
-            f"DATA QUALITY: Only {n} rows available. The 20% test set has ~{int(n * 0.2)} rows — "
+            f"DATA QUALITY: Only {n} rows available. The 20% test set has ~{int(n * 0.2)} rows  "
             "metrics computed on fewer than 10 samples are statistically unreliable. "
             "Collect more data before trusting these numbers."
         )
     elif n < 100:
         warnings.append(
-            f"DATA QUALITY: Dataset has {n} rows. Metrics are approximate — "
+            f"DATA QUALITY: Dataset has {n} rows. Metrics are approximate  "
             "consider gathering more data for stable evaluation."
         )
 
@@ -340,7 +340,7 @@ def _check_data_quality(
     else:
         for col in high_card_cols:
             warnings.append(
-                f"DATA QUALITY: Feature '{col}' has high uniqueness — looks like an ID column. "
+                f"DATA QUALITY: Feature '{col}' has high uniqueness  looks like an ID column. "
                 "ID columns memorise row identity, not patterns. Remove it from features."
             )
 
@@ -371,7 +371,7 @@ def _check_data_quality(
 def _preprocess(rows: List[Dict], feature_cols: List[str],
                 target_col: Optional[str], family: str):
     """
-    Convert raw DB rows → (X, y, feature_names).
+    Convert raw DB rows  (X, y, feature_names).
     - Numeric columns: median-impute
     - Categorical columns: LabelEncode
     - Target column is always excluded from features (prevents leakage)
@@ -385,10 +385,10 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
 
     df = pd.DataFrame(rows)
 
-    # Fix 1 — never include target in features (prevents target leakage)
+    # Fix 1  never include target in features (prevents target leakage)
     clean_features = [c for c in feature_cols if c != target_col]
 
-    # Resolve feature columns — fall back to all columns except target
+    # Resolve feature columns  fall back to all columns except target
     available = [c for c in clean_features if c in df.columns]
     if not available:
         available = [c for c in df.columns if c != target_col][:10]
@@ -472,7 +472,7 @@ def _preprocess(rows: List[Dict], feature_cols: List[str],
 
 
 
-# ─── Evaluation Helpers ───────────────────────────────────────────────────────
+#  Evaluation Helpers 
 
 def _evaluate_classification(model, X_tr, X_te, y_tr, y_te, feature_names, avg):
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -587,7 +587,7 @@ def _evaluate_regression(model, X_tr, X_te, y_tr, y_te, feature_names):
 
     return metrics, fi, predictions
 
-# ─── Classification ───────────────────────────────────────────────────────────
+#  Classification 
 
 def _run_classification(X: np.ndarray, y: np.ndarray,
                         algo: str, feature_names: List[str],
@@ -597,11 +597,11 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
     from sklearn.preprocessing import StandardScaler
 
     if y is None or len(X) < 5:
-        raise ValueError("Need ≥5 rows with a valid target column for classification.")
+        raise ValueError("Need 5 rows with a valid target column for classification.")
 
     unique_classes = np.unique(y)
     if len(unique_classes) < 2:
-        raise ValueError("Classification requires ≥2 distinct classes in the target column.")
+        raise ValueError("Classification requires 2 distinct classes in the target column.")
 
     # Cap at 5 000 rows for speed
     if len(X) > 5000:
@@ -666,7 +666,7 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
         coef = model.coef_
         importances = np.mean(np.abs(coef), axis=0) if coef.ndim == 2 else np.abs(coef[0])
 
-    # Fix 2 — minimum reliable test set
+    # Fix 2  minimum reliable test set
     if len(X_te) < 1:
         raise ValueError(
             f"Test set has only {len(X_te)} samples after the 80/20 split. "
@@ -685,7 +685,7 @@ def _run_classification(X: np.ndarray, y: np.ndarray,
     return metrics, fi, predictions, model, X_tr
 
 
-# ─── Neural Network (PyTorch) ────────────────────────────────────────────────
+#  Neural Network (PyTorch) 
 
 def _run_neural_net(X: np.ndarray, y: np.ndarray,
                     task: str, feature_names: List[str],
@@ -775,7 +775,7 @@ def _run_neural_net(X: np.ndarray, y: np.ndarray,
 
     return metrics, fi, predictions, model, X_tr
 
-# ─── Neural Network (TensorFlow) ─────────────────────────────────────────────
+#  Neural Network (TensorFlow) 
 
 def _run_tensorflow_nn(X: np.ndarray, y: np.ndarray,
                        task: str, feature_names: List[str],
@@ -837,7 +837,7 @@ def _run_tensorflow_nn(X: np.ndarray, y: np.ndarray,
     
     return metrics, fi, predictions, model, X_tr
 
-# ─── Regression ───────────────────────────────────────────────────────────────
+#  Regression 
 
 def _run_regression(X: np.ndarray, y: np.ndarray,
                     algo: str, feature_names: List[str],
@@ -847,7 +847,7 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
     from sklearn.preprocessing import StandardScaler
 
     if y is None or len(X) < 5:
-        raise ValueError("Need ≥5 rows with a numeric target column for regression.")
+        raise ValueError("Need 5 rows with a numeric target column for regression.")
 
     if len(X) > 5000:
         idx = np.random.default_rng(42).choice(len(X), 5000, replace=False)
@@ -880,7 +880,7 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
         model.fit(X_tr, y_tr)
         importances = np.abs(model.coef_)
 
-    else:  # xgboost → GradientBoostingRegressor
+    else:  # xgboost  GradientBoostingRegressor
         from sklearn.ensemble import GradientBoostingRegressor
         model = GradientBoostingRegressor(
             n_estimators=h.get("n_estimators", 100),
@@ -897,7 +897,7 @@ def _run_regression(X: np.ndarray, y: np.ndarray,
     return metrics, fi, predictions, model, X_tr
 
 
-# ─── Clustering ───────────────────────────────────────────────────────────────
+#  Clustering 
 
 def _run_clustering(X: np.ndarray, algo: str, feature_names: List[str],
                     hyperparams: Optional[Dict[str, Any]] = None):
@@ -905,7 +905,7 @@ def _run_clustering(X: np.ndarray, algo: str, feature_names: List[str],
     from sklearn.metrics import silhouette_score as sil_score
 
     if len(X) < 10:
-        raise ValueError("Need ≥10 rows for clustering.")
+        raise ValueError("Need 10 rows for clustering.")
 
     if len(X) > 5000:
         idx = np.random.default_rng(42).choice(len(X), 5000, replace=False)
@@ -1004,7 +1004,7 @@ def _run_clustering(X: np.ndarray, algo: str, feature_names: List[str],
     return metrics, fi, predictions, best_model, X_s
 
 
-# ─── Time Series ──────────────────────────────────────────────────────────────
+#  Time Series 
 
 def _run_timeseries(rows: List[Dict], feature_cols: List[str],
                     target_col: Optional[str], algo: str):
@@ -1030,7 +1030,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
                 date_col = col
                 break
             except Exception:
-                pass  # not a date column — try next
+                pass  # not a date column  try next
 
     if date_col is None:
         # Try any column that looks like a date
@@ -1052,24 +1052,24 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
     df = df.dropna(subset=[date_col, target_col]).sort_values(date_col).reset_index(drop=True)
 
     if len(df) < 10:
-        raise ValueError("Need ≥10 non-null data points for time series analysis.")
+        raise ValueError("Need 10 non-null data points for time series analysis.")
 
     y = df[target_col].values.astype(float)
     n = len(y)
     x = np.arange(n, dtype=float)
 
-    # ── HOLD-OUT SPLIT (Fix Leakage: Fit ONLY on training portion) ──
+    #  HOLD-OUT SPLIT (Fix Leakage: Fit ONLY on training portion) 
     split = max(1, int(n * 0.8))
     y_train = y[:split]
     x_train = x[:split]
     y_test = y[split:]
 
-    # ── Linear trend ──
+    #  Linear trend 
     coeffs = np.polyfit(x_train, y_train, 1)          # slope, intercept
     y_trend_train = np.polyval(coeffs, x_train)
     residuals_train = y_train - y_trend_train
 
-    # ── Weekly seasonality (period 7) via harmonic regression ──
+    #  Weekly seasonality (period 7) via harmonic regression 
     # k_harm, T, coeffs_s initialised here so test-set and forecast blocks are
     # always defined, even when len(y_train) < 14 or lstsq fails.
     k_harm: int = 0
@@ -1088,7 +1088,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
         except Exception:
             coeffs_s = np.zeros(k_harm * 2)
 
-    # ── EVALUATE ON TEST SET ──
+    #  EVALUATE ON TEST SET 
     x_test = x[split:]
     if len(x_test) > 0:
         future_trend_test = np.polyval(coeffs, x_test)
@@ -1112,7 +1112,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
         mask = y_test != 0
         mape = float(np.mean(np.abs((y_test[mask] - y_pred_test[mask]) / y_test[mask])) * 100) if mask.any() else mae
 
-    # ── 30-day forecast ──
+    #  30-day forecast 
     x_future = np.arange(n, n + 30, dtype=float)
     future_trend = np.polyval(coeffs, x_future)
 
@@ -1127,7 +1127,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
 
     future_vals = future_trend + future_seasonal
 
-    # ── Metrics ──
+    #  Metrics 
     trend_dir = "upward" if coeffs[0] > 0 else ("downward" if coeffs[0] < 0 else "flat")
     monthly_growth_pct = round(float(coeffs[0] * 30 / (np.mean(y) + 1e-9) * 100), 2)
 
@@ -1163,7 +1163,7 @@ def _run_timeseries(rows: List[Dict], feature_cols: List[str],
     return metrics, fi, predictions
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+#  Helpers 
 
 def _normalize_fi(names: List[str], importances: np.ndarray) -> List[FeatureImportance]:
     total = importances.sum()
@@ -1190,21 +1190,21 @@ def _build_insights(family: str, algo: str, table: str, target: Optional[str],
         n_cls = metrics.get("n_classes", 2)
         baseline = metrics.get("baseline_accuracy", 0)
         ins.append(
-            f"Model accuracy: {acc:.1%} · F1: {f1:.4f} on "
+            f"Model accuracy: {acc:.1%}  F1: {f1:.4f} on "
             f"{metrics.get('test_size', '?')}-sample held-out test set ({n_cls} classes)."
         )
         # Checklist item 5: model must beat the naive majority-class baseline
         if baseline > 0:
             ins.append(
                 f"Baseline (always-predict-majority): {baseline:.1%}. "
-                + (f"Model beats baseline by {acc - baseline:+.1%} ✓"
+                + (f"Model beats baseline by {acc - baseline:+.1%} "
                    if acc > baseline
-                   else f"⚠ Model does NOT beat the baseline — predictions are no better than guessing the majority class.")
+                   else f" Model does NOT beat the baseline  predictions are no better than guessing the majority class.")
             )
         if fi:
             ins.append(f"Most discriminative feature: '{top}' ({top_pct}% importance).")
         if f1 >= 0.85:
-            ins.append("Excellent generalisation — model is ready for production scoring.")
+            ins.append("Excellent generalisation  model is ready for production scoring.")
         elif f1 >= 0.70:
             ins.append("Good performance. Consider hyperparameter tuning or class-balancing for further gains.")
         else:
@@ -1213,26 +1213,26 @@ def _build_insights(family: str, algo: str, table: str, target: Optional[str],
         rec = metrics.get("recall", 0)
         if abs(prec - rec) > 0.08:
             if prec > rec:
-                ins.append(f"Precision ({prec:.2%}) > Recall ({rec:.2%}) — model is conservative. Lower decision threshold for higher recall if false-negatives are costly.")
+                ins.append(f"Precision ({prec:.2%}) > Recall ({rec:.2%})  model is conservative. Lower decision threshold for higher recall if false-negatives are costly.")
             else:
-                ins.append(f"Recall ({rec:.2%}) > Precision ({prec:.2%}) — model captures most positives but generates false alarms. Raise threshold to improve precision.")
+                ins.append(f"Recall ({rec:.2%}) > Precision ({prec:.2%})  model captures most positives but generates false alarms. Raise threshold to improve precision.")
 
     elif family == "regression":
         r2 = metrics.get("R2", 0)
         rmse = metrics.get("RMSE", 0)
         mae = metrics.get("MAE", 0)
         ins.append(
-            f"R² = {r2:.4f} — model explains {r2:.1%} of variance in '{target}'. "
+            f"R = {r2:.4f}  model explains {r2:.1%} of variance in '{target}'. "
             f"RMSE={rmse:.2f}, MAE={mae:.2f} on test set."
         )
         if len(fi) >= 2:
             ins.append(f"Top predictors: '{fi[0].name}' ({top_pct}%) and '{fi[1].name}' ({round(fi[1].importance * 100, 1)}%).")
         if r2 >= 0.85:
-            ins.append("Strong predictive power — suitable for production forecasting.")
+            ins.append("Strong predictive power  suitable for production forecasting.")
         elif r2 >= 0.55:
-            ins.append("Moderate fit. Adding interaction terms or trying ensemble methods may boost R².")
+            ins.append("Moderate fit. Adding interaction terms or trying ensemble methods may boost R.")
         else:
-            ins.append("Low R² suggests high noise or non-linear patterns. Consider GradientBoosting / feature engineering.")
+            ins.append("Low R suggests high noise or non-linear patterns. Consider GradientBoosting / feature engineering.")
 
     elif family == "timeseries":
         mape = metrics.get("MAPE", 0)
@@ -1244,11 +1244,11 @@ def _build_insights(family: str, algo: str, table: str, target: Optional[str],
         )
         ins.append(f"Model trained on {metrics.get('samples', row_count)} historical observations with weekly seasonal component.")
         if mape < 10:
-            ins.append("Low MAPE (<10%) — forecasts are highly reliable for short-term planning.")
+            ins.append("Low MAPE (<10%)  forecasts are highly reliable for short-term planning.")
         elif mape < 25:
-            ins.append("Acceptable MAPE (10–25%). Wider confidence intervals recommended for downstream planning.")
+            ins.append("Acceptable MAPE (1025%). Wider confidence intervals recommended for downstream planning.")
         else:
-            ins.append("High MAPE (>25%) — series is volatile. Use prediction intervals; do not rely on point forecasts alone.")
+            ins.append("High MAPE (>25%)  series is volatile. Use prediction intervals; do not rely on point forecasts alone.")
 
     elif family == "clustering":
         sil = metrics.get("silhouette_score", 0)
@@ -1258,30 +1258,30 @@ def _build_insights(family: str, algo: str, table: str, target: Optional[str],
         if fi:
             ins.append(f"Feature '{top}' drives the largest between-cluster separation.")
         if sil >= 0.5:
-            ins.append("Strong cluster structure — segments are well-separated and actionable.")
+            ins.append("Strong cluster structure  segments are well-separated and actionable.")
         elif sil >= 0.25:
             ins.append("Moderate cluster separation. Segments have meaningful differences but some overlap exists.")
         else:
             ins.append("Weak cluster structure. Data may be continuous rather than grouped; consider reducing k.")
         if noise is not None and noise > 0:
             total = metrics.get("samples", 1)
-            ins.append(f"DBSCAN flagged {noise} noise points ({noise/total:.1%}) as outliers — review for data quality issues.")
+            ins.append(f"DBSCAN flagged {noise} noise points ({noise/total:.1%}) as outliers  review for data quality issues.")
 
     return ins
 
 
-# ─── Main endpoint ─────────────────────────────────────────────────────────────
+#  Main endpoint 
 
 @router.post("/analyze", response_model=AnalysisResult)
-async def run_ml_analysis(req: AnalysisRequest, _user: dict = Depends(require_role("analyst"))):
+async def run_ml_analysis(req: AnalysisRequest, _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     Run ML analysis on a database table.
 
     Responses:
     - 200: Analysis completed successfully
-    - 422: Invalid request — bad algo/family combo, empty table, or unusable data
+    - 422: Invalid request  bad algo/family combo, empty table, or unusable data
     - 503: Database connection failed
-    - 504: Analysis timed out (120 s limit) — try fewer features or a faster algorithm
+    - 504: Analysis timed out (120 s limit)  try fewer features or a faster algorithm
     - 500: Unexpected server error
     """
     from app.services.ml.experiment_tracker import experiment_tracker
@@ -1445,7 +1445,7 @@ async def run_ml_analysis(req: AnalysisRequest, _user: dict = Depends(require_ro
         raise HTTPException(status_code=500, detail="Internal server error during ML analysis.")
 
 
-# ─── Async job endpoints (/run + /run/{run_id}/status) ───────────────────────
+#  Async job endpoints (/run + /run/{run_id}/status) 
 
 async def cleanup_ephemeral_models():
     """
@@ -1486,7 +1486,7 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
         target = req.target
 
         if req.csv_id:
-            # CSV path — use cached uploaded data
+            # CSV path  use cached uploaded data
             csv_entry = _csv_store.get(req.csv_id)
             if not csv_entry:
                 _pending_set(run_id, {
@@ -1626,12 +1626,12 @@ async def _run_analysis_background(run_id: str, req: AnalysisRequest) -> None:
 
 
 @router.post("/run", status_code=202)
-async def start_ml_run(req: AnalysisRequest, _user: dict = Depends(require_role("analyst"))):
+async def start_ml_run(req: AnalysisRequest, _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     Start an ML analysis job asynchronously.
 
     Returns a run_id immediately; poll GET /run/{run_id}/status for progress.
-    The job runs in the background — no timeout risk on the HTTP connection.
+    The job runs in the background  no timeout risk on the HTTP connection.
 
     Responses:
     - 202: Job accepted; run_id returned
@@ -1659,7 +1659,7 @@ async def get_run_status(run_id: str, _user: dict = Depends(require_role("viewer
 
 
 @router.get("/run/{run_id}/model")
-async def download_model_file(run_id: str, _user: dict = Depends(require_role("analyst"))):
+async def download_model_file(run_id: str, _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     Download the trained model file (.pt) for a successful database analysis run.
     """
@@ -1680,7 +1680,7 @@ async def download_model_file(run_id: str, _user: dict = Depends(require_role("a
     )
 
 
-# ─── Suggest endpoint ─────────────────────────────────────────────────────────
+#  Suggest endpoint 
 
 @router.get("/suggest")
 async def suggest_analysis(connection_id: str, table: str, _user: dict = Depends(require_role("viewer"))):
@@ -1733,7 +1733,7 @@ async def suggest_analysis(connection_id: str, table: str, _user: dict = Depends
                     if s.nunique() / len(s) < 0.90:
                         usable_cats.append(c)
 
-        # Skip ID/FK columns as regression targets — pick domain-meaningful columns first
+        # Skip ID/FK columns as regression targets  pick domain-meaningful columns first
         _id_re = re.compile(r'^id$|_id$|^fk_|^pk_|^serial', re.IGNORECASE)
         _pref_re = re.compile(
             r'amount|price|rate|duration|score|count|total|soc|pct|percent|'
@@ -1795,7 +1795,7 @@ async def suggest_analysis(connection_id: str, table: str, _user: dict = Depends
         raise HTTPException(status_code=500, detail="Internal server error during algorithm suggestion.")
 
 
-# ─── CSV upload endpoint ──────────────────────────────────────────────────────
+#  CSV upload endpoint 
 
 from fastapi import UploadFile
 import io as _io
@@ -1870,7 +1870,7 @@ async def upload_csv_file(file: UploadFile, _user: dict = Depends(require_role("
     return {"csv_id": csv_id, "filename": filename, "row_count": len(rows), "columns": columns}
 
 
-# ─── AutoML endpoint ──────────────────────────────────────────────────────────
+#  AutoML endpoint 
 
 class AutoMLRequest(BaseModel):
     connection_id: str
@@ -1896,7 +1896,7 @@ class AutoMLResult(BaseModel):
 
 
 @router.post("/automl", response_model=AutoMLResult)
-async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_role("analyst"))):
+async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     AutoML: rank candidate algorithms, optionally tune hyperparameters, return the best result.
 
@@ -1904,7 +1904,7 @@ async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_role("ana
 
     Responses:
     - 200: AutoML completed; best algorithm and metrics returned
-    - 422: Invalid request — unusable data or bad family
+    - 422: Invalid request  unusable data or bad family
     - 503: Database connection failed
     - 500: All candidates failed or unexpected error
     """
@@ -2022,7 +2022,7 @@ async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_role("ana
         results.sort(key=lambda r: r["score"], reverse=True)
         best = results[0]
 
-        # SHAP on winner — use the actual trained model and its training background
+        # SHAP on winner  use the actual trained model and its training background
         try:
             exp = Explainer(best["trained_model"], best["X_bg"], feature_names, req.family)
             shap_fi = exp.feature_importances(best["X_bg"])
@@ -2066,7 +2066,7 @@ async def run_automl(req: AutoMLRequest, _user: dict = Depends(require_role("ana
         raise HTTPException(status_code=500, detail="Internal server error during AutoML execution.")
 
 
-# ─── Experiment history endpoint ──────────────────────────────────────────────
+#  Experiment history endpoint 
 
 @router.get("/experiments")
 async def list_experiments(
@@ -2104,7 +2104,7 @@ async def best_experiment(
 
 
 @router.delete("/run/{run_id}")
-async def cancel_run(run_id: str, tenant_id: str = "default", _user: dict = Depends(require_role("analyst"))):
+async def cancel_run(run_id: str, tenant_id: str = "default", _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     Mark a run as cancelled in the experiment tracker.
 
@@ -2140,7 +2140,7 @@ async def cancel_run(run_id: str, tenant_id: str = "default", _user: dict = Depe
     return {"run_id": run_id, "status": "cancelled"}
 
 
-# ─── PDF Report endpoint ────────────────────────────────────────────────────────
+#  PDF Report endpoint 
 @router.get("/run/{run_id}/pdf")
 async def download_run_pdf(run_id: str, tenant_id: str = "default", _user: dict = Depends(require_role("viewer"))):
     """Download a professional PDF report containing ML insights and SHAP values."""
@@ -2236,7 +2236,7 @@ async def download_run_pdf(run_id: str, tenant_id: str = "default", _user: dict 
                     dir_color = colors.HexColor("#991b1b")
                 
                 p_style = ParagraphStyle(
-                    f'fi_{run_id[:8]}_{fi_idx}',  # globally unique — avoids ReportLab registry collision
+                    f'fi_{run_id[:8]}_{fi_idx}',  # globally unique  avoids ReportLab registry collision
                     parent=normal,
                     leftIndent=10,
                     rightIndent=10,
@@ -2264,7 +2264,7 @@ async def download_run_pdf(run_id: str, tenant_id: str = "default", _user: dict 
         logger.error(f"PDF generation failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Could not generate PDF report.")
 
-# ─── Health endpoint (T5-4) ───────────────────────────────────────────────────
+#  Health endpoint (T5-4) 
 
 @router.get("/health")
 async def ml_health(_user: dict = Depends(require_role("viewer"))):
@@ -2300,7 +2300,7 @@ async def ml_health(_user: dict = Depends(require_role("viewer"))):
     }
 
 
-# ─── What-If simulation endpoint ─────────────────────────────────────────────
+#  What-If simulation endpoint 
 
 class WhatIfRequest(BaseModel):
     connection_id: str
@@ -2311,7 +2311,7 @@ class WhatIfRequest(BaseModel):
     family: Literal["classification", "regression", "clustering"]
     feature_weights: Dict[str, float] = Field(
         default={},
-        description="Per-feature multiplier (0.0–2.0). 1.0 = no change.",
+        description="Per-feature multiplier (0.02.0). 1.0 = no change.",
     )
 
     @model_validator(mode="after")
@@ -2331,11 +2331,11 @@ class WhatIfRequest(BaseModel):
 
 
 @router.post("/whatif")
-async def whatif_analysis(req: WhatIfRequest, _user: dict = Depends(require_role("analyst"))):
+async def whatif_analysis(req: WhatIfRequest, _user: dict = Depends(require_feature("ml_analyze", "analyst"))):
     """
     Re-run ML analysis after applying per-feature multiplicative weights to the data.
 
-    feature_weights: dict mapping feature name → multiplier (0.0 = zero out,
+    feature_weights: dict mapping feature name  multiplier (0.0 = zero out,
     1.0 = unchanged, 2.0 = double).  Only numeric columns are re-scaled.
 
     Returns new metrics and feature importances so the frontend can compare

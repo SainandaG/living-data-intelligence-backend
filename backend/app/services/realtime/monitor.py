@@ -1,4 +1,4 @@
-"""Realtime Monitor – main module. Full implementation lives here until sub-module extraction."""
+"""Realtime Monitor  main module. Full implementation lives here until sub-module extraction."""
 """
 Realtime Monitor
 
@@ -28,7 +28,7 @@ class RealtimeMonitor:
         self.last_metrics_update: Dict[str, float] = {} # connection_id -> last_tick
         self.cached_metrics: Dict[str, Dict[str, Any]] = {} # connection_id -> last_valid_total
         self.active_discovery_cache: Dict[str, Dict[str, Any]] = {} # connection_id -> meta_data
-        # Cache for expensive data-quality NULL-density scan (3 queries) — refreshed every 60s
+        # Cache for expensive data-quality NULL-density scan (3 queries)  refreshed every 60s
         self._dq_cache: Dict[str, tuple] = {} # connection_id -> (timestamp, score_delta, issues_list)
 
     def _get_key(self, row: dict, key: str):
@@ -40,7 +40,7 @@ class RealtimeMonitor:
 
     async def get_realtime_data(self, connection_id: str, table_name: str = None) -> dict:
         """Get real-time metrics with intelligence analysis. If table_name is provided, include node-specific analysis."""
-        # File connections (CSV/Excel) don't support DB-level metrics — return safe defaults immediately
+        # File connections (CSV/Excel) don't support DB-level metrics  return safe defaults immediately
         try:
             from app.services import file_connector as _fc
             if _fc.is_file_connection(connection_id):
@@ -78,7 +78,7 @@ class RealtimeMonitor:
             # Ensure Memory Hydration (Lazy)
             if connection_id not in anomaly_detector.baseline_metrics:
                 from app.services.generation_log_service import generation_log_service
-                await generation_log_service.log_step(connection_id, "🧠 Hydrating anomaly sensor memory baseline", progress=40)
+                await generation_log_service.log_step(connection_id, " Hydrating anomaly sensor memory baseline", progress=40)
                 await anomaly_detector.hydrate_memory(db_connector, connection_id)
             
             ai_stats = await neural_core.get_core_metrics()
@@ -87,7 +87,7 @@ class RealtimeMonitor:
             anomalies = await anomaly_detector.detect_anomalies(connection_id, db_metrics)
             if anomalies:
                 from app.services.generation_log_service import generation_log_service
-                await generation_log_service.log_step(connection_id, f"⚠️ Detected {len(anomalies)} anomalies in data stream", level="warning")
+                await generation_log_service.log_step(connection_id, f" Detected {len(anomalies)} anomalies in data stream", level="warning")
             
             # 4. Real health analysis (Global)
             health_status = await self._analyze_graph_health(connection_id, db_metrics)
@@ -220,7 +220,7 @@ class RealtimeMonitor:
         critical_energy_alerts = 0
 
         try:
-            # Core query — only uses columns that always exist in the batteries table
+            # Core query  only uses columns that always exist in the batteries table
             batt_res = await db_connector.query(connection_id, """
                 SELECT COUNT(*) as count, AVG(COALESCE(soh_percentage, 100)) as avg_soh
                 FROM batteries
@@ -233,7 +233,7 @@ class RealtimeMonitor:
         except Exception as e:
             logger.warning(f"[RealtimeMonitor] Battery core query failed: {e}", exc_info=True)
 
-        # Optional telemetry — fails silently if column names differ per deployment
+        # Optional telemetry  fails silently if column names differ per deployment
         try:
             tel_res = await db_connector.query(connection_id,
                 "SELECT AVG(temperature) as t, AVG(voltage) as v, AVG(current_a) as c FROM batteries")
@@ -460,7 +460,7 @@ class RealtimeMonitor:
             health_score -= 20 * len(high_risk)
             issues.append(f"{len(high_risk)} Critical Anomalies Detected")
             
-        # 4. Data Quality Analysis (Reality-Driven) — cached 60s to avoid hammering DB
+        # 4. Data Quality Analysis (Reality-Driven)  cached 60s to avoid hammering DB
         try:
             _dq_ttl = 60.0
             _dq_cached = self._dq_cache.get(connection_id)
@@ -577,7 +577,7 @@ class RealtimeMonitor:
 
     async def get_wezu_node_data(self, connection_id: str) -> Dict[str, Any]:
         """Fetch WEZU-specific business metrics for for 3D Latent Mapping"""
-        # File connections don't have batteries/stations tables — skip immediately
+        # File connections don't have batteries/stations tables  skip immediately
         try:
             from app.services import file_connector as _fc
             if _fc.is_file_connection(connection_id):
@@ -864,3 +864,4 @@ realtime_monitor = RealtimeMonitor()
 # node_metrics         : _get_node_specific_metrics (603-794)
 # monitor              : get_realtime_data, get_wezu_node_data, __init__ (orchestration layer)
 # Full split is the next sprint. Singleton is centralised here for backward compat.
+

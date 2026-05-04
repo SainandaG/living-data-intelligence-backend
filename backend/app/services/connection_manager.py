@@ -70,7 +70,7 @@ class WebSocketManager:
         self._background_tasks.add(heartbeat_task)
         cleanup_task.add_done_callback(self._background_tasks.discard)
         heartbeat_task.add_done_callback(self._background_tasks.discard)
-        logger.info("✅ WebSocket Manager started with maintenance loops.")
+        logger.info(" WebSocket Manager started with maintenance loops.")
 
     async def connect(self, websocket: WebSocket, connection_id: str, initial_topics: List[str] = ["broadcast"]):
         """Register and accept a new connection"""
@@ -85,7 +85,7 @@ class WebSocketManager:
         for topic in initial_topics:
             self.join_topic(connection_id, topic)
             
-        logger.info(f"✅ WebSocket connected: {connection_id} (Total: {len(self.active_connections)})")
+        logger.info(f" WebSocket connected: {connection_id} (Total: {len(self.active_connections)})")
         return connection_id
 
     def disconnect(self, connection_id: str):
@@ -98,7 +98,7 @@ class WebSocketManager:
             if connection_id in topic_connections:
                 topic_connections.remove(connection_id)
         
-        logger.info(f"❌ WebSocket disconnected: {connection_id} (Total: {len(self.active_connections)})")
+        logger.info(f" WebSocket disconnected: {connection_id} (Total: {len(self.active_connections)})")
 
     def join_topic(self, connection_id: str, topic: str):
         if topic not in self.topics:

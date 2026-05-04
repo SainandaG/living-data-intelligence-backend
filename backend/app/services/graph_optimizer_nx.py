@@ -80,10 +80,10 @@ class SchemaAnalyzer:  # Local analyzer for NetworkX
                 clusters = community_louvain.best_partition(G_undirected, weight='weight', random_state=42)
             else:
                 # No edges - fallback to single cluster
-                logger.info("⚠️ No edges found, grouping all tables into one cluster")
+                logger.info(" No edges found, grouping all tables into one cluster")
                 clusters = {node: 0 for node in G.nodes()}
         except Exception as e:
-            logger.error(f"⚠️ Louvain clustering failed: {e}. Using fallback.")
+            logger.error(f" Louvain clustering failed: {e}. Using fallback.")
             # Fallback: all nodes in one cluster
             clusters = {node: 0 for node in G.nodes()}
         
@@ -91,14 +91,14 @@ class SchemaAnalyzer:  # Local analyzer for NetworkX
         try:
             base_importance = nx.pagerank(G)
         except Exception as e:
-            logger.error(f"⚠️ PageRank failed: {e}. Using uniform distribution.")
+            logger.error(f" PageRank failed: {e}. Using uniform distribution.")
             # Fallback: uniform importance
             num_nodes = len(G.nodes())
             base_importance = {node: 1.0/num_nodes for node in G.nodes()} if num_nodes > 0 else {}
         
         num_clusters = len(set(clusters.values())) if clusters else 0
         
-        logger.info(f"🧠 NetworkX Analysis: {len(G.nodes())} tables, {len(G.edges())} relationships, {num_clusters} clusters")
+        logger.info(f" NetworkX Analysis: {len(G.nodes())} tables, {len(G.edges())} relationships, {num_clusters} clusters")
         return {
             'clusters': clusters,
             'base_gravity': base_importance,
@@ -197,10 +197,10 @@ class GraphOptimizerNX:
         Returns:
             Analysis results with clusters and gravity scores
         """
-        logger.info("🧠 Graph Optimizer (NetworkX): Analyzing schema structure...")
+        logger.info(" Graph Optimizer (NetworkX): Analyzing schema structure...")
         self.last_analysis = await asyncio.to_thread(self.analyzer.analyze, schema)
         self.adapter = LiveAdapter(self.last_analysis)
-        logger.info(f"✅ Found {self.last_analysis['num_clusters']} natural clusters using Louvain algorithm")
+        logger.info(f" Found {self.last_analysis['num_clusters']} natural clusters using Louvain algorithm")
         return self.last_analysis
     
     async def on_metrics_update(self, live_metrics: Dict) -> Dict[str, Any]:

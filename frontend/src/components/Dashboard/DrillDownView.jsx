@@ -11,6 +11,7 @@ import soundSystem from '../../utils/SoundSystem';
 import { logger } from '../../utils/logger';
 import ErrorBoundary from '../ErrorBoundary';
 import { authFetch } from '../../utils/apiClient';
+import { withRBAC } from '../../hoc/withRBAC';
 
 // Intelligence Panel Integration - Deep Analysis Feature
 function DrillDownView({ connectionId, tableName, onBack, onToggleLatent, initialShowSimulation = false }) {
@@ -528,4 +529,4 @@ function FlowGraph({ data, tableName, columns, onNodeHover, onNodeClick }) {
     );
 }
 
-export default React.memo(DrillDownView);
+export default withRBAC(React.memo(DrillDownView), 'table_records', 'analyst');

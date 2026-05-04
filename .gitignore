@@ -59,6 +59,10 @@ venv.bak/
 .gemini/
 brain/
 *.log
+*.log.*
+.watchfiles
+backend/scratch/
+backend/living_data.db
 
 # APEX runtime data (never commit live data or experiment artefacts)
 backend/data/workspaces/

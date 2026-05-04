@@ -85,7 +85,7 @@ class WEZUDemandPredictor(T1Agent):
         
         try:
             # Simple heuristic: average swaps from last 7 days * 1.1
-            # Use parameterized query — station_id comes from API input
+            # Use parameterized query  station_id comes from API input
             hist_query = "SELECT AVG(total_swaps) as avg_swaps FROM stations WHERE id = $1"
             hist_res = await db_connector.query(connection_id, hist_query, (station_id,))
             if hist_res and hist_res[0].get('avg_swaps'):
@@ -106,7 +106,7 @@ class WEZUDemandPredictor(T1Agent):
             "predicted_swaps": prediction,
             "confidence": confidence,
             "recommendation": recommendation,
-            "roi_impact": "₹0 (Baseline)" if prediction == 0 else "Analysis Active"
+            "roi_impact": "0 (Baseline)" if prediction == 0 else "Analysis Active"
         }
 
 class WEZUAnomalyHunter(T1Agent):
@@ -127,7 +127,7 @@ class WEZUAnomalyHunter(T1Agent):
             table_exists = await db_connector.query(connection_id, check_table)
             
             if table_exists:
-                # Detect coordinates outside valid GPS ranges (lat ±90, lon ±180).
+                # Detect coordinates outside valid GPS ranges (lat 90, lon 180).
                 # Future: integrate configurable geofence polygons per station.
                 breach_query = "SELECT COUNT(*) as count FROM gps_tracking_log WHERE abs(latitude) > 90 OR abs(longitude) > 180"
                 res = await db_connector.query(connection_id, breach_query)
@@ -136,3 +136,4 @@ class WEZUAnomalyHunter(T1Agent):
             logger.warning(f"Anomaly Hunter: GPS breach scan failed: {e}")
             
         return {"status": "sweep_complete", "anomalies_found": anomalies}
+

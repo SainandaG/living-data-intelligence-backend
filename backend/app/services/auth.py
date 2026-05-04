@@ -37,6 +37,8 @@ def verify_password(plain: str, hashed: str) -> bool:
     """Verify a plain password against its hashed version"""
     return pwd_context.verify(plain, hashed)
 
+import uuid
+
 def create_access_token(data: dict) -> str:
     """Create a new JWT access token.
 
@@ -48,6 +50,8 @@ def create_access_token(data: dict) -> str:
     """
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE)
+    if "jti" not in to_encode:
+        to_encode["jti"] = str(uuid.uuid4())
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
 
@@ -55,6 +59,8 @@ def create_refresh_token(data: dict) -> str:
     """Create a long-lived refresh token"""
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_EXPIRE)
+    if "jti" not in to_encode:
+        to_encode["jti"] = str(uuid.uuid4())
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
 
@@ -97,4 +103,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+        
+    from app.api.auth import _is_revoked
+    if await _is_revoked(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
     return payload

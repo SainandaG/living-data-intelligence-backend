@@ -1,5 +1,5 @@
 """
-Agent Executor — runs an AgentPlan step by step, streaming events via
+Agent Executor  runs an AgentPlan step by step, streaming events via
 an async generator that can be forwarded directly to an SSE endpoint.
 
 Parallel steps (those with no unresolved depends_on) are run concurrently
@@ -45,7 +45,7 @@ class AgentExecutor:
             "session_id":  plan.session_id,
             "intent":      plan.intent,
             "step_count":  len(plan.steps),
-            "text":        f"Plan ready ({len(plan.steps)} steps) — {plan.reasoning[:120]}",
+            "text":        f"Plan ready ({len(plan.steps)} steps)  {plan.reasoning[:120]}",
             "steps":       [{"index": s.index, "tool": s.tool, "description": s.description} for s in plan.steps],
         }
 
@@ -65,10 +65,10 @@ class AgentExecutor:
                 and not any(d in failed for d in s.depends_on)
             ]
             if not ready:
-                # Blocked — mark remaining as skipped
+                # Blocked  mark remaining as skipped
                 for s in pending:
                     yield {"type": "step_error", "step_index": s.index,
-                           "tool": s.tool, "text": f"Step {s.index} skipped — dependency failed."}
+                           "tool": s.tool, "text": f"Step {s.index} skipped  dependency failed."}
                     failed.add(s.index)
                 break
 
@@ -82,7 +82,7 @@ class AgentExecutor:
                 else:
                     completed.add(idx)
             else:
-                # Parallel execution — merge streams
+                # Parallel execution  merge streams
                 async for event in self._run_parallel(ready, connection_id, memory):
                     yield event
                 for s in ready:
@@ -103,7 +103,7 @@ class AgentExecutor:
             "report":     report,
         }
 
-    # ── Step execution ────────────────────────────────────────────────────────
+    #  Step execution 
 
     async def _run_step(
         self, step: AgentStep, connection_id: str, memory: AgentMemory
@@ -163,3 +163,5 @@ class AgentExecutor:
 
         # Ensure all tasks are awaited
         await asyncio.gather(*tasks, return_exceptions=True)
+
+

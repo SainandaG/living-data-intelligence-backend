@@ -1,5 +1,5 @@
 """
-Experiment Tracker — lightweight MLflow-compatible run store.
+Experiment Tracker  lightweight MLflow-compatible run store.
 
 Persists every ML run to a local JSON log (experiments.jsonl) so results
 survive restarts without requiring a full MLflow server.  When MLflow is
@@ -58,7 +58,7 @@ class ExperimentTracker:
         self._lock = threading.Lock()          # serialises concurrent writes (H3)
         self._mlflow_available = self._probe_mlflow()
         self._validate_dir_writable()
-        # Hot-path cache: run_id → latest run dict (O(1) lookup; JSONL is the durable store)
+        # Hot-path cache: run_id  latest run dict (O(1) lookup; JSONL is the durable store)
         self._run_cache: Dict[str, Dict[str, Any]] = {}
         self._models_dir = EXPERIMENTS_DIR / "models"
         self._models_dir.mkdir(parents=True, exist_ok=True)
@@ -77,7 +77,7 @@ class ExperimentTracker:
                 exc,
             )
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     async def start_run(
         self,
@@ -240,7 +240,7 @@ class ExperimentTracker:
             return None
         return sorted(finished, key=lambda r: r["metrics"][metric], reverse=maximize)[0]
 
-    # ── Internals ─────────────────────────────────────────────────────────────
+    #  Internals 
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         """O(1) lookup by run_id from the in-memory cache."""
@@ -258,7 +258,7 @@ class ExperimentTracker:
                     bak = self._log_path.with_suffix(".jsonl.bak")
                     bak.unlink(missing_ok=True)
                     self._log_path.rename(bak)
-                    logger.info("experiment_tracker: rotated runs.jsonl → runs.jsonl.bak")
+                    logger.info("experiment_tracker: rotated runs.jsonl  runs.jsonl.bak")
                 with open(self._log_path, "a", encoding="utf-8") as fh:
                     fh.write(json.dumps(run_dict) + "\n")
             except Exception as exc:

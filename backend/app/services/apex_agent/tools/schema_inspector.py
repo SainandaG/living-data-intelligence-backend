@@ -1,5 +1,5 @@
 """
-Schema Inspector Tool — reads live schema and resolves entity types.
+Schema Inspector Tool  reads live schema and resolves entity types.
 Also handles resolve_entity step aliases.
 """
 from __future__ import annotations
@@ -34,7 +34,7 @@ class SchemaInspectorTool:
             schema = schema_analyzer.get_analysis_result(connection_id)
 
             if not schema:
-                yield {"type": "status", "text": "Schema not cached — triggering analysis..."}
+                yield {"type": "status", "text": "Schema not cached  triggering analysis..."}
                 schema = await schema_analyzer.analyze_schema(connection_id)
 
             tables = []
@@ -89,7 +89,7 @@ class SchemaInspectorTool:
                 "type":    "result",
                 "text":    f"Found {n} tables. Entity types detected: {', '.join(entity_types)}.",
                 "data":    result,
-                "summary": f"{n} tables · {len(relationships)} relationships · entities: {', '.join(entity_types[:5])}",
+                "summary": f"{n} tables  {len(relationships)} relationships  entities: {', '.join(entity_types[:5])}",
             }
 
         except Exception as exc:
@@ -118,3 +118,4 @@ def _pick_best_table(tables: list) -> Dict | None:
         scored.append((score, t))
     scored.sort(key=lambda x: -x[0])
     return scored[0][1] if scored else None
+

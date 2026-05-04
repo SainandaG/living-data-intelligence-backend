@@ -1,10 +1,10 @@
 """
-APEX Agent API — /api/apex/agent
+APEX Agent API  /api/apex/agent
 
 Two endpoints:
-  POST /api/apex/agent/run      → SSE stream (plan + step events)
-  GET  /api/apex/agent/sessions → list past sessions
-  GET  /api/apex/agent/sessions/{id} → session detail + memory
+  POST /api/apex/agent/run       SSE stream (plan + step events)
+  GET  /api/apex/agent/sessions  list past sessions
+  GET  /api/apex/agent/sessions/{id}  session detail + memory
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/apex/agent", tags=["apex-agent"])
 
 
-# ── Request / response models ─────────────────────────────────────────────────
+#  Request / response models 
 
 class AgentRunRequest(BaseModel):
     query:         str
@@ -46,7 +46,7 @@ class SessionSummary(BaseModel):
     created_at:  float
 
 
-# ── File-backed session store ─────────────────────────────────────────────────
+#  File-backed session store 
 
 _sessions: Dict[str, Dict] = {}
 _SESSION_MAX = 200   # cap index to last N sessions
@@ -85,7 +85,7 @@ def _persist_session(sess: Dict) -> None:
 _load_sessions()
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+#  Endpoints 
 
 @router.post("/run")
 async def run_agent(req: AgentRunRequest, request: Request, _user: dict = Depends(require_role("analyst"))):
@@ -144,7 +144,7 @@ async def run_agent(req: AgentRunRequest, request: Request, _user: dict = Depend
                 )
             )
 
-            # Execution phase — stream each event
+            # Execution phase  stream each event
             async for event in executor.execute(plan, req.connection_id, memory):
                 # Audit tool calls
                 if event.get("type") == "step_done":
@@ -213,7 +213,7 @@ async def delete_session(session_id: str, _user: dict = Depends(require_role("ad
     return {"status": "deleted"}
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+#  Helpers 
 
 def _sse(data: Dict[str, Any]) -> str:
     """Format a dict as an SSE data line."""
@@ -222,3 +222,4 @@ def _sse(data: Dict[str, Any]) -> str:
     except Exception:
         payload = json.dumps({"type": "error", "text": "Serialisation error"})
     return f"data: {payload}\n\n"
+

@@ -39,7 +39,7 @@ class RecommendationEngine:
                     recs.append({
                         "category": "Risk", "urgency": "High",
                         "title": "Cooling System Alert",
-                        "description": f"Average battery temperature is {avg_temp:.1f}°C, exceeding optimal range.",
+                        "description": f"Average battery temperature is {avg_temp:.1f}C, exceeding optimal range.",
                         "solution": "Inspect coolant pumps and radiator fans. Check for air intake blockages.",
                         "action": "Dispatch Field Tech",
                         "benefit": "Prevents thermal runaway risks."
@@ -66,7 +66,7 @@ class RecommendationEngine:
             }
             prompt = f"""You are a Database Architect analyzing the "{context['table_name']}" table.
 Based on the EXACT statistics below, generate 3-4 prioritized architectural recommendations.
-Be specific — reference actual column names, null percentages, or growth trends from the data.
+Be specific  reference actual column names, null percentages, or growth trends from the data.
 
 DATA CONTEXT:
 {json.dumps(context, indent=2)}
@@ -142,7 +142,7 @@ Return ONLY a JSON list, each item with: title, category, urgency, description, 
         return recs
 
     async def generate_recommendations(self, intelligence_data: dict) -> list:
-        """Generate prioritized recommendations: WEZU-specific → AI → rule-based fallback."""
+        """Generate prioritized recommendations: WEZU-specific  AI  rule-based fallback."""
         table_name = intelligence_data.get('table_name', '')
         connection_id = intelligence_data.get('connection_id')
 

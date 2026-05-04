@@ -25,9 +25,9 @@ class AnalysisEngine:
             try:
                 from groq import Groq
                 self.groq_client = Groq(api_key=groq_key)
-                logger.info("✅ AnalysisEngine: Groq AI Online")
+                logger.info(" AnalysisEngine: Groq AI Online")
             except Exception as e:
-                logger.error(f"⚠️ AnalysisEngine: Groq init failed: {e}")
+                logger.error(f" AnalysisEngine: Groq init failed: {e}")
     async def get_table_intelligence(self, connection_id: str, table_name: str, known_row_count: int = None) -> Dict[str, Any]:
         """
         Compute deep intelligence metrics for a specific table.
@@ -98,7 +98,7 @@ class AnalysisEngine:
                     res = await db_connector.query(connection_id, q)
                     if res and 'c' in res[0]:
                         row_count = res[0]['c']
-                        # print(f"🔥 [Analysis Engine] Direct Count Fallback: Found {row_count} rows")
+                        # print(f" [Analysis Engine] Direct Count Fallback: Found {row_count} rows")
                 except Exception as e:
                     logger.debug(f"[analysis_engine] Suppressed: {e}")
 
@@ -159,7 +159,7 @@ class AnalysisEngine:
                 "narrative": "Node verification pending."
             }
         except Exception as e:
-            logger.error(f"⚠️ Authenticated Analysis Failed for {table_name}: {e}")
+            logger.error(f" Authenticated Analysis Failed for {table_name}: {e}")
             import traceback
             traceback.print_exc()
             

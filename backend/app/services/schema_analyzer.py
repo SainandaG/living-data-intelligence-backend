@@ -19,10 +19,10 @@ logger = logging.getLogger(__name__)
 class SchemaAnalyzer:
     def __init__(self):
         self.analysis_results: Dict[str, Schema] = {}
-        self._cached_at: Dict[str, float] = {}   # connection_id → unix timestamp of last analysis
+        self._cached_at: Dict[str, float] = {}   # connection_id  unix timestamp of last analysis
 
     def get_analysis_result(self, connection_id: str) -> Schema:
-        """Get cached analysis result (may be stale — callers should use analyze_schema for fresh data)."""
+        """Get cached analysis result (may be stale  callers should use analyze_schema for fresh data)."""
         return self.analysis_results.get(connection_id)
 
     def invalidate(self, connection_id: str) -> None:
@@ -38,7 +38,7 @@ class SchemaAnalyzer:
 
     async def analyze_schema(self, connection_id: str) -> Schema:
         """Analyze database schema"""
-        # 0. Check Cache First (respect TTL — stale schemas miss new tables/columns)
+        # 0. Check Cache First (respect TTL  stale schemas miss new tables/columns)
         if connection_id in self.analysis_results and self._is_cache_fresh(connection_id):
             return self.analysis_results[connection_id]
 
@@ -75,17 +75,17 @@ class SchemaAnalyzer:
                 if schema and len(schema.tables) > 0:
                     break # Success!
                 elif attempt < max_retries:
-                    logger.warning(f"⚠️ Schema analyzer found 0 tables for {connection_id} (Attempt {attempt}/{max_retries}). Retrying in 2s...")
+                    logger.warning(f" Schema analyzer found 0 tables for {connection_id} (Attempt {attempt}/{max_retries}). Retrying in 2s...")
                     await asyncio.sleep(2)
             except Exception as e:
                 if attempt < max_retries:
-                    logger.warning(f"⚠️ Schema analysis attempt {attempt} failed: {e}. Retrying in 2s...")
+                    logger.warning(f" Schema analysis attempt {attempt} failed: {e}. Retrying in 2s...")
                     await asyncio.sleep(2)
                 else:
                     raise e
 
         if not schema or len(schema.tables) == 0:
-            logger.error(f"❌ FAIL: Schema analyzer could not find any tables for connection {connection_id} after {max_retries} attempts.")
+            logger.error(f" FAIL: Schema analyzer could not find any tables for connection {connection_id} after {max_retries} attempts.")
             # Still return empty schema so the system doesn't crash, but log it clearly
             if not schema:
                 schema = Schema(database=connection['config']['database'], tables=[], relationships=[])
@@ -418,5 +418,4 @@ class SchemaAnalyzer:
         
         return schema
 
-# Global instance
-schema_analyzer = SchemaAnalyzer()
+schema_analyzer = SchemaAnalyzer()

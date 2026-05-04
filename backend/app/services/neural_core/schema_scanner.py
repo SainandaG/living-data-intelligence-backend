@@ -1,8 +1,8 @@
 """
-Neural Core — Schema Scanner
+Neural Core  Schema Scanner
 Responsible for: update_schema_context, process_signal, _analyze_table_intelligence
 """
-"""Neural Core – main module. Imports all sub-module method groups."""
+"""Neural Core  main module. Imports all sub-module method groups."""
 """
 Neural Core Service
 -------------------
@@ -36,7 +36,7 @@ class NeuralCore:
         if not connection_id: return
         
         from app.services.generation_log_service import generation_log_service
-        await generation_log_service.log_step(connection_id, "📡 Neural Core: Signal received - Updating schema context", progress=10)
+        await generation_log_service.log_step(connection_id, " Neural Core: Signal received - Updating schema context", progress=10)
         
         # [PHASE 3] Cooldown Check (5 seconds)
         # Hot-fix for attribute persistence during reload
@@ -55,7 +55,7 @@ class NeuralCore:
             
         # Initialize connection-specific metrics if not present
         if connection_id not in self.analyzed_tables:
-            await generation_log_service.log_step(connection_id, "🆕 Initializing intelligence buffers for new session", progress=15)
+            await generation_log_service.log_step(connection_id, " Initializing intelligence buffers for new session", progress=15)
             self.analyzed_tables[connection_id] = set()
             self.gravity_stores[connection_id] = {}
             self.hub_scores[connection_id] = {}
@@ -63,7 +63,7 @@ class NeuralCore:
             self.signal_counts[connection_id] = 0
             self.scan_cursors[connection_id] = 0
         else:
-            await generation_log_service.log_step(connection_id, "🔄 Context Refresh: Re-scanning table complexity", progress=20)
+            await generation_log_service.log_step(connection_id, " Context Refresh: Re-scanning table complexity", progress=20)
             self.analyzed_tables[connection_id].clear()
             self.patterns_learned[connection_id] = 0
             self.signal_counts[connection_id] = 0
@@ -247,8 +247,9 @@ class NeuralCore:
                 decay = 1.0 / (1.0 + (hours_since / 168.0)) # 1 week half-life
                 final_gravity = (base_gravity * 0.5) + (base_gravity * 0.5 * decay)
             except (ValueError, TypeError, OSError):
-                pass  # Malformed timestamp — skip decay, use base gravity
+                pass  # Malformed timestamp  skip decay, use base gravity
 
         self.gravity_stores[conn_id][t_name] = final_gravity
         analyzed_set.add(t_name)
         self.analyzed_tables[conn_id] = analyzed_set
+

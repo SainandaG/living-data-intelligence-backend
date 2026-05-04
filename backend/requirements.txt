@@ -52,3 +52,13 @@ pandas>=2.0.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
 odfpy>=1.4.1
+
+# Task Scheduling
+APScheduler>=3.10.0
+
+# Redis Cache & Session
+redis>=5.0.1
+
+# MFA / Security
+pyotp>=2.9.0
+qrcode>=7.4.2

@@ -6,7 +6,7 @@
  * Falls back to a reconnect loop with exponential back-off on error.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import apiClient from '../utils/apiClient';
+import apiClient, { authFetch } from '../utils/apiClient';
 
 const RECONNECT_BASE_MS  = 2_000;
 const RECONNECT_MAX_MS   = 30_000;

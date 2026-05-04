@@ -23,17 +23,17 @@ class AIClassifier:
                 self.model_id = 'gemini-2.0-flash'
                 self.has_ai = True
             except Exception as e:
-                logger.error(f"⚠️ AI Classifier: Initialization failed: {e}")
+                logger.error(f" AI Classifier: Initialization failed: {e}")
                 self.has_ai = False
         else:
             self.has_ai = False
-            logger.info("⚠️ AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
+            logger.info(" AI Classifier: No GOOGLE_API_KEY found. Falling back to heuristics.")
     async def classify_tables(self, schema: Schema) -> Schema:
         """Classify tables as fact/dimension and identify business entities"""
         if not self.has_ai:
             return self._heuristic_classify(schema)
             
-        logger.info("🧠 AI Classification: Analyzing schema with Gemini...")
+        logger.info(" AI Classification: Analyzing schema with Gemini...")
         try:
             # Prepare prompt
             table_info = []
@@ -79,14 +79,14 @@ class AIClassifier:
 
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
-                logger.info("🧪 AI Classification: Quota exceeded. Using heuristic fallback.")
+                logger.info(" AI Classification: Quota exceeded. Using heuristic fallback.")
             else:
-                logger.error(f"❌ AI Classification Error: {e}. Falling back to heuristics.")
+                logger.error(f" AI Classification Error: {e}. Falling back to heuristics.")
             return self._heuristic_classify(schema)
 
     def _heuristic_classify(self, schema: Schema) -> Schema:
         """Fallback heuristic classification"""
-        logger.info("🧪 AI Classification: Using heuristic fallback...")
+        logger.info(" AI Classification: Using heuristic fallback...")
         for table in schema.tables:
             # We assume 'table' is an object here if it comes from schema.tables (Pydantic)
             # The original classify_tables had logic to handle dicts, but _heuristic_classify

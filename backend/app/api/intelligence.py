@@ -11,8 +11,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# ── API-level response cache (15s TTL) ────────────────────────────────────────
-# Sits above the realtime_monitor's 10s debounce — makes repeat tab switches
+#  API-level response cache (15s TTL) 
+# Sits above the realtime_monitor's 10s debounce  makes repeat tab switches
 # and poll ticks instant without hitting the monitor or DB at all.
 _API_CACHE: dict[str, Tuple[float, Any]] = {}
 _API_CACHE_TTL = 15.0  # seconds
@@ -321,7 +321,7 @@ async def get_business_insights(connection_id: str, table_name: str, _user: dict
         # HYDRATE WITH REAL INTELLIGENCE
         nodes = await _hydrate_nodes(connection_id, raw_nodes)
         
-        # Calculate Coords (now using hydrated metrics) — optional, skip if service unavailable
+        # Calculate Coords (now using hydrated metrics)  optional, skip if service unavailable
         for node in nodes:
             try:
                 coords = latent_space_service.calculate_latent_coordinates(node, {}, [])
@@ -493,7 +493,7 @@ async def get_recommendations_global(connection_id: str, _user: dict = Depends(r
     """Action Plans: global recommendations when no table is selected."""
     table_name = _default_table_for_connection(connection_id)
     if not table_name:
-        return {"connection_id": connection_id, "table_name": None, "recommendations": [], "count": 0, "note": "Schema not yet analyzed — connect and scan first"}
+        return {"connection_id": connection_id, "table_name": None, "recommendations": [], "count": 0, "note": "Schema not yet analyzed  connect and scan first"}
     return await get_recommendations(connection_id, table_name)
 
 
@@ -695,7 +695,7 @@ async def get_health_history(connection_id: str, _user: dict = Depends(require_r
         from app.services.graph_intelligence import graph_intelligence
         history = graph_intelligence.health_history.get(connection_id, [])
         
-        # Return real history only — no fabricated data points
+        # Return real history only  no fabricated data points
         out = {
             'connection_id': connection_id,
             'collecting': len(history) == 0,
@@ -821,6 +821,10 @@ def _humanize_metric_name(metric: str) -> str:
         'average_amount': 'Average Transaction Amount'
     }
     return name_map.get(metric, metric.replace('_', ' ').title())
+
+
+
+
 
 
 

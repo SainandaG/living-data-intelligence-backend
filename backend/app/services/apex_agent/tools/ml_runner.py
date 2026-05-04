@@ -1,5 +1,5 @@
 """
-ML Runner Tool — runs a single ML experiment or full AutoML search.
+ML Runner Tool  runs a single ML experiment or full AutoML search.
 Delegates to the ml_analysis pipeline and experiment_tracker.
 """
 from __future__ import annotations
@@ -125,9 +125,9 @@ class MLRunnerTool:
             score_val = metrics.get(score_key, 0)
             yield {
                 "type":    "result",
-                "text":    f"{verb} complete — {algo} · {score_key}={score_val:.4f}",
+                "text":    f"{verb} complete  {algo}  {score_key}={score_val:.4f}",
                 "data":    result,
-                "summary": f"algo={algo} · {score_key}={score_val:.4f} · {len(rows):,} rows",
+                "summary": f"algo={algo}  {score_key}={score_val:.4f}  {len(rows):,} rows",
             }
 
         except Exception as exc:
@@ -138,3 +138,5 @@ class MLRunnerTool:
 def _default_algo(family: str) -> str:
     return {"classification": "rf_clf", "regression": "xgboost",
             "clustering": "kmeans", "timeseries": "arima"}.get(family, "rf_clf")
+
+

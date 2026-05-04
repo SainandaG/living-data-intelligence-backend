@@ -149,7 +149,7 @@ class HierarchicalFlowService:
             # Defensive check for timestamp column again (compact)
             # ... (omitted for brevity, assume caller handles logic or returns empty)
 
-            # Validate table_name before using in SQL — it comes directly from the URL path
+            # Validate table_name before using in SQL  it comes directly from the URL path
             from app.services.db_connector import db_connector as _dbc
             safe_table = _dbc.validate_identifier(table_name)
             query = f"SELECT * FROM {safe_table} LIMIT 20"
@@ -188,4 +188,6 @@ class HierarchicalFlowService:
 
 # Global instance
 hierarchical_flow_service = HierarchicalFlowService()
+
+
 

@@ -302,4 +302,6 @@ const TimeMachinePanel = ({ connectionId, onSnapshotSelect, onClose }) => {
     );
 };
 
-export default React.memo(TimeMachinePanel);
+import { withRBAC } from '../../hoc/withRBAC';
+
+export default withRBAC(React.memo(TimeMachinePanel), 'evolution_playback', 'editor');

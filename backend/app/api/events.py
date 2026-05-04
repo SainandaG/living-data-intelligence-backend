@@ -22,7 +22,7 @@ try:
     EVENTS_AVAILABLE = True
 except ImportError:
     EVENTS_AVAILABLE = False
-    logger.warning("⚠️ Warning: TxEventProcessor not available")
+    logger.warning(" Warning: TxEventProcessor not available")
 
 from ..config.feature_flags import USE_ADVANCED_EVENT_PROCESSING
 
@@ -49,9 +49,9 @@ _processor = None
 if EVENTS_AVAILABLE and USE_ADVANCED_EVENT_PROCESSING:
     try:
         _processor = TxEventProcessor()
-        logger.info("✅ TxEventProcessor initialized successfully")
+        logger.info(" TxEventProcessor initialized successfully")
     except Exception as e:
-        logger.warning(f"⚠️ TxEventProcessor initialization failed: {e}")
+        logger.warning(f" TxEventProcessor initialization failed: {e}")
 
 @router.post("/process", response_model=EventProcessResponse)
 async def process_event(request: EventProcessRequest, _user: dict = Depends(require_role("editor"))):
@@ -118,3 +118,5 @@ async def events_status(_user: dict = Depends(require_role("viewer"))):
         "enabled": USE_ADVANCED_EVENT_PROCESSING,
         "status": "ready" if (_processor is not None) else "not_initialized"
     }
+
+

@@ -1,5 +1,5 @@
 """
-Explainer — SHAP-based feature importance and explanation layer.
+Explainer  SHAP-based feature importance and explanation layer.
 
 Falls back to built-in feature_importances_ / coef_ when SHAP is not
 installed, so the rest of the platform never breaks.
@@ -18,7 +18,7 @@ try:
     import shap
     _SHAP_AVAILABLE = True
 except ImportError:
-    logger.warning("shap not installed — falling back to native importances")
+    logger.warning("shap not installed  falling back to native importances")
 
 
 class Explainer:
@@ -46,7 +46,7 @@ class Explainer:
         if _SHAP_AVAILABLE:
             self._explainer = self._build_shap_explainer(model, X_background)
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     def feature_importances(
         self, X: np.ndarray, top_n: int = 20
@@ -70,7 +70,7 @@ class Explainer:
         try:
             sv = self._explainer(x_single.reshape(1, -1))
             values = sv.values[0] if hasattr(sv, "values") else sv[0]
-            if values.ndim == 2:          # multi-class — take mean across classes
+            if values.ndim == 2:          # multi-class  take mean across classes
                 values = values.mean(axis=1)
             base = float(sv.base_values[0]) if hasattr(sv, "base_values") else 0.0
             return {
@@ -85,11 +85,11 @@ class Explainer:
             logger.warning("waterfall failed: %s", exc)
             return {"available": False, "reason": str(exc)}
 
-    # ── Internals ─────────────────────────────────────────────────────────────
+    #  Internals 
 
     def _build_shap_explainer(self, model: Any, X_bg: np.ndarray):
         try:
-            # Tree-based models — fastest
+            # Tree-based models  fastest
             model_type = type(model).__name__
             if any(t in model_type for t in ("Forest", "Tree", "Gradient", "XGB", "LGBM")):
                 return shap.TreeExplainer(model)
@@ -98,7 +98,7 @@ class Explainer:
             if any(t in model_type for t in ("Linear", "Ridge", "Lasso", "Logistic")):
                 return shap.LinearExplainer(model, X_bg)
 
-            # Generic fallback — slower but universal
+            # Generic fallback  slower but universal
             bg = shap.sample(X_bg, min(50, len(X_bg)))
             return shap.KernelExplainer(
                 model.predict_proba if hasattr(model, "predict_proba") else model.predict,
@@ -113,10 +113,10 @@ class Explainer:
             sample = X[: min(200, len(X))]
             sv = self._explainer(sample)
             values = sv.values if hasattr(sv, "values") else sv
-            if values.ndim == 3:          # multi-class output — keep sign for direction
+            if values.ndim == 3:          # multi-class output  keep sign for direction
                 values = values.mean(axis=2)
             mean_abs = np.abs(values).mean(axis=0)
-            mean_vals = values.mean(axis=0)   # signed mean — used for direction only
+            mean_vals = values.mean(axis=0)   # signed mean  used for direction only
             total = mean_abs.sum() or 1.0
             pairs = sorted(
                 zip(self.feature_names, mean_abs, mean_vals),

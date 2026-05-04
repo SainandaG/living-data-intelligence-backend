@@ -1,8 +1,8 @@
 """
-Neural Core — Analysis Reporter
+Neural Core  Analysis Reporter
 Responsible for: get_bulk_analysis_report, get_priority_level, get_ontology_type, get_tables_by_filter
 """
-"""Neural Core – main module. Imports all sub-module method groups."""
+"""Neural Core  main module. Imports all sub-module method groups."""
 """
 Neural Core Service
 -------------------
@@ -28,7 +28,7 @@ class NeuralCore:
     async def _get_relative_value(self, connection_id: str, table: dict, vitality: float) -> float:
         """
         Query the actual SUM of a financial column from the DB for this table.
-        Falls back to vitality × row_count heuristic when no financial column exists.
+        Falls back to vitality  row_count heuristic when no financial column exists.
         """
         from app.services.db_connector import db_connector
         row_count = table.get('row_count', 0)
@@ -105,7 +105,7 @@ class NeuralCore:
                         sensitivity_reason = f"Contains sensitive column: {cname}"
                         break
 
-            # 4. Business Metrics — query real financial column SUM when available
+            # 4. Business Metrics  query real financial column SUM when available
             row_count = table.get('row_count', 0)
             relative_value = await self._get_relative_value(connection_id, table, vitality)
 
@@ -183,3 +183,4 @@ class NeuralCore:
             })
 
         return results
+

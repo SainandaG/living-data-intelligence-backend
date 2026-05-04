@@ -1,5 +1,5 @@
 """
-Agent Memory — per-session in-memory store for facts, schema findings,
+Agent Memory  per-session in-memory store for facts, schema findings,
 and past ML results. Persisted as JSON alongside the session log.
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ class AgentMemory:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
         self._load()
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     def set(self, key: str, value: Any, source: str = "unknown") -> None:
         self._facts[key] = MemoryFact(key=key, value=value, source=source)
@@ -66,7 +66,7 @@ class AgentMemory:
         self._facts.clear()
         self._persist()
 
-    # ── Persistence ───────────────────────────────────────────────────────────
+    #  Persistence 
 
     def _persist(self) -> None:
         try:
@@ -86,3 +86,5 @@ class AgentMemory:
                 self._facts[k] = MemoryFact(**v)
         except Exception as exc:
             logger.debug("memory load failed: %s", exc)
+
+

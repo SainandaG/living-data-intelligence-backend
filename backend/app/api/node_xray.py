@@ -1,5 +1,5 @@
 """
-Node X-Ray API — Aggregated deep analytics for a single table node.
+Node X-Ray API  Aggregated deep analytics for a single table node.
 Powers the Node X-Ray overlay in the 3D Latent Space view.
 """
 from fastapi import APIRouter, HTTPException, Depends
@@ -15,7 +15,7 @@ router = APIRouter()
 @router.get("/node-xray/{connection_id}/{table_name}")
 async def get_node_xray(connection_id: str, table_name: str, _user: dict = Depends(require_role("analyst"))):
     """
-    Returns comprehensive analytics for a single table node — 
+    Returns comprehensive analytics for a single table node  
     the kind of deep analysis a data analyst would normally do manually.
     
     Aggregates: column profiling, quality score, growth forecast,
@@ -71,7 +71,7 @@ async def get_node_xray(connection_id: str, table_name: str, _user: dict = Depen
             "risk_level": growth.get("risk_level", "Unknown"),
             "summary": growth.get("summary", ""),
         },
-        # Transaction Timeline — historical daily counts (last 30 days)
+        # Transaction Timeline  historical daily counts (last 30 days)
         "timeline": {
             "has_timestamp": timeline.get("has_timestamp", False),
             "timestamp_column": timeline.get("timestamp_column", None),
@@ -93,7 +93,7 @@ async def get_node_xray(connection_id: str, table_name: str, _user: dict = Depen
 
 async def _get_transaction_timeline(db_connector, connection_id: str, table_name: str):
     """
-    Get daily transaction counts for the last 30 days — the 'when what happened' data.
+    Get daily transaction counts for the last 30 days  the 'when what happened' data.
     Returns historical daily counts for charting.
     """
     try:
@@ -201,3 +201,4 @@ async def _safe(coro):
     except Exception as e:
         logger.warning(f"Node X-Ray sub-query failed: {e}")
         return {}
+

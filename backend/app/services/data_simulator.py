@@ -12,21 +12,21 @@ from app.services.db_connector import db_connector
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────────
+# 
 #  WEZU Data Simulator
 #  Updates every 2 minutes using ONLY the tables that exist in Neon DB.
 #
 #  Confirmed existing tables (from check_all_tables.py):
-#    batteries       (705 rows) — temperature, voltage, current_a, soh_percentage
-#    stations         (50 rows) — rating, total_reviews, updated_at
-#    telemetics_data  (0 rows)  — battery_id, voltage, current, temperature, soc, soh
-#    batteryhealthlog (0 rows)  — battery_id, health_percentage, voltage, current, temperature
-#    gps_tracking_log (0 rows)  — battery_id, latitude, longitude, speed, timestamp
+#    batteries       (705 rows)  temperature, voltage, current_a, soh_percentage
+#    stations         (50 rows)  rating, total_reviews, updated_at
+#    telemetics_data  (0 rows)   battery_id, voltage, current, temperature, soc, soh
+#    batteryhealthlog (0 rows)   battery_id, health_percentage, voltage, current, temperature
+#    gps_tracking_log (0 rows)   battery_id, latitude, longitude, speed, timestamp
 #
 #  DEMO_MODE guard: set DEMO_MODE=true in the environment to enable simulation.
 #  When DEMO_MODE is unset or false the simulator is a no-op so production
 #  deployments never accidentally write synthetic rows to a live database.
-# ─────────────────────────────────────────────────────────────────
+# 
 
 SIMULATION_INTERVAL_SECONDS = 120  # 2 minutes
 _DEMO_MODE = os.getenv("DEMO_MODE", "false").strip().lower() == "true"
@@ -47,14 +47,14 @@ class DataSimulator:
         """
         if not _DEMO_MODE:
             logger.info(
-                "DataSimulator: DEMO_MODE is not enabled — simulation skipped. "
+                "DataSimulator: DEMO_MODE is not enabled  simulation skipped. "
                 "Set DEMO_MODE=true to activate."
             )
             return
         if self.running:
             return
         self.running = True
-        logger.info("DataSimulator: DEMO_MODE enabled — starting simulation loop (interval: %ds).", SIMULATION_INTERVAL_SECONDS)
+        logger.info("DataSimulator: DEMO_MODE enabled  starting simulation loop (interval: %ds).", SIMULATION_INTERVAL_SECONDS)
         self.task = asyncio.create_task(self._simulation_loop())
 
     async def stop_simulation(self):
@@ -65,23 +65,23 @@ class DataSimulator:
                 await self.task
             except asyncio.CancelledError:
                 pass
-        logger.info("🛑 DataSimulator stopped.")
+        logger.info(" DataSimulator stopped.")
 
-    # ──────────────────────────────────────────────
+    # 
     #  Main Loop
-    # ──────────────────────────────────────────────
+    # 
 
     async def _simulation_loop(self):
         while self.running:
             self._cycle += 1
-            logger.info("🔄 [DataSimulator] Cycle #%d", self._cycle)
-            logger.info(f"🔄 [DataSimulator] Cycle #{self._cycle} — updating WEZU tables…")
+            logger.info(" [DataSimulator] Cycle #%d", self._cycle)
+            logger.info(f" [DataSimulator] Cycle #{self._cycle}  updating WEZU tables")
             # Tables updated every 2 minutes:
-            #   batteries       → UPDATE temperature, voltage, current_a, soh_percentage
-            #   telemetics_data → INSERT every battery (100%)
-            #   batteryhealthlog→ INSERT 50% of batteries
-            #   gps_tracking_log→ INSERT 30% of batteries
-            #   stations        → UPDATE rating, total_reviews
+            #   batteries        UPDATE temperature, voltage, current_a, soh_percentage
+            #   telemetics_data  INSERT every battery (100%)
+            #   batteryhealthlog INSERT 50% of batteries
+            #   gps_tracking_log INSERT 30% of batteries
+            #   stations         UPDATE rating, total_reviews
 
             try:
                 await self._update_batteries()
@@ -93,14 +93,14 @@ class DataSimulator:
             except Exception as e:
                 logger.error("stations update failed: %s", e)
 
-            logger.info("✅ Cycle #%d done. Sleeping %ds.", self._cycle, SIMULATION_INTERVAL_SECONDS)
+            logger.info(" Cycle #%d done. Sleeping %ds.", self._cycle, SIMULATION_INTERVAL_SECONDS)
             await asyncio.sleep(SIMULATION_INTERVAL_SECONDS)
 
-    # ──────────────────────────────────────────────
+    # 
     #  1. batteries
     #     Columns: id, temperature, voltage, current_a,
     #              soh_percentage, health_percentage, last_reported_at
-    # ──────────────────────────────────────────────
+    # 
 
     async def _update_batteries(self):
         for conn in db_connector.list_connections():
@@ -109,7 +109,7 @@ class DataSimulator:
                 rows = await db_connector.query(
                     conn_id,
                     "SELECT id, temperature, voltage, current_a, soh_percentage, health_percentage, cycle_count "
-                    "FROM batteries"  # all 705 batteries every cycle
+                    "FROM batteries LIMIT 50"  # Reduced from all 705 to 50 per cycle to avoid blocking the event loop
                 )
                 if not rows:
                     continue
@@ -130,12 +130,12 @@ class DataSimulator:
                     degrade  = 0.001 if random.random() > 0.9 else 0.0
                     new_soh  = max(20.0, soh - degrade)
 
-                    # 💥 PURPOSEFUL ANOMALY TRIGGER: 2% chance a battery rapidly overheats and degrades
+                    #  PURPOSEFUL ANOMALY TRIGGER: 2% chance a battery rapidly overheats and degrades
                     # This will trigger the AI anomaly detector and drop the overall health score
                     if random.random() < 0.02:
                         new_temp = random.uniform(55.0, 75.0)  # Overheating!
                         new_soh = max(20.0, new_soh - random.uniform(5.0, 15.0)) # Rapid degradation!
-                        logger.warning(f"🚨 Anomalous Battery Triggered: ID {bid}, Temp {new_temp:.1f}C, SoH {new_soh:.1f}%")
+                        logger.warning(f" Anomalous Battery Triggered: ID {bid}, Temp {new_temp:.1f}C, SoH {new_soh:.1f}%")
 
                     # Update batteries
                     await db_connector.query(conn_id, f"""
@@ -150,7 +150,7 @@ class DataSimulator:
                         WHERE id = {bid}
                     """)
 
-                    # telemetics_data — INSERT every battery, every cycle (100%)
+                    # telemetics_data  INSERT every battery, every cycle (100%)
                     try:
                         soc = round(min(100.0, new_soh + random.uniform(-5, 5)), 2)
                         await db_connector.query(conn_id, f"""
@@ -162,7 +162,7 @@ class DataSimulator:
                     except Exception as e:
                         logger.debug(f"[data_simulator] Suppressed: {e}")
 
-                    # batteryhealthlog — INSERT every battery (cycle_count + charge_percentage NOT NULL)
+                    # batteryhealthlog  INSERT every battery (cycle_count + charge_percentage NOT NULL)
                     try:
                         await db_connector.query(conn_id, f"""
                             INSERT INTO batteryhealthlog
@@ -175,7 +175,7 @@ class DataSimulator:
                     except Exception as e:
                         logger.debug(f"[data_simulator] Suppressed: {e}")
 
-                    # gps_tracking_log — INSERT 30% of batteries
+                    # gps_tracking_log  INSERT 30% of batteries
                     # Fetch active rental for this battery (if any)
                     if random.random() > 0.7:
                         try:
@@ -200,16 +200,16 @@ class DataSimulator:
 
                     updated += 1
 
-                logger.info("🔋 Batteries: %d updated in %s", updated, conn_id)
+                logger.info(" Batteries: %d updated in %s", updated, conn_id)
 
             except Exception as e:
                 logger.warning("batteries sim failed for %s: %s", conn_id, e)
 
-    # ──────────────────────────────────────────────
+    # 
     #  2. stations
     #     Columns: id, rating, total_reviews, updated_at
     #     Simulate: slight rating drift, new reviews
-    # ──────────────────────────────────────────────
+    # 
 
     async def _update_stations(self):
         for conn in db_connector.list_connections():
@@ -245,7 +245,7 @@ class DataSimulator:
                         WHERE id = {sid}
                     """)
 
-                logger.info("🏪 Stations: %d updated in %s", len(rows), conn_id)
+                logger.info(" Stations: %d updated in %s", len(rows), conn_id)
             except Exception as e:
                 logger.warning("stations sim failed for %s: %s", conn_id, e)
 

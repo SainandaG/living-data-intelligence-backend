@@ -20,7 +20,7 @@ class DatabaseSeeder:
         logger.info(f"Seeding database for connection: {connection_id}...")
         
         # Determine schema (Neon workaround: if public is locked, use 'evolution')
-        self.schema = 'public'  # hardcoded — no user input
+        self.schema = 'public'  # hardcoded  no user input
         try:
             await db_connector.query(connection_id, "CREATE TABLE IF NOT EXISTS public._seeder_test (id int)")
             await db_connector.query(connection_id, "DROP TABLE public._seeder_test")
@@ -38,7 +38,7 @@ class DatabaseSeeder:
                 await db_connector.query(connection_id, "GRANT ALL ON ALL TABLES IN SCHEMA evolution TO neondb_owner")
             except Exception as e:
                 logger.warning(f"Failed to grant schema permissions: {e}")
-            self.schema = 'evolution'  # hardcoded — no user input
+            self.schema = 'evolution'  # hardcoded  no user input
 
         # Validate schema name to prevent injection if it ever changes
         db_connector.validate_identifier(self.schema)

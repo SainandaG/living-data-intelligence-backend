@@ -38,7 +38,7 @@ class RootCauseAnalyzer:
                 """
                 dependencies = await db_connector.query(connection_id, dep_query, (table_name, database))
             else:
-                # PostgreSQL — use pg_constraint for reliability
+                # PostgreSQL  use pg_constraint for reliability
                 dep_query = """
                     SELECT
                         child_ns.nspname || '.' || child_cls.relname AS child_table,
@@ -68,7 +68,7 @@ class RootCauseAnalyzer:
                     "severity": "Medium"
                 })
 
-            # 2.5 SOFT DEPENDENCY SCAN — parameterized, db-aware
+            # 2.5 SOFT DEPENDENCY SCAN  parameterized, db-aware
             if not impact_path:
                 is_mysql = db_type == 'mysql'
                 param1 = "%s" if is_mysql else "$1"

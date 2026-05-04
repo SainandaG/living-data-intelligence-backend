@@ -31,7 +31,7 @@ def _zscore(value: float, history: List[float], threshold: float = 3.0) -> Optio
 
 
 def _modified_zscore(value: float, history: List[float], threshold: float = 3.5) -> Optional[Dict]:
-    """Hampel identifier — more robust than mean-based Z-score."""
+    """Hampel identifier  more robust than mean-based Z-score."""
     median = statistics.median(history)
     mad = statistics.median([abs(v - median) for v in history])
     mad = max(mad, 1e-6)
@@ -132,7 +132,7 @@ class AnomalyDetector:
     """
     Ensemble Anomaly Detection with Persistent Memory.
     Methods: Z-score, Modified Z-score (Hampel), IQR, Isolation Forest.
-    Flags anomaly only when ≥2 methods agree.
+    Flags anomaly only when 2 methods agree.
     """
 
     def __init__(self):
@@ -145,7 +145,7 @@ class AnomalyDetector:
         }
         # Track which connections have had their DB tables created (one-time cost)
         self._tables_initialized: set = set()
-        # Track last persist time per connection — only persist every 30s
+        # Track last persist time per connection  only persist every 30s
         self._last_persist: Dict[str, float] = {}
 
     async def hydrate_memory(self, db_connector, connection_id: str):
@@ -210,7 +210,7 @@ class AnomalyDetector:
             conn_info = db_connector.get_connection(connection_id)
             db_type = conn_info.get('type', 'mysql').lower()
 
-            # Create tables only once per connection — not on every persist call
+            # Create tables only once per connection  not on every persist call
             if connection_id not in self._tables_initialized:
                 if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                     await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")

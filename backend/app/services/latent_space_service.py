@@ -6,9 +6,9 @@ DATA PROVENANCE:
   Latent coordinates are CALCULATED, not discovered by PCA or ML embedding.
   They are deterministic formulas applied to graph metrics:
 
-    latent_x = (revenue_proxy - 5000) * x_gain        # ← value/centrality axis
-    latent_y = (risk_score * 50) + (importance * 500)  # ← risk/importance axis
-    latent_z = (variance - 2.5) * z_gain               # ← stability axis
+    latent_x = (revenue_proxy - 5000) * x_gain        #  value/centrality axis
+    latent_y = (risk_score * 50) + (importance * 500)  #  risk/importance axis
+    latent_z = (variance - 2.5) * z_gain               #  stability axis
 
   Inputs are a mix of real and derived values:
     - revenue_proxy, risk_score, importance: derived from NeuralCore graph metrics
@@ -82,9 +82,9 @@ class LatentSpaceService:
                     'Not produced by PCA, UMAP, or ML-based dimensionality reduction.'
                 ),
                 'axes': {
-                    'x': 'value/centrality — (revenue_proxy - 5000) * x_gain',
-                    'y': 'risk/importance — (risk_score * 50) + (importance * 500)',
-                    'z': 'stability — (variance - 2.5) * z_gain',
+                    'x': 'value/centrality  (revenue_proxy - 5000) * x_gain',
+                    'y': 'risk/importance  (risk_score * 50) + (importance * 500)',
+                    'z': 'stability  (variance - 2.5) * z_gain',
                 },
                 'inputs_are_real': False,
                 'inputs_are_graph_derived': True,

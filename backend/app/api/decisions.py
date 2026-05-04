@@ -1,5 +1,5 @@
 """
-Decisions API — /api/decisions
+Decisions API  /api/decisions
 
 CRUD for decisions + status update + manual notification dispatch.
 """
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/decisions", tags=["decisions"])
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
+#  Models 
 
 class CreateDecisionRequest(BaseModel):
     title:        str
@@ -45,7 +45,7 @@ class DispatchRequest(BaseModel):
     channels: List[str]         # slack | email | webhook
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+#  Endpoints 
 
 @router.get("")
 async def list_decisions(
@@ -92,7 +92,7 @@ async def get_stats(tenant_id: str = "default", _user: dict = Depends(require_ro
 @router.get("/stream")
 async def stream_decisions(request: Request, tenant_id: str = "default", _user: dict = Depends(require_role("viewer"))):
     """
-    SSE stream — pushes real-time decision events to connected clients.
+    SSE stream  pushes real-time decision events to connected clients.
 
     Events:
       {"type": "snapshot",         "decisions": [...], "stats": {...}}
@@ -191,3 +191,5 @@ async def dispatch_decision(decision_id: str, req: DispatchRequest, _user: dict 
         results[channel] = await notification_router.dispatch(channel, decision)
 
     return {"decision_id": decision_id, "dispatch_results": results}
+
+

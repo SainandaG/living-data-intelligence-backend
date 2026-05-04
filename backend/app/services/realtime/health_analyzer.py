@@ -1,8 +1,8 @@
 """
-Realtime Monitor — Health Analyzer
+Realtime Monitor  Health Analyzer
 Responsible for: _has_column, _q, _analyze_graph_health
 """
-"""Realtime Monitor – main module. Full implementation lives here until sub-module extraction."""
+"""Realtime Monitor  main module. Full implementation lives here until sub-module extraction."""
 """
 Realtime Monitor
 
@@ -198,3 +198,5 @@ class RealtimeMonitor:
                 'glow_intensity': glow_intensity
             }
         }
+
+

@@ -1,5 +1,5 @@
 """
-Audit Logger — structured event logging for every data read, agent step,
+Audit Logger  structured event logging for every data read, agent step,
 ML run, and action dispatch. Append-only, non-blocking.
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ class AuditEvent:
     session_id:    Optional[str]          = None
     resource_type: Optional[str]          = None
     resource_id:   Optional[str]          = None
-    query_text:    Optional[str]          = None   # SQL — never raw user input
+    query_text:    Optional[str]          = None   # SQL  never raw user input
     row_count:     Optional[int]          = None
     duration_ms:   Optional[float]        = None
     metadata:      Dict[str, Any]         = field(default_factory=dict)
@@ -73,7 +73,7 @@ class AuditLogger:
         self._ring: list[dict] = []
         self._lock = asyncio.Lock()
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     async def log(self, event: AuditEvent) -> None:
         payload = asdict(event)
@@ -99,7 +99,7 @@ class AuditLogger:
     def recent(self, limit: int = 100) -> list[dict]:
         return list(reversed(self._ring[-limit:]))
 
-    # ── Convenience helpers ───────────────────────────────────────────────────
+    #  Convenience helpers 
 
     async def data_query(
         self,
@@ -176,3 +176,4 @@ class AuditLogger:
 
 # Singleton
 audit_logger = AuditLogger()
+

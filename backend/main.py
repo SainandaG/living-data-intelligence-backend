@@ -1,4 +1,5 @@
 # Fix Windows console encoding issues
+# Triggering reload 
 import sys
 import os
 import logging
@@ -7,10 +8,15 @@ import uuid
 
 # Configure UTF-8 encoding for Windows console
 if sys.platform == 'win32':
-    import io
     # Force UTF-8 encoding for stdout/stderr to handle Unicode characters (emojis, etc.)
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, ValueError):
+        # Fallback for environments where reconfigure is not supported or fails
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # Configure structured logging — must happen before any app module import
@@ -44,7 +50,7 @@ except ImportError:
 
 async def keep_alive_task():
     """Background task to keep database connections alive"""
-    logger.info("🛰️ Starting database keep-alive task (every 4m)...")
+    logger.info("Starting database keep-alive task (every 4m)...")
     from app.services.db_connector import db_connector
     try:
         while True:
@@ -148,6 +154,15 @@ async def lifespan(app: FastAPI):
     # 4. Start ephemeral model cleanup (1hr retention)
     from app.api.ml_analysis import cleanup_ephemeral_models
     _make_task(cleanup_ephemeral_models, "ml_model_cleanup")
+
+    # 4b. Start data simulator if DEMO_MODE is true
+    if os.getenv("DEMO_MODE", "false").lower() == "true":
+        from app.services.data_simulator import data_simulator
+        _make_task(data_simulator.start_simulation, "data_simulator")
+    
+    # Start APScheduler background jobs
+    from app.services.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
     
     # 5. Auto-Connect to Primary Database
     from app.services.db_connector import db_connector
@@ -183,6 +198,9 @@ async def lifespan(app: FastAPI):
     # Shutdown
     uptime = round(_time.monotonic() - _startup_time, 1)
     logger.info(f"shutdown | uptime_seconds={uptime}")
+    
+    # Stop APScheduler
+    stop_scheduler()
     
     # Cancel background tasks
     if hasattr(app.state, "bg_tasks") and app.state.bg_tasks:
@@ -222,7 +240,7 @@ try:
     from slowapi.errors import RateLimitExceeded
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    logger.info("✅ Rate limiting enabled (SlowAPI)")
+    logger.info("[OK] Rate limiting enabled (SlowAPI)")
 except ImportError:
     logger.warning("⚠️ SlowAPI not found, rate limiting disabled")
 
@@ -253,14 +271,15 @@ async def validation_handler(request: Request, exc: RequestValidationError):
     """
     Standardized Validation Error Handler to match the frontend expectations.
     """
+    error_details = exc.errors()
     logger.warning(
-        "Validation error",
-        extra={"path": request.url.path, "errors": exc.errors()}
+        f"Validation error: {error_details}",
+        extra={"path": request.url.path, "errors": error_details}
     )
     return JSONResponse(status_code=422, content={
         "error": "Invalid request data",
         "code": "VALIDATION_ERROR",
-        "details": exc.errors()
+        "details": error_details
     })
 
 @app.exception_handler(Exception)
@@ -379,7 +398,7 @@ class RouterRegistry:
             router = getattr(module, router_name)
             self.app.include_router(router, prefix=prefix, tags=tags or [], dependencies=dependencies or [])
             self.optional_routers.append(module_path)
-            logger.info(f"✅ Registered optional router: {module_path}")
+            logger.info(f"[OK] Registered optional router: {module_path}")
         except Exception as e:
             logger.warning(f"⚠️ Optional router {module_path} not loaded: {e}")
             self.failed_routers.append((module_path, str(e)))
@@ -417,7 +436,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8001))
     host = os.getenv("HOST", "0.0.0.0")
     
-    logger.info(f"🌐 Server starting on http://{host}:{port}")
+    logger.info(f"Server starting on http://{host}:{port}")
     logger.info(f"📊 Open http://localhost:{port} to view the application")
     
     is_dev = os.getenv("APP_ENV", "development") == "development"
@@ -428,10 +447,10 @@ if __name__ == "__main__":
         port=port,
         reload=is_dev,
         reload_excludes=[
-            "*.log", "*.tmp", "*.pyc",
-            "app.log", "__pycache__",
+            "*.log", "*.tmp", "*.pyc", "*.pyo",
+            "app.log", "app.log.*", "__pycache__",
             "*/__pycache__/*", "*/data/*", "*/static/*",
-            "*/scratch/*",
+            "*/scratch/*", "*/.git/*", "*/node_modules/*",
         ] if is_dev else [],
         log_level="info"
     )

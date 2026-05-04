@@ -1,5 +1,5 @@
 """
-Anomaly Detector Tool — statistical anomaly detection (Z-score + IQR).
+Anomaly Detector Tool  statistical anomaly detection (Z-score + IQR).
 Segments anomalies by categorical dimensions when available.
 """
 from __future__ import annotations
@@ -117,11 +117,12 @@ class AnomalyDetectorTool:
             severity_label = "CRITICAL" if n_critical > 0 else ("WARNING" if n_warning > 0 else "CLEAN")
             yield {
                 "type":    "result",
-                "text":    f"Anomaly detection complete — {total} anomalies found ({n_critical} critical, {n_warning} warning).",
+                "text":    f"Anomaly detection complete  {total} anomalies found ({n_critical} critical, {n_warning} warning).",
                 "data":    result,
-                "summary": f"{severity_label} · {total} anomalies across {len(column_stats)} columns",
+                "summary": f"{severity_label}  {total} anomalies across {len(column_stats)} columns",
             }
 
         except Exception as exc:
             logger.error("anomaly_detector_tool failed: %s", exc, exc_info=True)
             yield {"type": "error", "text": f"Anomaly detection failed: {exc}"}
+

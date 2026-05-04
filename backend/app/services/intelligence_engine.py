@@ -55,7 +55,7 @@ class IntelligenceEngine:
         if high_risk_nodes:
             peak_desc = f" Critical risk peaks detected on: {', '.join(high_risk_nodes[:2])}."
 
-        return f"Intelligence Mode: {status}. {motion_desc} {peak_desc} Evolutionary Growth: {growth:.2f}╧â."
+        return f"Intelligence Mode: {status}. {motion_desc} {peak_desc} Evolutionary Growth: {growth:.2f}."
 
 # Global Instance
 intelligence_engine = IntelligenceEngine()

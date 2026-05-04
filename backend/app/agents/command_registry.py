@@ -50,10 +50,10 @@ class CommandRegistry:
                     break
             
             if not config_file:
-                logger.info(f"❌ Commands config NOT found in: {[str(p) for p in possible_paths]}")
+                logger.info(f" Commands config NOT found in: {[str(p) for p in possible_paths]}")
                 raise FileNotFoundError("Commands configuration not found")
             
-            logger.info(f"✅ Loading commands from: {config_file}")
+            logger.info(f" Loading commands from: {config_file}")
             with open(config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 self.commands = data.get('commands', [])
@@ -202,11 +202,11 @@ class CommandRegistry:
             self.commands.append(command)
             self.intent_map[command['intent']] = command
             
-            logger.info(f"✅ Registered new command: {command['id']}")
+            logger.info(f" Registered new command: {command['id']}")
             return True
             
         except Exception as e:
-            logger.info(f"❌ Error registering command: {e}")
+            logger.info(f" Error registering command: {e}")
             return False
     
     def reload(self) -> None:

@@ -28,7 +28,7 @@ class IntentClassifierV2:
                 # Using a lightweight, fast model for zero-shot classification
                 logger.info("Loading Transformer Model for Intent Classification...")
                 self.classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-                logger.info("✅ Transformer Model Loaded")
+                logger.info(" Transformer Model Loaded")
             except Exception as e:
                 logger.warning(f"Failed to load Transformer model: {e}")
                 self.classifier = None
@@ -124,3 +124,4 @@ def get_intent_classifier():
         return IntentClassifierV2()
     from app.services.intent_classifier import get_intent_classifier as get_v1
     return get_v1()
+

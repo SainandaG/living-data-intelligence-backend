@@ -1,8 +1,8 @@
 """
-Neural Core — Metrics Calculator
+Neural Core  Metrics Calculator
 Responsible for: get_core_metrics, trigger_retraining, get_column_intelligence
 """
-"""Neural Core – main module. Imports all sub-module method groups."""
+"""Neural Core  main module. Imports all sub-module method groups."""
 """
 Neural Core Service
 -------------------
@@ -193,3 +193,4 @@ class NeuralCore:
             "complexity_score": neural_complexity,
             "neural_governance": table_importance > 0.7 # Flag if this is a high-value node per GNN
         }
+

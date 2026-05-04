@@ -29,7 +29,7 @@ from app.services.command_registry import get_command_registry
 class IntentClassifier:
     """
     Hybrid intent classifier using both rule-based matching and LLM inference.
-    Falls back gracefully: Rule-based → Groq → Gemini → Default
+    Falls back gracefully: Rule-based  Groq  Gemini  Default
     """
     
     def __init__(self):

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '../../../utils/apiClient';
 import { logger } from '../../../utils/logger';
 
 const s = {

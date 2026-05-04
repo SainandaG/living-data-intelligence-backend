@@ -1,5 +1,5 @@
 """
-Hyperparameter Optimizer — Optuna-based search with sklearn cross-validation.
+Hyperparameter Optimizer  Optuna-based search with sklearn cross-validation.
 
 Falls back to a simple grid when Optuna is not installed.
 """
@@ -19,7 +19,7 @@ try:
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     _OPTUNA_AVAILABLE = True
 except ImportError:
-    logger.info("optuna not installed — using default hyperparams")
+    logger.info("optuna not installed  using default hyperparams")
 
 
 def _make_model(algo_id: str, params: Dict[str, Any]):
@@ -38,7 +38,7 @@ def _make_model(algo_id: str, params: Dict[str, Any]):
         "ridge":    lambda p: Ridge(**p),
         "lasso":    lambda p: Lasso(**p, random_state=42),
         "linear":   lambda p: LinearRegression(),
-        # regression xgboost uses same key but different estimator — caller resolves
+        # regression xgboost uses same key but different estimator  caller resolves
     }
     factory = mapping.get(algo_id)
     if factory is None:
@@ -93,7 +93,7 @@ class HyperparamOptimizer:
         logger.debug("optimizer done: algo=%s best_score=%.4f", algo_id, best_score)
         return best_params, best_score
 
-    # ── Search space definitions ──────────────────────────────────────────────
+    #  Search space definitions 
 
     def _suggest(self, trial: Any, algo_id: str) -> Dict[str, Any]:
         if algo_id == "rf_clf":

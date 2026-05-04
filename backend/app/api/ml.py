@@ -32,7 +32,7 @@ except ImportError:
         GNN_AVAILABLE = True
     except ImportError:
         GNN_AVAILABLE = False
-        logger.warning("⚠️ Warning: GraphNeuralCore not available")
+        logger.warning(" Warning: GraphNeuralCore not available")
 
 from app.config.feature_flags import USE_GNN_INFERENCE
 
@@ -57,9 +57,9 @@ _gnn = None
 if GNN_AVAILABLE and USE_GNN_INFERENCE:
     try:
         _gnn = GraphNeuralCore()
-        logger.info("✅ GNN initialized successfully")
+        logger.info(" GNN initialized successfully")
     except Exception as e:
-        logger.warning(f"⚠️ GNN initialization failed: {e}")
+        logger.warning(f" GNN initialization failed: {e}")
 
 @router.post("/gnn/predict", response_model=NodePredictionResponse)
 async def predict_node_importance(request: NodePredictionRequest, _user: dict = Depends(require_role("analyst"))):
@@ -112,7 +112,7 @@ async def predict_node_importance(request: NodePredictionRequest, _user: dict = 
                         "edges": target_table.foreign_keys if target_table.foreign_keys else [],
                         "columns": len(target_table.columns) if target_table.columns else 0
                     }
-                    logger.info(f"🧠 GNN: Injected real metadata for {request.node_id} (Rows: {node_data['record_count']})")
+                    logger.info(f" GNN: Injected real metadata for {request.node_id} (Rows: {node_data['record_count']})")
 
         # 2. Call GNN with (optional) Real Data
         importance = _gnn.predict_importance(request.node_id, request.node_type, node_data=node_data)
@@ -170,3 +170,5 @@ async def gnn_status(_user: dict = Depends(require_role("analyst"))):
         "enabled": USE_GNN_INFERENCE,
         "status": "ready" if (_gnn is not None) else "not_initialized"
     }
+
+

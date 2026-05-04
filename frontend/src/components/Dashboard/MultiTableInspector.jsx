@@ -14,6 +14,7 @@ import {
 } from './MultiTable/ThreeMultiTableCore';
 import SaveSelectionModal from './MultiTable/SaveSelectionModal';
 import * as THREE from 'three';
+import { withRBAC } from '../../hoc/withRBAC';
 
 const METRIC_COLORS = [
     { color: '#16a34a', glow: '#4ade80' },   // green = revenue/money
@@ -26,7 +27,7 @@ const METRIC_COLORS = [
     { color: '#059669', glow: '#34d399' },
 ];
 
-export default function MultiTableInspector({ selectedTableNames, connectionId, allTables, onClose }) {
+function MultiTableInspector({ selectedTableNames, connectionId, allTables, onClose }) {
     const [level, setLevel] = useState(1);
     const [breadcrumb, setBreadcrumb] = useState([]);
 
@@ -891,3 +892,5 @@ export default function MultiTableInspector({ selectedTableNames, connectionId, 
         </div>
     );
 }
+
+export default withRBAC(MultiTableInspector, 'multi_schema', 'analyst');

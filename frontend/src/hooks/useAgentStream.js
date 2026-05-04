@@ -9,7 +9,7 @@
  *   await run({ query: "Find churn drivers", connection_id: "conn_1" });
  */
 import { useState, useCallback, useRef } from 'react';
-import apiClient from '../utils/apiClient';
+import apiClient, { authFetch } from '../utils/apiClient';
 
 export function useAgentStream() {
   const [events,    setEvents]    = useState([]);

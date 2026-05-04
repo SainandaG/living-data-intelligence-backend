@@ -1,8 +1,8 @@
 """
-Realtime Monitor — DB Metrics Collector
+Realtime Monitor  DB Metrics Collector
 Responsible for: _get_db_metrics, _get_wezu_metrics, _get_transaction_metrics, _get_db_diagnostics
 """
-"""Realtime Monitor – main module. Full implementation lives here until sub-module extraction."""
+"""Realtime Monitor  main module. Full implementation lives here until sub-module extraction."""
 """
 Realtime Monitor
 
@@ -253,3 +253,4 @@ class RealtimeMonitor:
                 logger.debug(f"MySQL diagnostics query failed for {connection_id}: {e}")
 
         return {'cache_hit_rate': cache_hit_rate, 'active_conns': active_conns}
+

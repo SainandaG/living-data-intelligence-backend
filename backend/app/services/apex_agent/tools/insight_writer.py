@@ -1,5 +1,5 @@
 """
-Insight Writer Tool — synthesises all memory facts into a structured,
+Insight Writer Tool  synthesises all memory facts into a structured,
 business-readable analysis report.
 
 Uses LLM when available; falls back to template-based generation.
@@ -68,14 +68,14 @@ class InsightWriterTool:
                 "type":    "result",
                 "text":    report_text[:600],
                 "data":    report,
-                "summary": f"Report ready · {len(report['key_findings'])} findings · {len(report['recommendations'])} recommendations",
+                "summary": f"Report ready  {len(report['key_findings'])} findings  {len(report['recommendations'])} recommendations",
             }
 
         except Exception as exc:
             logger.error("insight_writer failed: %s", exc, exc_info=True)
             yield {"type": "error", "text": f"Insight writing failed: {exc}"}
 
-    # ── LLM synthesis ─────────────────────────────────────────────────────────
+    #  LLM synthesis 
 
     async def _llm_synthesis(
         self, query: str, ml_result: Dict, anomalies: Dict,
@@ -113,7 +113,7 @@ class InsightWriterTool:
 
         return None
 
-    # ── Template fallback ─────────────────────────────────────────────────────
+    #  Template fallback 
 
     def _template_synthesis(
         self, ml_result: Dict, anomalies: Dict,
@@ -156,7 +156,7 @@ def _extract_key_findings(ml_result: Dict, anomalies: Dict, fi: list, metrics: D
     if family == "classification":
         findings.append({"type": "accuracy", "value": f"F1: {metrics.get('f1', 0):.4f}", "severity": "info"})
     elif family == "regression":
-        findings.append({"type": "r2", "value": f"R²: {metrics.get('R2', 0):.4f}", "severity": "info"})
+        findings.append({"type": "r2", "value": f"R: {metrics.get('R2', 0):.4f}", "severity": "info"})
     elif family == "clustering":
         findings.append({"type": "clusters", "value": f"{metrics.get('n_clusters', 0)} segments", "severity": "info"})
 
@@ -197,5 +197,7 @@ def _generate_recs_text(family: str, metrics: Dict) -> str:
         r2 = metrics.get("R2", 0)
         if r2 >= 0.75:
             return "\n**Recommendation:** Use for production forecasting with weekly retraining."
-        return "\n**Recommendation:** Feature engineering or ensemble methods may improve R²."
+        return "\n**Recommendation:** Feature engineering or ensemble methods may improve R."
     return "\n**Recommendation:** Review findings with domain experts before acting."
+
+

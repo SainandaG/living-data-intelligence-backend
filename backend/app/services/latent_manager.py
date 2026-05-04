@@ -24,7 +24,7 @@ except ImportError:
             # Fallback for relative import
             from ...ml.graph_neural_core import graph_neural_core # type: ignore
         except ImportError:
-            logger.error("❌ Could not import graph_neural_core from any known path")
+            logger.error(" Could not import graph_neural_core from any known path")
             graph_neural_core = None # type: ignore
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class LatentSpaceManager:
         Refresh the entire latent space based on new graph topology.
         This should be called when schema/graph structure changes significantly.
         """
-        logger.info(f"🌌 Recalculating Latent Space for {len(nodes)} nodes...")
+        logger.info(f" Recalculating Latent Space for {len(nodes)} nodes...")
         
         try:
             # 1. Generate High-Dim Embeddings (Dim=8)
@@ -94,7 +94,7 @@ class LatentSpaceManager:
                     }
                 
                 self.is_ready = True
-                logger.info("✅ Latent Space Updated.")
+                logger.info(" Latent Space Updated.")
                 return True
                 
         except Exception as e:
@@ -196,3 +196,4 @@ class LatentSpaceManager:
 
 # Global Instance
 latent_manager = LatentSpaceManager()
+

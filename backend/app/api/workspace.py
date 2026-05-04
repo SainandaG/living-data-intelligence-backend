@@ -1,5 +1,5 @@
 """
-Workspace API — /api/workspace
+Workspace API  /api/workspace
 
 Persistent investigation workspaces: canvas state, evidence chains,
 shareable investigation links.
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/workspace", tags=["workspace"])
 WORKSPACE_DIR = Path("data/workspaces")
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── In-memory store (file-backed) ─────────────────────────────────────────────
+#  In-memory store (file-backed) 
 
 _workspaces: Dict[str, Dict] = {}
 
@@ -50,7 +50,7 @@ def _save_workspace(ws: Dict) -> None:
         json.dump(ws, fh)
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
+#  Models 
 
 class CreateWorkspaceRequest(BaseModel):
     title:         str
@@ -76,7 +76,7 @@ class AddEvidenceRequest(BaseModel):
     pinned:   bool = False
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+#  Endpoints 
 
 @router.get("")
 async def list_workspaces(
@@ -195,3 +195,5 @@ async def delete_workspace(workspace_id: str, _user: dict = Depends(require_role
     if workspace_id in _workspaces:
         del _workspaces[workspace_id]
     return {"status": "archived"}
+
+

@@ -7,7 +7,7 @@ flags can be toggled at deploy-time without a code change.
   export USE_GNN_INFERENCE=true   # enable PyTorch GNN at runtime
   export USE_NLP_V2=true          # re-enable NLP v2 when stable
 
-Values are case-insensitive: "true"/"1"/"yes" → True, anything else → False.
+Values are case-insensitive: "true"/"1"/"yes"  True, anything else  False.
 """
 import os
 
@@ -67,3 +67,4 @@ def get_enabled_features() -> dict:
         "ENABLE_SOUND_SYNTHESIS": ENABLE_SOUND_SYNTHESIS,
         "USE_NEO4J": USE_NEO4J,
     }
+

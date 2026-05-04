@@ -294,7 +294,8 @@ export function authFetch(url, options = {}) {
         headers['Authorization'] = `Bearer ${token}`;
     }
     // Always send JSON content-type for POST/PUT/PATCH unless overridden
-    if (options.body && !headers['Content-Type']) {
+    // FIX: Do NOT set application/json if we are sending FormData (browser needs to set boundary)
+    if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
         headers['Content-Type'] = 'application/json';
     }
     return fetch(url, { ...options, headers });

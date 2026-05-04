@@ -1,8 +1,8 @@
 """
-Neural Core — Signal Processor
+Neural Core  Signal Processor
 Responsible for: save_snapshot, _get_context, predict_importance, predict_links
 """
-"""Neural Core – main module. Imports all sub-module method groups."""
+"""Neural Core  main module. Imports all sub-module method groups."""
 """
 Neural Core Service
 -------------------
@@ -33,7 +33,7 @@ class NeuralCore:
             return
         
         from app.services.db_connector import db_connector
-        await generation_log_service.log_step(connection_id, "💾 Persisting Neural State to evolution.neural_snapshots", progress=90)
+        await generation_log_service.log_step(connection_id, " Persisting Neural State to evolution.neural_snapshots", progress=90)
         logger.info(f"Neural Core: Initiating snapshot save for {connection_id}")
         
         # 1. Create table if not exists (Lazy Init - Dialect Aware)
@@ -123,10 +123,10 @@ class NeuralCore:
         try:
             await db_connector.query(connection_id, sql, (connection_id, json.dumps(snapshot_data), json.dumps(metrics)))
             logger.info(f"Neural Core: Snapshot saved for {connection_id} to {table_path}")
-            await generation_log_service.log_step(connection_id, "✅ Neural State persisted successfully", level="success", progress=100)
+            await generation_log_service.log_step(connection_id, " Neural State persisted successfully", level="success", progress=100)
         except Exception as e:
             logger.error(f"Failed to save neural snapshot to {table_path}: {e}")
-            await generation_log_service.log_step(connection_id, f"⚠️ Snapshot save failed: {e}", level="warning", progress=100)
+            await generation_log_service.log_step(connection_id, f" Snapshot save failed: {e}", level="warning", progress=100)
     async def _get_context(self, connection_id: str) -> Dict:
         """Helper to get snapshot for connection, with fallback to schema_analyzer"""
         if not connection_id: return None
@@ -199,3 +199,4 @@ class NeuralCore:
                 })
                 
         return predictions
+

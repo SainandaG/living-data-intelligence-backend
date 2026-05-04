@@ -1,4 +1,4 @@
-"""Neural Core – main module. Imports all sub-module method groups."""
+"""Neural Core  main module. Imports all sub-module method groups."""
 """
 Neural Core Service
 -------------------
@@ -289,7 +289,7 @@ class NeuralCore:
                 decay = 1.0 / (1.0 + (hours_since / 168.0)) # 1 week half-life
                 final_gravity = (base_gravity * 0.5) + (base_gravity * 0.5 * decay)
             except (ValueError, TypeError, OSError):
-                pass  # Malformed timestamp — skip decay, use base gravity
+                pass  # Malformed timestamp  skip decay, use base gravity
 
         self.gravity_stores[conn_id][t_name] = final_gravity
         analyzed_set.add(t_name)
@@ -304,7 +304,7 @@ class NeuralCore:
             return
         
         from app.services.db_connector import db_connector
-        await generation_log_service.log_step(connection_id, "💾 Persisting Neural State to evolution.neural_snapshots", progress=90)
+        await generation_log_service.log_step(connection_id, " Persisting Neural State to evolution.neural_snapshots", progress=90)
         logger.info(f"Neural Core: Initiating snapshot save for {connection_id}")
         
         # 1. Create table if not exists (Lazy Init - Dialect Aware)
@@ -341,8 +341,19 @@ class NeuralCore:
                 except Exception as mysql_e:
                     logger.error(f"MySQL Specific Initialization Error: {mysql_e}")
                     raise
+            else:
+                # Fallback for DuckDB/SQLite/others
+                await db_connector.query(connection_id, """
+                    CREATE TABLE IF NOT EXISTS neural_snapshots (
+                        id INTEGER PRIMARY KEY,
+                        connection_id TEXT NOT NULL,
+                        snapshot_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        neural_data TEXT,
+                        core_metrics TEXT
+                    )
+                """)
         except Exception as e:
-            logger.error(f"Failed to init neural_snapshots table: {e}")
+            logger.error(f"Failed to init neural_snapshots table for {db_type}: {e}")
             return
 
         # 2. Prepare Data
@@ -387,10 +398,11 @@ class NeuralCore:
         # 3. INSERT
         import json
         is_mysql = db_type == 'mysql'
-        table_path = "evolution.neural_snapshots" if not is_mysql else "neural_snapshots"
+        is_postgres = db_type in ['postgresql', 'postgres', 'neon', 'neon_db']
+        table_path = "evolution.neural_snapshots" if is_postgres else "neural_snapshots"
         
         # MySQL uses %s for params, Postgres uses %s or $1. DBConnector uses %s for both.
-        # table_path is a hardcoded constant — not user input, no injection risk.
+        # table_path is a hardcoded constant  not user input, no injection risk.
         sql = f"INSERT INTO {table_path} (connection_id, neural_data, core_metrics) VALUES (%s, %s, %s)"
         try:
             await db_connector.query(connection_id, sql, (connection_id, json.dumps(snapshot_data), json.dumps(metrics)))
@@ -446,7 +458,7 @@ class NeuralCore:
     async def _get_relative_value(self, connection_id: str, table: dict, vitality: float) -> float:
         """
         Query the actual SUM of a financial column from the DB for this table.
-        Falls back to vitality × row_count heuristic when no financial column exists.
+        Falls back to vitality  row_count heuristic when no financial column exists.
         """
         from app.services.db_connector import db_connector
         row_count = table.get('row_count', 0)
@@ -723,7 +735,7 @@ class NeuralCore:
                         sensitivity_reason = f"Contains sensitive column: {cname}"
                         break
 
-            # 4. Business Metrics — query real financial column SUM when available
+            # 4. Business Metrics  query real financial column SUM when available
             row_count = table.get('row_count', 0)
             relative_value = await self._get_relative_value(connection_id, table, vitality)
 

@@ -34,7 +34,7 @@ _file_connections: Dict[str, Dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
-# Public API — mirrors db_connector's interface so the rest of the app
+# Public API  mirrors db_connector's interface so the rest of the app
 # can treat file connections the same as real DB connections.
 # ---------------------------------------------------------------------------
 
@@ -76,8 +76,8 @@ async def connect_file(
         df.columns = [_sanitise_col(c) for c in df.columns]
         duck.register(table_name, df)
         logger.info(
-            f"📄 Registered table '{table_name}' "
-            f"({len(df)} rows × {len(df.columns)} cols) in {conn_id}"
+            f" Registered table '{table_name}' "
+            f"({len(df)} rows  {len(df.columns)} cols) in {conn_id}"
         )
 
     _file_connections[conn_id] = {
@@ -94,7 +94,7 @@ async def connect_file(
         "_reconnect_config": None,  # not applicable
     }
 
-    logger.info(f"✅ File connection created: {conn_id} ({filename})")
+    logger.info(f" File connection created: {conn_id} ({filename})")
     return {"id": conn_id, "type": db_type}
 
 
@@ -114,7 +114,7 @@ async def query_file(connection_id: str, sql: str, params: tuple = ()):
 
         return result.to_dict(orient="records")
     except Exception as e:
-        logger.error(f"❌ File query error [{connection_id}]: {e}\nSQL: {sql}")
+        logger.error(f" File query error [{connection_id}]: {e}\nSQL: {sql}")
         raise
 
 
@@ -141,7 +141,7 @@ async def close_connection(connection_id: str):
         except Exception:
             pass
         del _file_connections[connection_id]
-        logger.info(f"🗑️ File connection closed: {connection_id}")
+        logger.info(f" File connection closed: {connection_id}")
 
 
 def get_tables(connection_id: str) -> Dict[str, pd.DataFrame]:
@@ -150,7 +150,7 @@ def get_tables(connection_id: str) -> Dict[str, pd.DataFrame]:
 
 
 # ---------------------------------------------------------------------------
-# Schema introspection — used by SchemaAnalyzer
+# Schema introspection  used by SchemaAnalyzer
 # ---------------------------------------------------------------------------
 
 def build_schema_for_file(connection_id: str):
@@ -170,7 +170,7 @@ def build_schema_for_file(connection_id: str):
     def _pk_candidates(table_name: str):
         """Generate all plausible PK column names for a table."""
         base = table_name.lower()
-        # singular: strip trailing 's' (Orders→order, Customers→customer)
+        # singular: strip trailing 's' (Ordersorder, Customerscustomer)
         singular = base.rstrip("s") if base.endswith("s") else base
         return {
             "id", "uuid",

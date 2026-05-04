@@ -5,6 +5,7 @@ import {
     X, Database, TrendingUp, TrendingDown, Layers, Shield,
     BarChart3, GitBranch, Table2, Minus, Zap, Activity, Clock, LineChart
 } from 'lucide-react';
+import { withRBAC } from '../../hoc/withRBAC';
 
 /**
  * Node X-Ray Panel — Deep analytics overlay for a Latent Space node.
@@ -18,7 +19,7 @@ import {
  *   7. Correlations
  *   8. Live Sample Records
  */
-export default function NodeXRayPanel({ node, connectionId, onClose, onDrillDown }) {
+function NodeXRayPanel({ node, connectionId, onClose, onDrillDown }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -927,3 +928,5 @@ const styles = {
     metricTh: { padding: '10px 12px', textAlign: 'left', borderBottom: '1px solid rgba(129,140,248,0.1)', color: 'rgba(167,186,220,0.6)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' },
     metricTd: { padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)', color: '#fff', fontFamily: 'Share Tech Mono, monospace' },
 };
+
+export default withRBAC(NodeXRayPanel, 'xray_diagnostics', 'analyst');

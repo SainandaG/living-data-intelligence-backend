@@ -35,7 +35,7 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "wezu_backend")
 DB_USER = os.getenv("DB_USER", "neondb_owner")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "npg_gB1ZVP5UKblz")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Common password for all test users
 RAW_PASSWORD = "password123"

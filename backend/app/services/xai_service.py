@@ -19,7 +19,7 @@ class XAIService:
     """Explainable AI service with graceful degradation.
     
     When GOOGLE_API_KEY is available, uses Gemini for rich justifications.
-    Otherwise, falls back to deterministic template-based explanations —
+    Otherwise, falls back to deterministic template-based explanations 
     this is intentional design, not incomplete code.
     """
     def __init__(self):
@@ -115,3 +115,4 @@ class XAIService:
 
 # Global instance
 xai_service = XAIService()
+

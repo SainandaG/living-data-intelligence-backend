@@ -22,7 +22,7 @@ async def connect_database(config: ConnectionRequest, _user: dict = Depends(requ
         env_host = os.getenv("DB_HOST")
         
         if (normalized_host in ["localhost", "127.0.0.1", "::1"]) and env_host and "neon.tech" in env_host:
-            logger.info(f"🔄 Auto-switching from {config.host} to Neon DB from .env")
+            logger.info(f" Auto-switching from {config.host} to Neon DB from .env")
             config.host = env_host
             config.port = int(os.getenv("DB_PORT", 5432))
             config.database = os.getenv("DB_NAME", config.database)
@@ -30,7 +30,7 @@ async def connect_database(config: ConnectionRequest, _user: dict = Depends(requ
             config.password = os.getenv("DB_PASSWORD", config.password)
             config.db_type = os.getenv("DB_TYPE", "postgresql")
             
-        logger.info(f"🔌 Connection attempt: {config.db_type} to {config.database} at {config.host}")
+        logger.info(f" Connection attempt: {config.db_type} to {config.database} at {config.host}")
         
         try:
             result = await db_connector.connect(config.dict())
@@ -38,7 +38,7 @@ async def connect_database(config: ConnectionRequest, _user: dict = Depends(requ
             # RETRY LOGIC: If first attempt fails (e.g. user typed "e" or "localhost" refused)
             # and we have a valid .env config, try that.
             if env_host and config.host != env_host:
-                logger.warning(f"⚠️ Initial connection failed ({first_attempt_error}). Retrying with .env configuration...")
+                logger.warning(f" Initial connection failed ({first_attempt_error}). Retrying with .env configuration...")
                 config.host = env_host
                 config.port = int(os.getenv("DB_PORT", 5432))
                 config.database = os.getenv("DB_NAME", config.database)

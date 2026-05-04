@@ -2,7 +2,7 @@
 File Upload API
 
 Endpoints for uploading CSV / Excel files and treating them as queryable
-database connections — no server credentials needed.
+database connections  no server credentials needed.
 """
 import logging
 from typing import Dict, Any, List
@@ -40,10 +40,10 @@ async def upload_file(file: UploadFile = File(...), _user: dict = Depends(requir
     queried exactly like a real database connection.
 
     Returns a connection object with:
-    - `connection_id` — use this in all subsequent API calls
-    - `type`          — 'csv' or 'excel'
-    - `tables`        — list of table names derived from the file
-    - `row_counts`    — row count per table
+    - `connection_id`  use this in all subsequent API calls
+    - `type`           'csv' or 'excel'
+    - `tables`         list of table names derived from the file
+    - `row_counts`     row count per table
     """
     try:
         content = await file.read()
@@ -73,14 +73,16 @@ async def upload_file(file: UploadFile = File(...), _user: dict = Depends(requir
         }
 
     except ValueError as e:
+        logger.warning(f"Validation error during file upload: {e}")
         raise HTTPException(status_code=422, detail=str(e))
     except ImportError as e:
+        logger.error(f"Missing dependency during file upload: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=str(e),
         )
     except Exception as e:
-        logger.error(f"File upload failed: {e}", exc_info=True)
+        logger.error(f"File upload failed with unexpected error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"File processing error: {str(e)}")
 
 

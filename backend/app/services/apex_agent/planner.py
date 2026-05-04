@@ -1,5 +1,5 @@
 """
-Agent Planner — converts a natural-language query into a typed, validated
+Agent Planner  converts a natural-language query into a typed, validated
 AgentPlan using an LLM with structured output (Pydantic schema enforcement).
 
 Falls back to a deterministic rule-based plan when no LLM key is configured,
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# ── Typed plan schema ─────────────────────────────────────────────────────────
+#  Typed plan schema 
 
 ToolName = Literal[
     "inspect_schema",
@@ -53,16 +53,16 @@ class AgentPlan(BaseModel):
     estimated_duration_s: float  = 30.0
 
 
-# ── Planner ───────────────────────────────────────────────────────────────────
+#  Planner 
 
 class AgentPlanner:
     """
     Produces an AgentPlan from a natural-language query.
 
     Order of resolution:
-      1. Google Gemini (GOOGLE_API_KEY)  — structured JSON mode
-      2. OpenAI (OPENAI_API_KEY)         — structured JSON mode
-      3. Rule-based fallback             — always available
+      1. Google Gemini (GOOGLE_API_KEY)   structured JSON mode
+      2. OpenAI (OPENAI_API_KEY)          structured JSON mode
+      3. Rule-based fallback              always available
     """
 
     SYSTEM_PROMPT = """You are APEX, an operational intelligence agent for enterprise databases.
@@ -79,7 +79,7 @@ Rules:
 
 Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fences."""
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     async def plan(
         self,
@@ -96,7 +96,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
         # Deterministic fallback
         return self._rule_plan(query, session_id, connection_id)
 
-    # ── LLM planning ─────────────────────────────────────────────────────────
+    #  LLM planning 
 
     async def _llm_plan(
         self,
@@ -172,10 +172,10 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
             data.setdefault("query", query)
             return AgentPlan(**data)
         except Exception as exc:
-            logger.warning("Plan parse failed: %s — raw: %.200s", exc, raw)
+            logger.warning("Plan parse failed: %s  raw: %.200s", exc, raw)
             return None
 
-    # ── Rule-based fallback ───────────────────────────────────────────────────
+    #  Rule-based fallback 
 
     def _rule_plan(self, query: str, session_id: str, connection_id: str) -> AgentPlan:
         q = query.lower()
@@ -194,7 +194,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
     def _churn_plan(self, session_id: str, query: str, connection_id: str) -> AgentPlan:
         return AgentPlan(
             session_id=session_id, query=query, intent="churn_analysis",
-            reasoning="Detected churn intent — will identify customer + event entities, engineer behavioral features, classify churn, explain drivers.",
+            reasoning="Detected churn intent  will identify customer + event entities, engineer behavioral features, classify churn, explain drivers.",
             estimated_duration_s=45.0,
             steps=[
                 AgentStep(index=0, tool="inspect_schema", description="Discover tables and relationships", params={"connection_id": connection_id}),
@@ -211,7 +211,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
     def _anomaly_plan(self, session_id: str, query: str, connection_id: str) -> AgentPlan:
         return AgentPlan(
             session_id=session_id, query=query, intent="anomaly_detection",
-            reasoning="Anomaly/outlier detection — inspect schema, sample data, run statistical anomaly detection, produce ranked anomaly list.",
+            reasoning="Anomaly/outlier detection  inspect schema, sample data, run statistical anomaly detection, produce ranked anomaly list.",
             estimated_duration_s=20.0,
             steps=[
                 AgentStep(index=0, tool="inspect_schema", description="Inspect schema for numeric and event tables", params={"connection_id": connection_id}),
@@ -225,7 +225,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
     def _forecast_plan(self, session_id: str, query: str, connection_id: str) -> AgentPlan:
         return AgentPlan(
             session_id=session_id, query=query, intent="forecast",
-            reasoning="Time-series forecasting — detect date+metric columns, fit seasonal model, produce 30-day forecast.",
+            reasoning="Time-series forecasting  detect date+metric columns, fit seasonal model, produce 30-day forecast.",
             estimated_duration_s=25.0,
             steps=[
                 AgentStep(index=0, tool="inspect_schema", description="Find timestamp and metric columns", params={"connection_id": connection_id}),
@@ -238,7 +238,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
     def _segment_plan(self, session_id: str, query: str, connection_id: str) -> AgentPlan:
         return AgentPlan(
             session_id=session_id, query=query, intent="segmentation",
-            reasoning="Customer/entity segmentation — cluster by behavioral and demographic features.",
+            reasoning="Customer/entity segmentation  cluster by behavioral and demographic features.",
             estimated_duration_s=30.0,
             steps=[
                 AgentStep(index=0, tool="inspect_schema", description="Inspect entity and feature tables", params={"connection_id": connection_id}),
@@ -252,7 +252,7 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
     def _generic_plan(self, session_id: str, query: str, connection_id: str) -> AgentPlan:
         return AgentPlan(
             session_id=session_id, query=query, intent="generic",
-            reasoning="Generic exploratory analysis — inspect schema, sample data, run AutoML, explain findings.",
+            reasoning="Generic exploratory analysis  inspect schema, sample data, run AutoML, explain findings.",
             estimated_duration_s=35.0,
             steps=[
                 AgentStep(index=0, tool="inspect_schema", description="Understand schema structure", params={"connection_id": connection_id}),
@@ -266,3 +266,5 @@ Return ONLY valid JSON matching the AgentPlan schema. No prose, no markdown fenc
 
 # Singleton
 agent_planner = AgentPlanner()
+
+

@@ -62,7 +62,7 @@ class DataQualityEngine:
                 **_QUALITY_META,
                 "basis": "vitality_score_from_graph_topology",
                 "note": (
-                    "completeness/accuracy/consistency/timeliness are vitality ± constant offsets. "
+                    "completeness/accuracy/consistency/timeliness are vitality  constant offsets. "
                     "Run a real null-count scan for row-level quality."
                 ),
             },
@@ -251,3 +251,4 @@ class DataQualityEngine:
 
 # Global instance
 data_quality_engine = DataQualityEngine()
+

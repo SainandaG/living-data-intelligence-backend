@@ -3,6 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, Html, Sphere } from '@react-three/drei';
 import * as getUuid from 'uuid'; // Import * as to handle potential default export issues or named exports
 import * as THREE from 'three';
+import { authFetch } from '../../utils/apiClient';
 import { logger } from '../../utils/logger';
 
 const uuid = getUuid.v4;

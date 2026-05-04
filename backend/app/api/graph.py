@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ── Simple in-memory cache for pk-distribution (expensive SQL) ───────────────
-_pk_dist_cache: Dict[str, tuple] = {}  # key → (timestamp, result)
-_PK_DIST_TTL = 120  # seconds — invalidate after 2 minutes
+#  Simple in-memory cache for pk-distribution (expensive SQL) 
+_pk_dist_cache: Dict[str, tuple] = {}  # key  (timestamp, result)
+_PK_DIST_TTL = 120  # seconds  invalidate after 2 minutes
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+#  Helpers 
 
 async def _enrich_node(
     node: dict,
@@ -141,7 +141,7 @@ def _build_graph_response(
     return graph
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
+#  Endpoints 
 
 @router.get("/graph/{connection_id}", responses={500: {"model": ErrorResponse}})
 async def get_graph(connection_id: str, _user: dict = Depends(require_role("viewer"))):
@@ -338,7 +338,7 @@ async def get_node_frequency(connection_id: str, table_name: str, _user: dict = 
       - distinct_count: unique FK values (cardinality)
       - fill_rate: non_null_count / total_rows * 100  (0-100 %)
 
-    The fill_rate drives the frequency bar in the frontend — it reflects how
+    The fill_rate drives the frequency bar in the frontend  it reflects how
     often each FK relationship is actually used, not just the size of the
     referenced table.
     """
@@ -371,7 +371,7 @@ async def get_node_frequency(connection_id: str, table_name: str, _user: dict = 
         if not fk_columns:
             return {"table": table_name, "total_rows": 0, "fk_stats": []}
 
-        # 2. Build a single aggregate query using positional aliases (nn0, dc0 …)
+        # 2. Build a single aggregate query using positional aliases (nn0, dc0 )
         #    to avoid identifier-quoting issues with double-underscores in aliases.
         safe_table = f'"{table_name}"'
         select_parts = ["COUNT(*) AS total_rows"]
@@ -424,19 +424,19 @@ async def get_node_frequency(connection_id: str, table_name: str, _user: dict = 
 )
 async def get_pk_distribution(connection_id: str, table_name: str, pk_column: str, _user: dict = Depends(require_role("viewer"))):
     """
-    PK → FK distribution for single-node inspector PK hover view.
+    PK  FK distribution for single-node inspector PK hover view.
 
     When a PK column is hovered in the inspector, this endpoint returns:
       - A sample of distinct PK values from the table (up to 20)
       - For each PK value, how many FK references it has in every referencing table
         (i.e. tables that have a FK pointing to this PK column)
       - The percentage share each PK value holds across all FK references per
-        referencing table — this drives the FK node sizes in the frontend
+        referencing table  this drives the FK node sizes in the frontend
 
     Example: customers.customer_id is PK.
-      orders.customer_id is FK → customers.customer_id.
+      orders.customer_id is FK  customers.customer_id.
       If there are 10 orders total:
-        customer_1 → 3 orders (30%), customer_2 → 3 (30%), customer_3 → 4 (40%)
+        customer_1  3 orders (30%), customer_2  3 (30%), customer_3  4 (40%)
       Returns pk_values = [
         { value: "1", ref_counts: { orders: 3 }, ref_pcts: { orders: 30.0 } },
         ...
@@ -460,7 +460,7 @@ async def get_pk_distribution(connection_id: str, table_name: str, pk_column: st
             schema = await schema_analyzer.analyze_schema(connection_id)
 
         # 1. Find tables that reference this table's PK column via a FK
-        # Deduplicate by (table, fk_column) — some schema analyzers return the same FK twice
+        # Deduplicate by (table, fk_column)  some schema analyzers return the same FK twice
         seen_refs: set = set()
         referencing = []  # [ { table, fk_column } ]
         for tbl in schema.tables:
@@ -474,8 +474,8 @@ async def get_pk_distribution(connection_id: str, table_name: str, pk_column: st
         # 2. Sample up to 20 distinct PK values from the source table
         safe_table  = f'"{table_name}"'
         safe_pk_col = f'"{pk_column}"'
-        # Cap at 12 values — each value spawns one node × N ref-tables = many 3D objects.
-        # 12 × 3 tables = 36 FK-dist nodes, which renders smoothly. 20 × 3 = 60 is too heavy.
+        # Cap at 12 values  each value spawns one node  N ref-tables = many 3D objects.
+        # 12  3 tables = 36 FK-dist nodes, which renders smoothly. 20  3 = 60 is too heavy.
         sample_sql  = (
             f"SELECT DISTINCT {safe_pk_col} AS pk_val "
             f"FROM {safe_table} "
@@ -495,7 +495,7 @@ async def get_pk_distribution(connection_id: str, table_name: str, pk_column: st
                 "pk_distribution": [],
             }
 
-        # 3. Count FK hits per PK value — run ALL referencing-table queries in parallel.
+        # 3. Count FK hits per PK value  run ALL referencing-table queries in parallel.
         #    Previously these were sequential (one round-trip per table). Now asyncio.gather
         #    fires them all at once, so total wait = slowest single query, not sum of all.
         import asyncio

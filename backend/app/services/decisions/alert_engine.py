@@ -1,5 +1,5 @@
 """
-Alert Engine — central decision/alert store.
+Alert Engine  central decision/alert store.
 
 Accepts decisions from:
   - Agent (trigger_decision tool)
@@ -66,7 +66,7 @@ class AlertEngine:
         self._subscribers: Set[asyncio.Queue] = set()
         self._load()
 
-    # ── Persistence ───────────────────────────────────────────────────────────
+    #  Persistence 
 
     def _load(self) -> None:
         """Replay the last RING_SIZE lines from the JSONL store on startup."""
@@ -107,7 +107,7 @@ class AlertEngine:
         except Exception as exc:
             logger.error("alert_engine: failed to rewrite store: %s", exc)
 
-    # ── SSE Pub/Sub ───────────────────────────────────────────────────────────
+    #  SSE Pub/Sub 
 
     def subscribe(self) -> "asyncio.Queue[Dict]":
         """Register a new SSE subscriber. Returns a queue to read events from."""
@@ -128,7 +128,7 @@ class AlertEngine:
                 dead.add(q)
         self._subscribers -= dead
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     async def ingest_decision(self, raw: Dict[str, Any]) -> Decision:
         """Accept a raw dict (from agent or anomaly detector) and store it."""
@@ -239,7 +239,7 @@ class AlertEngine:
             "high":     sum(1 for d in all_d if d.severity == "high"),
         }
 
-    # ── Internal dispatch ─────────────────────────────────────────────────────
+    #  Internal dispatch 
 
     async def _auto_dispatch(self, decision: Decision) -> None:
         try:
@@ -252,3 +252,5 @@ class AlertEngine:
 
 # Singleton
 alert_engine = AlertEngine()
+
+

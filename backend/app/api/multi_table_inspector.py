@@ -3,9 +3,9 @@ Multi-Table Inspector API
 Powers the cross-table drill-down inspector in the 3D galaxy view.
 
 Flow:
-  Level 1 → GET /multi-table/schema        → table metadata + FK links between selected tables
-  Level 2 → GET /multi-table/rows          → top 50 rows + search for a selected table
-  Level 3 → GET /multi-table/row-detail    → full cross-table metrics for one selected row
+  Level 1  GET /multi-table/schema         table metadata + FK links between selected tables
+  Level 2  GET /multi-table/rows           top 50 rows + search for a selected table
+  Level 3  GET /multi-table/row-detail     full cross-table metrics for one selected row
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Dict, Any, List, Optional
@@ -33,7 +33,7 @@ def _cache_set(key: str, val):
     _cache[key] = (time.time(), val)
 
 
-# ── Level 1: Schema + FK relationships between selected tables ────────────────
+#  Level 1: Schema + FK relationships between selected tables 
 
 @router.get("/multi-table/schema/{connection_id}")
 async def get_multi_table_schema(
@@ -42,7 +42,7 @@ async def get_multi_table_schema(
     _user: dict = Depends(require_role("viewer")),
 ):
     """
-    Returns metadata and FK→PK links for the selected tables.
+    Returns metadata and FKPK links for the selected tables.
     Used to build Level 1 (table cluster) scene and detect which tables
     are connected via FK relationships.
     """
@@ -124,7 +124,7 @@ async def get_multi_table_schema(
 
         result = {
             "tables": result_tables,
-            "connections": connections,   # FK→PK relationships between selected tables
+            "connections": connections,   # FKPK relationships between selected tables
         }
         _cache_set(cache_key, result)
         return result
@@ -136,7 +136,7 @@ async def get_multi_table_schema(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Level 2: Row ring — top 50 + search ──────────────────────────────────────
+#  Level 2: Row ring  top 50 + search 
 
 @router.get("/multi-table/rows/{connection_id}/{table_name}")
 async def get_table_rows(
@@ -178,7 +178,7 @@ async def get_table_rows(
         cols = tbl_schema.columns or []
         col_names = {c.name for c in cols}
 
-        # Validate pk_column — frontend may send a generic name like 'id' that doesn't exist.
+        # Validate pk_column  frontend may send a generic name like 'id' that doesn't exist.
         # Always check against real schema; override if the column is missing.
         if not pk_column or pk_column not in col_names:
             pk_col_obj = next((c for c in cols if c.is_pk), None)
@@ -423,7 +423,7 @@ async def get_row_detail(
         if not src_schema:
             raise HTTPException(status_code=404, detail=f"Table {table_name} not found in schema")
 
-        # Validate pk_column — frontend may send a generic name like 'id' that doesn't exist.
+        # Validate pk_column  frontend may send a generic name like 'id' that doesn't exist.
         col_names = [c.name for c in (src_schema.columns or [])]
         if not pk_column or pk_column not in col_names:
             pk_col_obj = next((c for c in (src_schema.columns or []) if c.is_pk), None)
@@ -627,7 +627,7 @@ async def get_row_detail(
                         "column": nc,
                         "metric": "sum",
                         "value": round(g_val, 2),
-                        "label": f"Σ {nc}",
+                        "label": f" {nc}",
                     })
 
                 return {

@@ -13,7 +13,9 @@ async def get_vitals(_user: dict = Depends(require_role("viewer"))):
     Get real-time system health metrics and agent statuses.
     """
     try:
-        return await vitals_service.get_system_vitals()
+        data = await vitals_service.get_system_vitals()
+        logger.debug(f"Vitals data collected: {data}")
+        return data
     except Exception as e:
         logger.error(f"Vitals collection failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to collect system vitals")

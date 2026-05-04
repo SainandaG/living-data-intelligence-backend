@@ -7,12 +7,12 @@ with identifier validation and parameterized query execution.
 import logging
 import asyncpg
 import aiomysql
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import asyncio
 import time
 import os
 
-# Async MongoDB driver (motor) — lazy import to stay optional
+# Async MongoDB driver (motor)  lazy import to stay optional
 try:
     import motor.motor_asyncio as motor_async
     HAS_MOTOR = True
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class DatabaseConnector:
     def __init__(self):
-        logger.info(f"⚙️ DatabaseConnector initialized at {id(self)}")
+        logger.info(f" DatabaseConnector initialized at {id(self)}")
         self.connections: Dict[str, Dict[str, Any]] = {}
         self.locks: Dict[str, asyncio.Lock] = {} # Locks for non-pooled DBs
         self.connection_counter = 0
@@ -100,7 +100,7 @@ class DatabaseConnector:
             current_attempt_timeout = attempt * 30 
             
             try:
-                logger.warning(f"🔌 Connection attempt {attempt}/{max_retries} to {config['database']} (timeout={current_attempt_timeout}s)...")
+                logger.warning(f" Connection attempt {attempt}/{max_retries} to {config['database']} (timeout={current_attempt_timeout}s)...")
                 async def _connect_wrapper():
                     # Pass the current attempt timeout for inner handlers
                     config['_current_timeout'] = current_attempt_timeout
@@ -130,13 +130,13 @@ class DatabaseConnector:
                 self.locks[connection_id] = asyncio.Lock()
                 
                 duration = time.perf_counter() - start_time
-                logger.info(f"✅ DONE: Connected to {db_type} database: {config['database']} (Attempt {attempt} in {duration:.3f}s)")
+                logger.info(f" DONE: Connected to {db_type} database: {config['database']} (Attempt {attempt} in {duration:.3f}s)")
                 async def _background_schema_analysis():
                     try:
                         from app.services.schema_analyzer import schema_analyzer
                         await schema_analyzer.analyze_schema(connection_id)
                     except Exception as e:
-                        logger.error(f"⚠️ Background schema analysis failed for {connection_id}: {e}")
+                        logger.error(f" Background schema analysis failed for {connection_id}: {e}")
                 asyncio.create_task(_background_schema_analysis())
                 
                 return {'id': connection_id, 'type': db_type}
@@ -149,11 +149,11 @@ class DatabaseConnector:
                 if attempt < max_retries and (is_neon_wakeup or isinstance(e, asyncio.TimeoutError)):
                     # Exponential backoff: 2s, 5s
                     backoff = 2 if attempt == 1 else 5
-                    logger.error(f"⏳ Neon DB is waking up (Attempt {attempt}/{max_retries} failed after {duration:.1f}s). Retrying in {backoff}s...")
+                    logger.error(f" Neon DB is waking up (Attempt {attempt}/{max_retries} failed after {duration:.1f}s). Retrying in {backoff}s...")
                     await asyncio.sleep(backoff)
                     continue
                 else:
-                    logger.error(f"❌ FAIL: Final connection attempt {attempt} failed after {duration:.3f}s: {str(e)}")
+                    logger.error(f" FAIL: Final connection attempt {attempt} failed after {duration:.3f}s: {str(e)}")
                     if isinstance(e, asyncio.TimeoutError):
                         raise TimeoutError(f"Connection timeout after {duration:.1f}s. Database may be sleeping/paused.")
                     raise e
@@ -167,7 +167,7 @@ class DatabaseConnector:
         import ssl
         ssl_ctx = ssl.create_default_context() if sslmode == 'require' else None
         if sslmode == 'require':
-            # Neon uses valid TLS certs from trusted CAs — enforce full chain + hostname verification
+            # Neon uses valid TLS certs from trusted CAs  enforce full chain + hostname verification
             ssl_ctx.check_hostname = True
             ssl_ctx.verify_mode = ssl.CERT_REQUIRED
             
@@ -182,7 +182,7 @@ class DatabaseConnector:
             command_timeout=timeout,
             ssl=ssl_ctx
         )
-        logger.info("✅ PostgreSQL async connection pool created successfully")
+        logger.info(" PostgreSQL async connection pool created successfully")
         return pool
 
     async def _connect_mysql_async(self, config: Dict[str, Any]):
@@ -206,7 +206,7 @@ class DatabaseConnector:
                 await cur.execute("SET NAMES 'utf8mb4'")
                 await cur.execute("SELECT NOW()")
                 
-        logger.info("✅ MySQL async connection pool created successfully")
+        logger.info(" MySQL async connection pool created successfully")
         return pool
 
     async def _connect_mongodb_async(self, config: Dict[str, Any]):
@@ -221,10 +221,10 @@ class DatabaseConnector:
             )
             # Test connection (motor ping is async)
             await client.admin.command('ping')
-            logger.info("✅ MongoDB async connection (motor) created successfully")
+            logger.info(" MongoDB async connection (motor) created successfully")
             return client
         elif HAS_PYMONGO:
-            logger.warning("⚠️ motor not installed — falling back to synchronous pymongo (blocks event loop!)")
+            logger.warning(" motor not installed  falling back to synchronous pymongo (blocks event loop!)")
             client = MongoClient(
                 uri,
                 serverSelectionTimeoutMS=5000,
@@ -264,9 +264,20 @@ class DatabaseConnector:
 
         if connection_id not in self.connections:
             available = list(self.connections.keys())
-            logger.error(f"❌ Connection {connection_id} not found. Available: {available}")
+            logger.error(f" Connection {connection_id} not found. Available: {available}")
             raise ValueError(f"Connection {connection_id} not found. Please connect first.")
         return self.connections[connection_id]
+
+    def get_primary_connection_id(self) -> Optional[str]:
+        """Find the connection ID for the primary application database."""
+        db_name = os.getenv("DB_NAME")
+        if not db_name:
+            return None
+            
+        for conn_id, conn in self.connections.items():
+            if conn['config'].get('database') == db_name:
+                return conn_id
+        return None
         
     def _convert_psycopg2_to_asyncpg_params(self, sql: str) -> str:
         """Helper to convert %s to $1, $2, etc. dynamically for backwards compatibility"""
@@ -301,13 +312,13 @@ class DatabaseConnector:
             
             # [FIX] Check if pool is closed or closing
             if hasattr(client, 'is_closing') and client.is_closing():
-                logger.error(f"❌ FAIL: Database pool for {connection_id} is in 'CLOSING' state. This usually means the backend is restarting or the connection was lost.")
+                logger.error(f" FAIL: Database pool for {connection_id} is in 'CLOSING' state. This usually means the backend is restarting or the connection was lost.")
                 raise RuntimeError(f"Database pool for {connection_id} is closing or closed.")
             
             # [FIX] Validate parameters against placeholders to prevent cryptic asyncpg errors
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 if ('$1' in sql or '%s' in sql) and not params:
-                    logger.error(f"❌ FAIL: Query contains placeholders but no parameters were provided. SQL: {sql}")
+                    logger.error(f" FAIL: Query contains placeholders but no parameters were provided. SQL: {sql}")
                     raise ValueError("Query expects parameters but none were provided.")
 
             if hasattr(client, 'get_size') and hasattr(client, 'get_max_size'):
@@ -338,7 +349,7 @@ class DatabaseConnector:
             duration = time.perf_counter() - start_time
             if duration > 0.5: # Log slow queries
                 if "CREATE SCHEMA" not in sql and "neural_snapshots" not in sql:
-                    logger.warning(f"🐢 Slow Query ({duration:.3f}s): {sql[:100]}...")
+                    logger.warning(f" Slow Query ({duration:.3f}s): {sql[:100]}...")
             return result
             
         except Exception as e:
@@ -416,7 +427,7 @@ class DatabaseConnector:
             raise ValueError(f"Reconnect not supported for db_type={db_type}")
 
         self.connections[connection_id]['client'] = new_client
-        logger.info(f"✅ Reconnected {connection_id} to {config.get('database')}")
+        logger.info(f" Reconnected {connection_id} to {config.get('database')}")
 
     async def close(self, connection_id: str):
         """Close a specific async pool"""
@@ -437,17 +448,17 @@ class DatabaseConnector:
                     connection['client'].close()
                 
                 del self.connections[connection_id]
-                logger.info(f"🔌 Closed async connection pool: {connection_id}")
+                logger.info(f" Closed async connection pool: {connection_id}")
             except Exception as e:
                 logger.info(f"Error closing async connection {connection_id}: {str(e)}")
     async def close_all(self):
         """Close all connections"""
         import traceback
         caller = "".join(traceback.format_stack()[-5:])
-        logger.info(f"🛑 DatabaseConnector.close_all() called from:\n{caller}")
+        logger.info(f" DatabaseConnector.close_all() called from:\n{caller}")
         logger.info("Closing all database connection pools...")
         for connection_id in list(self.connections.keys()):
             await self.close(connection_id)
 
 # Global instance
-db_connector = DatabaseConnector()
+db_connector = DatabaseConnector()

@@ -99,13 +99,13 @@ class GraphIntelligence:
         Returns authenticated values and LaTeX-style proof strings.
         
         Spec:
-        V = Γ(N, G) -> Tiered Logarithmic Progression weighted by G.
-        G = σ(ΣR * 2 + d_out + log(N)) -> Sigmoid structural mass.
-        H = -Σ p(i) log2 p(i) -> Shannon Entropy relative to global topology.
+        V = (N, G) -> Tiered Logarithmic Progression weighted by G.
+        G = (R * 2 + d_out + log(N)) -> Sigmoid structural mass.
+        H = - p(i) log2 p(i) -> Shannon Entropy relative to global topology.
         """
         # 1. AUTHENTICATED GRAVITY (G)
         # We use natural log (ln) to avoid the "flatness" of log10 for small row counts.
-        # R_sum = ΣR * 2 + d_out
+        # R_sum = R * 2 + d_out
         r_sum = (in_degree * 2.0) + (out_degree * 1.0)
         n_factor = math.log(max(1, row_count))
         
@@ -117,7 +117,7 @@ class GraphIntelligence:
         gravity = 1.0 + (sigmoid_imp * 4.0)
         
         # 2. AUTHENTICATED VITALITY (V)
-        # Tiered Logarithmic Progression (Γ)
+        # Tiered Logarithmic Progression ()
         if row_count == 0:
             base_v = 15.0
         elif row_count < 100:
@@ -134,7 +134,7 @@ class GraphIntelligence:
         vitality = min(100.0, max(5.0, base_v + gravity_bonus))
 
         # 3. AUTHENTICATED ENTROPY (H)
-        # H = -Σ p(i) log2 p(i) -> Shannon Entropy of the local connectivity distribution
+        # H = - p(i) log2 p(i) -> Shannon Entropy of the local connectivity distribution
         # We define the distribution as the balance between In-bound and Out-bound information flow.
         
         node_conn = in_degree + out_degree
@@ -163,9 +163,9 @@ class GraphIntelligence:
             "entropy": round(entropy, 4),
             "pull_factor": f"{ ( (sigmoid_imp * 0.8) + (min(2.0, gravity/3.0) * 0.2) ):.2f}x",
             "proofs": {
-                "gravity": f"G = σ(2R + d_out + ln(N)) = {gravity:.4f}",
-                "vitality": f"V = Γ(N, G) = {vitality:.1f}%",
-                "entropy": f"H(x) = -Σ P(x)log2 P(x) = {entropy:.4f}"
+                "gravity": f"G = (2R + d_out + ln(N)) = {gravity:.4f}",
+                "vitality": f"V = (N, G) = {vitality:.1f}%",
+                "entropy": f"H(x) = - P(x)log2 P(x) = {entropy:.4f}"
             }
         }
 
