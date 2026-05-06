@@ -46,17 +46,17 @@ async def purge_expired_audit_logs():
             return
 
         try:
-            # Purge audit logs older than 90 days
-            query = "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'"
+            # Archive audit logs older than 90 days instead of physical deletion
+            query = "UPDATE audit_log SET archived = true WHERE created_at < NOW() - INTERVAL '90 days' AND archived = false"
             result = await conn.execute(query)
             
-            # result is a string like 'DELETE 5'
-            deleted_count = int(result.split(" ")[1]) if result.startswith("DELETE") else 0
+            # result is a string like 'UPDATE 5'
+            archived_count = int(result.split(" ")[1]) if result.startswith("UPDATE") else 0
             
             current_time = datetime.now(timezone.utc).isoformat()
             # Tokens are stored in memory and pruned by _prune_expired() in auth_api.py,
-            # so we only report audit records deleted here.
-            logger.info(f"Purged {deleted_count} audit records and 0 tokens at {current_time}")
+            # so we only report audit records archived here.
+            logger.info(f"Archived {archived_count} audit records at {current_time}")
             
         finally:
             await conn.close()

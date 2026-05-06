@@ -3,15 +3,26 @@ import apiClient from '../../utils/apiClient';
 import { useAuthStore } from '../../stores/authStore';
 import { logger } from '../../utils/logger';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Shield, Check, X, Plus, ChevronRight, Settings, Fingerprint, ShieldCheck, Key, EyeOff, Table, Database } from 'lucide-react';
+import usePermissions from '../../hooks/usePermissions';
+import { User, Shield, Check, X, Plus, ChevronRight, Settings, Fingerprint, ShieldCheck, Key, EyeOff, Table, Database, AlertCircle } from 'lucide-react';
+import FeatureGate from '../FeatureGate';
 
 const UserManagementPanel = () => {
-    const { userRole, canDo } = useAuthStore();
+    const { can } = usePermissions();
+    const canDo = useAuthStore(state => state.canDo);
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [features, setFeatures] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('users'); // users | roles | redaction
+    
+    // Determine initial tab based on permissions
+    const getInitialTab = () => {
+        if (can('rbac')) return 'users';
+        if (can('masking')) return 'redaction';
+        return 'users';
+    };
+    
+    const [activeTab, setActiveTab] = useState(getInitialTab()); 
     const [editingRole, setEditingRole] = useState(null);
     const [newRoleName, setNewRoleName] = useState('');
     const [notification, setNotification] = useState(null);
@@ -152,23 +163,45 @@ const UserManagementPanel = () => {
     const handleSaveRole = async () => {
         const roleName = editingRole?.name || newRoleName;
         if (!roleName) return;
+        
+        // Prevent editing system roles in frontend too for better UX
+        if (editingRole?.is_system_role && roles.some(r => r.name === roleName)) {
+            setNotification({ type: 'error', message: 'System roles cannot be modified' });
+            return;
+        }
+
         try {
             await apiClient.post('/admin/roles', {
                 name: roleName,
                 permissions: editingRole?.permissions || {},
                 description: editingRole?.description || 'Custom tenant role'
             });
+            setNotification({ type: 'success', message: `Role ${roleName} saved successfully` });
             setEditingRole(null);
             setNewRoleName('');
             fetchData(true); // Silent refresh
         } catch (err) {
             logger.error('Failed to save role:', err);
+            const detail = err.response?.data?.detail || 'System error: Database unreachable';
+            setNotification({ type: 'error', message: detail });
         }
     };
 
     const togglePermission = (category, featureId) => {
         if (!editingRole) return;
-        const newPerms = { ...editingRole.permissions };
+        
+        // [FIX] Ensure permissions is an object before spreading. 
+        // If it arrived as a string from the backend, parse it first.
+        let currentPerms = editingRole.permissions || {};
+        if (typeof currentPerms === 'string') {
+            try {
+                currentPerms = JSON.parse(currentPerms);
+            } catch (e) {
+                currentPerms = {};
+            }
+        }
+        
+        const newPerms = { ...currentPerms };
         if (!newPerms[category]) newPerms[category] = {};
 
         // Cycle: none -> read -> execute -> none
@@ -181,7 +214,7 @@ const UserManagementPanel = () => {
         setEditingRole({ ...editingRole, permissions: newPerms });
     };
 
-    if (!canDo('admin')) return <div className="p-8 text-rose-400">Access Denied</div>;
+    if (!canDo('admin')) return <div className="p-8 text-rose-400 font-bold uppercase tracking-widest flex items-center justify-center h-64 bg-slate-900/50 rounded-2xl border border-rose-500/20">Access Denied: Administrative Clearance Required</div>;
 
     return (
         <div className="flex flex-col h-full bg-slate-950/80 backdrop-blur-xl border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
@@ -194,24 +227,30 @@ const UserManagementPanel = () => {
                     <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Role-Based Access Management</p>
                 </div>
                 <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
-                    <button
-                        onClick={() => setActiveTab('users')}
-                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
-                    >
-                        User Directory
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('roles')}
-                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
-                    >
-                        Role Factory
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('redaction')}
-                        className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'redaction' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
-                    >
-                        Redaction Lab
-                    </button>
+                    <FeatureGate feature="rbac">
+                        <button
+                            onClick={() => setActiveTab('users')}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            User Directory
+                        </button>
+                    </FeatureGate>
+                    <FeatureGate feature="rbac">
+                        <button
+                            onClick={() => setActiveTab('roles')}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'roles' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            Role Factory
+                        </button>
+                    </FeatureGate>
+                    <FeatureGate feature="masking">
+                        <button
+                            onClick={() => setActiveTab('redaction')}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'redaction' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white'}`}
+                        >
+                            Redaction Lab
+                        </button>
+                    </FeatureGate>
                 </div>
             </div>
 
@@ -356,6 +395,17 @@ const UserManagementPanel = () => {
                         </motion.div>
                     ) : activeTab === 'redaction' ? (
                         <motion.div key="redaction" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                            {/* Pending Enforcement Banner */}
+                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                <div>
+                                    <h4 className="text-sm font-bold text-amber-500">Enforcement Pending</h4>
+                                    <p className="text-xs text-amber-400/80 mt-1">
+                                        Masking policies are saved but query-time enforcement is pending. Data may still appear unmasked in data views until enforcement is fully deployed.
+                                    </p>
+                                </div>
+                            </div>
+
                             <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6">
                                 <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
                                     <EyeOff size={16} className="text-rose-400" /> Policy Architect
@@ -510,7 +560,13 @@ const UserManagementPanel = () => {
                                             {(!editingRole.name || !roles.some(r => r.name === editingRole.name)) ? (
                                                 <button onClick={handleSaveRole} className="px-4 py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-lg uppercase shadow-lg shadow-blue-900/40">Initialize</button>
                                             ) : (
-                                                <button onClick={handleSaveRole} className="px-4 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg uppercase shadow-lg shadow-emerald-900/40">Save Changes</button>
+                                                <button 
+                                                    onClick={handleSaveRole} 
+                                                    disabled={editingRole.is_system_role}
+                                                    className={`px-4 py-1.5 text-white text-[10px] font-bold rounded-lg uppercase shadow-lg transition-all ${editingRole.is_system_role ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 shadow-emerald-900/40 hover:bg-emerald-500'}`}
+                                                >
+                                                    {editingRole.is_system_role ? 'System Protected' : 'Save Changes'}
+                                                </button>
                                             )}
                                         </div>
 

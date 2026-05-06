@@ -4,6 +4,7 @@ from app.services.gravity_engine import gravity_engine
 from app.services.rbac_service import require_role
 from pydantic import BaseModel
 import logging
+from app.services.masking_engine import load_policies, mask_row
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,13 @@ async def get_table_records(connection_id: str, table_name: str, limit: int = 10
             raise HTTPException(status_code=404, detail="Database connection not found. Please reconnect.")
         raise HTTPException(status_code=500, detail=result['error'])
     
+    if 'rows' in result and result['rows']:
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id, tenant_id)
+        if policies:
+            result['rows'] = [mask_row(row, table_name, policies, user_role) for row in result['rows']]
+
     return result
 
 @router.get("/drilldown/{connection_id}/table/{table_name}/record/{record_id}")
@@ -38,6 +46,13 @@ async def get_specific_record(connection_id: str, table_name: str, record_id: st
     
     if 'error' in result:
         raise HTTPException(status_code=500, detail=result['error'])
+    
+    if result:
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id, tenant_id)
+        if policies:
+            result = mask_row(result, table_name, policies, user_role)
     
     return result
 
@@ -49,6 +64,13 @@ async def search_table_records(connection_id: str, table_name: str, column: str,
     if 'error' in result:
         raise HTTPException(status_code=500, detail=result['error'])
     
+    if 'rows' in result and result['rows']:
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id, tenant_id)
+        if policies:
+            result['rows'] = [mask_row(row, table_name, policies, user_role) for row in result['rows']]
+
     return result
 
 @router.get("/drilldown/clustered-records/{connection_id}/{table_name}/{column}")

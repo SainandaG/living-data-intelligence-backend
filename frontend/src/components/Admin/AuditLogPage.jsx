@@ -8,6 +8,7 @@ import {
 import { authFetch } from '../../utils/apiClient';
 import { useAuthStore } from '../../stores/authStore';
 import { logger } from '../../utils/logger';
+import usePermissions from '../../hooks/usePermissions';
 
 // --- Helper Functions ---
 const formatDate = (isoString) => {
@@ -31,7 +32,8 @@ const getActionColor = (action) => {
 
 const AuditLogPage = () => {
     const navigate = useNavigate();
-    const { userRole } = useAuthStore();
+    const { userRole, canDo } = useAuthStore();
+    const { can } = usePermissions();
     const [searchParams, setSearchParams] = useSearchParams();
 
     // Stats State
@@ -68,10 +70,10 @@ const AuditLogPage = () => {
     const dateTo = searchParams.get('date_to') || '';
 
     useEffect(() => {
-        if (userRole !== 'admin' && userRole !== 'super_admin') {
+        if (!can('audit')) {
             navigate('/forbidden');
         }
-    }, [userRole, navigate]);
+    }, [can, navigate]);
 
     useEffect(() => {
         if (toast) {
@@ -133,11 +135,11 @@ const AuditLogPage = () => {
     }, [page, limit, actionFilter, moduleFilter, searchFilter, dateFrom, dateTo]);
 
     useEffect(() => {
-        if (userRole === 'admin' || userRole === 'super_admin') {
+        if (can('audit')) {
             fetchStats();
             fetchLogs();
         }
-    }, [fetchLogs, userRole]);
+    }, [fetchLogs, can]);
 
     const handlePurge = async () => {
         if (purgeInput !== 'PURGE') return;
@@ -198,7 +200,7 @@ const AuditLogPage = () => {
         return top[0].charAt(0).toUpperCase() + top[0].slice(1);
     }, [stats.logs_by_module]);
 
-    if (userRole !== 'admin' && userRole !== 'super_admin') return null;
+    if (!can('audit')) return <div className="p-8 text-rose-400 font-bold uppercase tracking-widest flex items-center justify-center h-64 bg-slate-950/80 rounded-2xl border border-rose-500/20 m-6">Access Denied: Security Audit Clearance Required</div>;
 
     return (
         <div className="flex flex-col h-full bg-[#020617] text-white p-6 overflow-hidden relative">

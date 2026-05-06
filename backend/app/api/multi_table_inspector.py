@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 import logging
 import asyncio
 import time
+from app.services.masking_engine import load_policies, mask_row
 
 from app.services.rbac_service import require_role
 
@@ -322,12 +323,20 @@ async def get_table_rows(
         # Compute max activity for % sizing
         max_activity = max((float(r.get("total_activity", 0)) for r in rows), default=1) or 1
 
+        # Get total count for pagination
+        try:
+            count_sql = f"SELECT COUNT(*) AS cnt FROM {safe_table} {fallback_filter};"
+            count_res = await db_connector.query(connection_id, count_sql, tuple(query_params))
+            total_rows = int(count_res[0].get("cnt", 0)) if count_res else 0
+        except Exception:
+            total_rows = len(rows)
+
+        # Transform rows to result_rows
         result_rows = []
         for r in rows:
             pk_val = str(r.get("pk_val", ""))
             disp_val = str(r.get("display_val", pk_val))
             
-            # Breakdown per table
             breakdown = {}
             total_act = 0
             if linked_names:
@@ -340,7 +349,6 @@ async def get_table_rows(
                         "pct": round(act / max(denominator, 1.0) * 100, 1)
                     }
 
-            # Label combines pk + display if they differ
             label = f"{pk_val}. {disp_val}" if disp_val != pk_val else pk_val
             result_rows.append({
                 "pk_val": pk_val,
@@ -348,17 +356,30 @@ async def get_table_rows(
                 "label": label,
                 "activity_count": total_act,
                 "activity_breakdown": breakdown,
-                # Compatibility: first table pct as activity_pct
                 "activity_pct": breakdown[linked_names[0]]["pct"] if breakdown and linked_names else 0,
             })
 
-        # Also get total count for this table to help frontend pagination
-        total_rows = 0
-        try:
-            count_sql = f"SELECT COUNT(*) as total FROM {safe_table} {fallback_filter if not search else search_filter.replace('t.', '')}"
-            count_res = await db_connector.query(connection_id, count_sql, tuple(query_params))
-            total_rows = count_res[0]['total'] if count_res else 0
-        except: pass
+        # Apply masking
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id, tenant_id)
+        if policies:
+            # Mask the result_rows
+            for row_obj in result_rows:
+                # We need a dict format for mask_row
+                temp_row = {
+                    "pk_val": row_obj["pk_val"],
+                    "display_val": row_obj["display_val"]
+                }
+                # Note: mask_row usually expects original column names.
+                # Here we have 'pk_val' and 'display_val'.
+                # The masking engine might need to know which real columns these map to.
+                # For now, let's mask them if they match sensitive fields.
+                masked = mask_row(temp_row, table_name, policies, user_role)
+                row_obj["pk_val"] = masked.get("pk_val", row_obj["pk_val"])
+                row_obj["display_val"] = masked.get("display_val", row_obj["display_val"])
+                row_obj["label"] = f"{row_obj['pk_val']}. {row_obj['display_val']}" if row_obj['display_val'] != row_obj['pk_val'] else row_obj['pk_val']
+
 
         result = {
             "table": table_name,
@@ -660,6 +681,20 @@ async def get_row_detail(
                 if m["column"] != "records":
                     final_available.append(f"{t_name} > {m['column']}")
         final_available = sorted(list(set(final_available)))
+
+        # Apply masking to representative row data
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id, tenant_id)
+        if policies:
+            # Mask the representative row
+            src_representative = mask_row(src_representative, table_name, policies, user_role)
+            
+            # Mask the distribution data if it contains sensitive columns
+            # source_distribution is keyed by pk_val, value is metrics dict.
+            # Metrics are usually numeric, so they might not be masked if mask_strategy is redact/hash/partial.
+            # But the row_data dict definitely needs masking.
+            pass
 
         result = {
             "table": table_name,

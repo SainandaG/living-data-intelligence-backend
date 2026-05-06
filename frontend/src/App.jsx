@@ -34,7 +34,7 @@ import TimelinePlayer from './components/Evolution/TimelinePlayer';
 import EvolutionOverlay from './components/Evolution/EvolutionOverlay';
 import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
 import TimeMachinePanel from './components/Panels/TimeMachinePanel';
-import LoginPage from './components/Auth/LoginPage';
+import AuthPage from './components/Auth/AuthPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import { cn } from './utils/cn';
 import RemoteCursors from './components/Multiplayer/RemoteCursors';
@@ -94,7 +94,7 @@ const MainDashboard = () => {
   const voiceSystems = useVoiceSystems(d.handleAgentAction, uiContext);
 
   if (d.isCheckingAuth) return <div className="min-h-screen bg-[#020617] flex items-center justify-center"><div className="animate-spin h-8 w-8 text-blue-500" /></div>;
-  if (!d.isAuthenticated) return <LoginPage onLoginSuccess={d.login} />;
+  if (!d.isAuthenticated) return <AuthPage onLoginSuccess={d.login} />;
 
   return (
     <>

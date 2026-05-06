@@ -75,7 +75,7 @@ async def get_audit_logs(
 ):
     conn = await get_db_conn()
     try:
-        query_conditions = ["1=1"]
+        query_conditions = ["archived = false"]
         params = []
         param_idx = 1
         
@@ -117,7 +117,7 @@ async def get_audit_logs(
         
         offset = (page - 1) * limit
         data_query = f"""
-            SELECT id, event_type, user_id, session_id, tenant_id, resource_id, metadata, created_at
+            SELECT id, event_type, user_id, role, session_id, tenant_id, resource_id, metadata, created_at
             FROM audit_log
             WHERE {where_clause}
             ORDER BY created_at DESC
@@ -140,7 +140,7 @@ async def get_audit_logs(
                 "id": r['id'],
                 "timestamp": r['created_at'].isoformat(),
                 "user": r['user_id'] or "System",
-                "role": "N/A", # We don't store role in audit_log, UI can display generic or lookup
+                "role": r['role'] or "N/A",
                 "action": action_type,
                 "module": _map_event_to_module(event_type).capitalize(),
                 "record_id": r['resource_id'],
@@ -211,19 +211,77 @@ async def get_audit_stats(_user: dict = Depends(require_role("admin"))):
 async def purge_audit_logs(_user: dict = Depends(require_role("super_admin"))):
     conn = await get_db_conn()
     try:
-        query = "DELETE FROM audit_log WHERE created_at < NOW() - INTERVAL '90 days'"
+        # Instead of DELETE, we UPDATE archived to true
+        query = "UPDATE audit_log SET archived = true WHERE created_at < NOW() - INTERVAL '90 days' AND archived = false"
         result = await conn.execute(query)
-        # result is a string like 'DELETE 5'
-        deleted_count = int(result.split(" ")[1]) if result.startswith("DELETE") else 0
+        # result is a string like 'UPDATE 5'
+        archived_count = int(result.split(" ")[1]) if result.startswith("UPDATE") else 0
         
         purged_before = datetime.utcnow() - timedelta(days=90)
         
         return {
-            "deleted_count": deleted_count,
-            "purged_before": purged_before.isoformat()
+            "archived_count": archived_count,
+            "purged_before": purged_before.isoformat(),
+            "message": "Rows marked as archived instead of physical deletion."
         }
     except Exception as e:
-        logger.error(f"Error purging audit logs: {e}")
-        raise HTTPException(status_code=500, detail="Failed to purge audit logs")
+        logger.error(f"Error archiving audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to archive audit logs")
+    finally:
+        await conn.close()
+
+@router.get("/archived")
+async def get_archived_audit_logs(
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
+    _user: dict = Depends(require_role("super_admin"))
+):
+    conn = await get_db_conn()
+    try:
+        # Standard filter for archived rows
+        query_conditions = ["archived = true"]
+        params = []
+        
+        where_clause = " AND ".join(query_conditions)
+        
+        count_query = f"SELECT COUNT(*) FROM audit_log WHERE {where_clause}"
+        total = await conn.fetchval(count_query)
+        
+        offset = (page - 1) * limit
+        data_query = f"""
+            SELECT id, event_type, user_id, role, session_id, tenant_id, resource_id, metadata, created_at
+            FROM audit_log
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+        """
+        
+        rows = await conn.fetch(data_query, limit, offset)
+        
+        items = []
+        for r in rows:
+            event_type = r['event_type']
+            items.append({
+                "id": r['id'],
+                "timestamp": r['created_at'].isoformat(),
+                "user": r['user_id'] or "System",
+                "role": r['role'] or "N/A",
+                "action": _map_event_to_action(event_type),
+                "module": _map_event_to_module(event_type).capitalize(),
+                "record_id": r['resource_id'],
+                "details": json.loads(r['metadata']) if isinstance(r['metadata'], str) else r['metadata']
+            })
+
+        pages = (total + limit - 1) // limit
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "pages": pages
+        }
+    except Exception as e:
+        logger.error(f"Error fetching archived audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch archived audit logs")
     finally:
         await conn.close()

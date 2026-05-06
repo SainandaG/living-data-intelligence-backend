@@ -143,6 +143,27 @@ apiClient.interceptors.response.use(
             asyncErrorHandler(normalizedError);
         }
 
+        // Global 401 interceptor
+        if (normalizedError.status === 401) {
+            const isAuthEndpoint = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/register');
+            if (!isAuthEndpoint) {
+                logger.warn('[API] Session expired, clearing tokens');
+                localStorage.removeItem('token');
+                localStorage.removeItem('refresh_token');
+                
+                try {
+                    const { useRealtimeStore } = await import('../stores/realtimeStore');
+                    useRealtimeStore.getState().showSimToast("Session expired — please sign in again", 5000);
+                } catch (e) {
+                    console.error("Failed to show session expiry toast", e);
+                }
+
+                if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') {
+                    window.location.href = '/';
+                }
+            }
+        }
+
         logger.error(`[API] ❌ ${normalizedError.code} (${normalizedError.status || 'N/A'}): ${normalizedError.message}`);
 
         // --- 401 Token Refresh Logic ---

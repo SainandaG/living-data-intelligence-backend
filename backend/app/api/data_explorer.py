@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from app.services.db_connector import db_connector
 from app.services.rbac_service import require_role
 import logging
+from app.services.masking_engine import load_policies, mask_row, apply_mask
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,13 @@ async def get_sample_data(table_name: str, column_name: str, connection_id: str 
         # Execute query
         data = await db_connector.query(connection_id, sql)
         
+        # Apply masking
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id or "default", tenant_id)
+        if policies:
+            data = [mask_row(row, table_name, policies, user_role) for row in data]
+            
         return {
             "success": True,
             "table": table_name,
@@ -59,6 +67,18 @@ async def get_distinct_values(table_name: str, column_name: str, connection_id: 
         # Flatten into a list of strings/values
         values = [row[column_name] for row in data if column_name in row]
         
+        # Apply masking
+        user_role = _user.get("role", "viewer")
+        tenant_id = _user.get("tenant_id", "default")
+        policies = await load_policies(connection_id or "default", tenant_id)
+        if policies:
+            policy_key = f"{table_name}.{column_name}"
+            if policy_key in policies:
+                policy = policies[policy_key]
+                from app.services.rbac_service import ROLE_HIERARCHY
+                if ROLE_HIERARCHY.get(user_role, 0) < ROLE_HIERARCHY.get(policy["min_role"], 0):
+                    values = [apply_mask(v, policy["mask_strategy"]) for v in values]
+
         return {
             "success": True,
             "table": table_name,

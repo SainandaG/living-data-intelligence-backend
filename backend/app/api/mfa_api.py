@@ -8,6 +8,9 @@ from typing import Optional
 from app.services.auth import get_current_user, create_access_token, verify_token
 from app.services.rbac_service import require_role
 from app.services.mfa_service import mfa_service
+from app.services.redis_client import get_redis
+from app.api.auth import limiter
+from fastapi import Request
 
 router = APIRouter(tags=["mfa"])
 
@@ -70,13 +73,25 @@ async def mfa_enable(body: MFAEnableRequest, user: dict = Depends(get_current_us
     return {"success": True, "message": "MFA enabled successfully"}
 
 @router.post("/verify")
-async def mfa_verify(body: MFAVerifyRequest):
+@limiter.limit("5/minute")
+async def mfa_verify(request: Request, body: MFAVerifyRequest):
     """Verify MFA code during login challenge."""
     payload = verify_token(body.mfa_token)
     if not payload or not payload.get("mfa_pending"):
         raise HTTPException(status_code=401, detail="Invalid or expired MFA token")
     
     email = payload["sub"]
+    
+    # Track failed MFA attempts in Redis
+    redis = await get_redis()
+    if redis:
+        fail_key = f"mfa_fail:{email}"
+        fail_count = int(await redis.get(fail_key) or 0)
+        if fail_count >= 5:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many MFA failed attempts. Try again in 5 minutes."
+            )
     
     conn = await get_db_conn()
     try:
@@ -88,7 +103,14 @@ async def mfa_verify(body: MFAVerifyRequest):
             raise HTTPException(status_code=404, detail="MFA not enabled for this user")
             
         if not mfa_service.verify_otp(row["mfa_secret"], body.code):
+            if redis:
+                await redis.incr(fail_key)
+                await redis.expire(fail_key, 300) # 5 minute window
             raise HTTPException(status_code=401, detail="Invalid MFA code")
+            
+        # Success - Clear failed attempts
+        if redis:
+            await redis.delete(fail_key)
             
         # Success - Issue full tokens
         token_data = {"sub": email, "role": row["role"], "tenant_id": row["tenant_id"]}

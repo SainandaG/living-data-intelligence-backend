@@ -1072,9 +1072,11 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
     const refTableNodes = referencing_tables.map((ref, refIdx) => {
         const angle = (refIdx / nRefs) * Math.PI * 2 - Math.PI / 2;
         const refPalette = TABLE_COLORS[(refIdx + 2) % TABLE_COLORS.length];
+        const distKey = `${ref.table}::${ref.fk_column}`;
         return {
-            id: `__reftable__${ref.table}`,
+            id: `__reftable__${distKey}`,
             label: ref.table,
+            distKey,
             fkColumn: ref.fk_column || '',
             color: refPalette.color,
             glow: refPalette.glow,
@@ -1086,16 +1088,18 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
         };
     });
 
-    const refTableMap = new Map(refTableNodes.map(n => [n.label, n]));
+    const refTableMap = new Map(refTableNodes.map(n => [n.distKey, n]));
 
     // ── Global max pct for scale normalisation ─────────────────────────────
     let globalMaxPct = 0;
     pk_distribution.forEach(e => {
         referencing_tables.forEach(ref => {
-            const p = e.ref_pcts?.[ref.table] ?? 0;
+            const distKey = `${ref.table}::${ref.fk_column}`;
+            const p = e.ref_pcts?.[distKey] ?? 0;
             if (p > globalMaxPct) globalMaxPct = p;
         });
     });
+
     if (globalMaxPct === 0) globalMaxPct = 100;
 
     // ── Sub-cluster: FK dist nodes around each ref table node ─────────────
@@ -1106,17 +1110,19 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
 
     referencing_tables.forEach((ref, refIdx) => {
         const refPalette = TABLE_COLORS[(refIdx + 2) % TABLE_COLORS.length];
-        const refNode = refTableMap.get(ref.table);
+        const distKey = `${ref.table}::${ref.fk_column}`;
+        const refNode = refTableMap.get(distKey);
         if (!refNode) return;
 
         const [rx, ry, rz] = refNode.position;
-        const validEntries = pk_distribution.filter(e => (e.ref_counts?.[ref.table] ?? 0) > 0);
+        const validEntries = pk_distribution.filter(e => (e.ref_counts?.[distKey] ?? 0) > 0);
         const nLocal = validEntries.length;
         if (nLocal === 0) return;
 
         validEntries.forEach((pkEntry, localIdx) => {
-            const pct = pkEntry.ref_pcts?.[ref.table] ?? 0;
-            const count = pkEntry.ref_counts?.[ref.table] ?? 0;
+            const pct = pkEntry.ref_pcts?.[distKey] ?? 0;
+            const count = pkEntry.ref_counts?.[distKey] ?? 0;
+
 
             // Spread FK nodes in a flat ring around the ref table node
             const angle = (localIdx / nLocal) * Math.PI * 2 - Math.PI / 2;
@@ -1137,7 +1143,8 @@ function buildPKDistributionNodes(pkColNode, pkDistData) {
             const blendColor = pkValNode ? mixColors(pkValNode.color, refPalette.color) : refPalette.color;
             const blendGlow = pkValNode ? mixColors(pkValNode.glow, refPalette.glow) : refPalette.glow;
 
-            const fkNodeId = `__fkdist__${ref.table}__${pkEntry.value}`;
+            const fkNodeId = `__fkdist__${ref.table}__${ref.fk_column}__${pkEntry.value}`;
+
             fkDistNodes.push({
                 id: fkNodeId,
                 pkLabel: pkEntry.value,

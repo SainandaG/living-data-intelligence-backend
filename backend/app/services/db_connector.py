@@ -310,10 +310,17 @@ class DatabaseConnector:
             db_type = connection['type']
             client = connection['client']
             
-            # [FIX] Check if pool is closed or closing
+            # [FIX] Check if pool is closed or closing  attempt emergency reconnect
             if hasattr(client, 'is_closing') and client.is_closing():
-                logger.error(f" FAIL: Database pool for {connection_id} is in 'CLOSING' state. This usually means the backend is restarting or the connection was lost.")
-                raise RuntimeError(f"Database pool for {connection_id} is closing or closed.")
+                logger.warning(f" 🔄 Database pool for {connection_id} is in 'CLOSING' state. Attempting emergency reconnect...")
+                try:
+                    await self.reconnect(connection_id)
+                    connection = self.get_connection(connection_id)
+                    client = connection['client']
+                    logger.info(f" ✅ Emergency reconnect successful for {connection_id}")
+                except Exception as re_err:
+                    logger.error(f" ❌ Emergency reconnect failed for {connection_id}: {re_err}")
+                    raise RuntimeError(f"Database pool for {connection_id} is closing or closed and reconnect failed.")
             
             # [FIX] Validate parameters against placeholders to prevent cryptic asyncpg errors
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
@@ -359,6 +366,7 @@ class DatabaseConnector:
 
     async def execute(self, connection_id: str, sql: str, *params):
         """Execute a non-returning query (INSERT, UPDATE, DELETE, CREATE)"""
+        logger.info(f" [DB EXECUTE] conn={connection_id} sql={sql[:100]}... params={params}")
         # Reuse the placeholder conversion logic if needed
         if params and "%s" in sql:
             sql = self._convert_psycopg2_to_asyncpg_params(sql)
@@ -377,6 +385,18 @@ class DatabaseConnector:
             connection = self.get_connection(connection_id)
             db_type = connection['type']
             client = connection['client']
+
+            # [FIX] Check if pool is closed or closing  attempt emergency reconnect
+            if hasattr(client, 'is_closing') and client.is_closing():
+                logger.warning(f" 🔄 Database pool for {connection_id} is in 'CLOSING' state. Attempting emergency reconnect...")
+                try:
+                    await self.reconnect(connection_id)
+                    connection = self.get_connection(connection_id)
+                    client = connection['client']
+                    logger.info(f" ✅ Emergency reconnect successful for {connection_id}")
+                except Exception as re_err:
+                    logger.error(f" ❌ Emergency reconnect failed for {connection_id}: {re_err}")
+                    raise RuntimeError(f"Database pool for {connection_id} is closing or closed and reconnect failed.")
 
             if db_type in ['postgresql', 'postgres', 'neon', 'neon_db']:
                 async with client.acquire() as conn:
@@ -460,5 +480,31 @@ class DatabaseConnector:
         for connection_id in list(self.connections.keys()):
             await self.close(connection_id)
 
+    async def execute_primary(self, sql: str, *params):
+        """Execute on primary DB connection."""
+        conn_id = self.get_primary_connection_id()
+        if not conn_id:
+            # Fallback: just use the first connection if no primary is set by name
+            connections = list(self.connections.keys())
+            if not connections:
+                logger.warning("No connections available for execute_primary")
+                return None
+            conn_id = connections[0]
+            
+        return await self.execute(conn_id, sql, *params)
+
+    async def query_primary(self, sql: str, params: tuple = ()):
+        """Query primary DB connection."""
+        conn_id = self.get_primary_connection_id()
+        if not conn_id:
+            connections = list(self.connections.keys())
+            if not connections:
+                logger.warning("No connections available for query_primary")
+                return []
+            conn_id = connections[0]
+            
+        return await self.query(conn_id, sql, params)
+
 # Global instance
-db_connector = DatabaseConnector()
+db_connector = DatabaseConnector()
+

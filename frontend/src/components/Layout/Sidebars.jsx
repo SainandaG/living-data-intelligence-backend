@@ -4,6 +4,7 @@ import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot,
 import CollapsiblePanel from '../UI/CollapsiblePanel';
 import { cn } from '../../utils/cn';
 import AgentStatusPanel from '../Voice/AgentStatusPanel';
+import FeatureGate from '../FeatureGate';
 
 /* ── Rail icon button ──────────────────────────────────────────────────────── */
 const RailButton = React.memo(({
@@ -304,51 +305,57 @@ const LeftSidebar = React.memo(({ actions }) => {
             <RailSep />
 
             {/* ── Primary actions ────────────────────────── */}
-            <RailButton
-                icon={Database}
-                label="Manage Connection"
-                hint="⌘L"
-                onClick={actions.loadSystem}
-            />
-
-            <div className="relative w-full flex justify-center">
+            <FeatureGate feature="connections">
                 <RailButton
-                    icon={HardDrive}
-                    label="Switch Database"
-                    accentColor="#22d3ee"
-                    active={showConnMenu}
-                    onClick={() => {
-                        const next = !showConnMenu;
-                        setShowConnMenu(next);
-                        if (next) {
-                            setShowIntelMenu(false);
-                            window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
-                        }
-                    }}
+                    icon={Database}
+                    label="Manage Connection"
+                    hint="⌘L"
+                    onClick={actions.loadSystem}
                 />
-                <AnimatePresence>
-                    {showConnMenu && (
-                        <ConnectionsPopover
-                            connections={actions.activeConnections || []}
-                            activeId={actions.connectionId}
-                            onSelect={actions.switchConnection}
-                            onAdd={actions.openConnectModal}
-                            onClose={() => setShowConnMenu(false)}
-                        />
-                    )}
-                </AnimatePresence>
-            </div>
+            </FeatureGate>
 
-            <RailButton
-                icon={Share2}
-                label="Data Flow"
-                onClick={() => actions.navigateTo?.('dataflow')}
-            />
+            <FeatureGate feature="connections">
+                <div className="relative w-full flex justify-center">
+                    <RailButton
+                        icon={HardDrive}
+                        label="Switch Database"
+                        accentColor="#22d3ee"
+                        active={showConnMenu}
+                        onClick={() => {
+                            const next = !showConnMenu;
+                            setShowConnMenu(next);
+                            if (next) {
+                                setShowIntelMenu(false);
+                                window.dispatchEvent(new CustomEvent('toggle-agent-hub', { detail: { open: false } }));
+                            }
+                        }}
+                    />
+                    <AnimatePresence>
+                        {showConnMenu && (
+                            <ConnectionsPopover
+                                connections={actions.activeConnections || []}
+                                activeId={actions.connectionId}
+                                onSelect={actions.switchConnection}
+                                onAdd={actions.openConnectModal}
+                                onClose={() => setShowConnMenu(false)}
+                            />
+                        )}
+                    </AnimatePresence>
+                </div>
+            </FeatureGate>
+
+            <FeatureGate feature="view_lineage">
+                <RailButton
+                    icon={Share2}
+                    label="Data Flow"
+                    onClick={() => actions.navigateTo?.('dataflow')}
+                />
+            </FeatureGate>
 
             <RailSep />
 
             {/* ── Intelligence ───────────────────────────── */}
-            {canDo('analyst') && (
+            <FeatureGate feature="intel_hub">
                 <div className="relative w-full flex justify-center">
                     <RailButton
                         icon={Brain}
@@ -367,10 +374,10 @@ const LeftSidebar = React.memo(({ actions }) => {
                         )}
                     </AnimatePresence>
                 </div>
-            )}
+            </FeatureGate>
 
             {/* ── Agent hub ──────────────────────────────── */}
-            {canDo('analyst') && (
+            <FeatureGate feature="agent_state">
                 <div className="relative w-full flex justify-center">
                     <RailButton
                         icon={Bot}
@@ -386,19 +393,19 @@ const LeftSidebar = React.memo(({ actions }) => {
                     />
                     <AgentStatusPanel />
                 </div>
-            )}
+            </FeatureGate>
 
             <RailSep />
 
             {/* ── Simulation ─────────────────────────────── */}
-            {canDo('editor') && (
+            <FeatureGate feature="sim_start">
                 <RailButton
                     icon={Play}
                     label="Run Simulation"
                     accentColor="#34d399"
                     onClick={() => { }}
                 />
-            )}
+            </FeatureGate>
 
             {/* ── Spacer ─────────────────────────────────── */}
             <div className="flex-1" />
@@ -407,18 +414,22 @@ const LeftSidebar = React.memo(({ actions }) => {
             <RailSep />
             {canDo('admin') && (
                 <>
-                    <RailButton
-                        icon={Shield}
-                        label="Security Matrix"
-                        accentColor="#f43f5e"
-                        onClick={() => actions.executeCommand?.('admin.rbac')}
-                    />
-                    <RailButton
-                        icon={Fingerprint}
-                        label="Audit Logs"
-                        accentColor="#f59e0b"
-                        onClick={() => actions.executeCommand?.('admin.audit')}
-                    />
+                    <FeatureGate feature="rbac">
+                        <RailButton
+                            icon={Shield}
+                            label="Security Matrix"
+                            accentColor="#f43f5e"
+                            onClick={() => actions.executeCommand?.('admin.rbac')}
+                        />
+                    </FeatureGate>
+                    <FeatureGate feature="audit">
+                        <RailButton
+                            icon={Fingerprint}
+                            label="Audit Logs"
+                            accentColor="#f59e0b"
+                            onClick={() => actions.executeCommand?.('admin.audit')}
+                        />
+                    </FeatureGate>
                 </>
             )}
             <RailButton

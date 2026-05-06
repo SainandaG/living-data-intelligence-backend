@@ -81,17 +81,19 @@ async def lifespan(app: FastAPI):
     REQUIRED_SECRETS = ["GOOGLE_API_KEY", "JWT_SECRET_KEY"]
     is_dev = os.getenv("APP_ENV", "development") == "development"
     for secret in REQUIRED_SECRETS:
-        if not os.getenv(secret):
+        val = os.getenv(secret)
+        if not val:
             if is_dev:
                 logger.warning(f"Missing secret: {secret} (allowed in development mode)")
                 if secret == "JWT_SECRET_KEY":
-                    # Generate a random dev secret so it changes every restart and
-                    # is never a guessable/well-known string.
                     import secrets as _secrets
                     os.environ["JWT_SECRET_KEY"] = _secrets.token_hex(32)
             else:
                 logger.critical(f"Missing required secret: {secret}")
                 raise RuntimeError(f"Missing required secret: {secret}")
+        elif secret == "JWT_SECRET_KEY" and len(val) < 32:
+            logger.critical("JWT_SECRET_KEY is too short (must be >= 32 chars)")
+            raise RuntimeError("JWT_SECRET_KEY is too weak (must be >= 32 characters)")
 
     # Startup
     _startup_time = _time.monotonic()
@@ -234,15 +236,12 @@ app = FastAPI(
 )
 
 # Setup SlowAPI Rate Limiter
-try:
-    from app.api.auth import limiter
-    from slowapi import _rate_limit_exceeded_handler
-    from slowapi.errors import RateLimitExceeded
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    logger.info("[OK] Rate limiting enabled (SlowAPI)")
-except ImportError:
-    logger.warning("⚠️ SlowAPI not found, rate limiting disabled")
+from app.api.auth import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+logger.info("[OK] Rate limiting enabled (SlowAPI)")
 
 _HTTP_STATUS_CODES = {
     400: "BAD_REQUEST",
@@ -445,12 +444,13 @@ if __name__ == "__main__":
         "main:app",
         host=host,
         port=port,
-        reload=is_dev,
+        reload=False, # [FIX] Disabled due to constant noise/restarts on Windows causing 500s
         reload_excludes=[
             "*.log", "*.tmp", "*.pyc", "*.pyo",
             "app.log", "app.log.*", "__pycache__",
             "*/__pycache__/*", "*/data/*", "*/static/*",
             "*/scratch/*", "*/.git/*", "*/node_modules/*",
+            "*.db", "*.db-journal", "*.db-wal", "*.sqlite",
         ] if is_dev else [],
         log_level="info"
     )

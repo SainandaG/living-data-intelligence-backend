@@ -35,11 +35,18 @@ async def run_essential_migrations(connection_id: str):
             hashed_password TEXT NOT NULL,
             role VARCHAR(50) DEFAULT 'viewer',
             is_active BOOLEAN DEFAULT TRUE,
+            is_superuser BOOLEAN DEFAULT FALSE,
             two_factor_enabled BOOLEAN DEFAULT FALSE,
             two_factor_secret TEXT,
             tenant_id VARCHAR(50) DEFAULT 'default',
+            status VARCHAR(50) DEFAULT 'active',
+            kyc_status VARCHAR(50) DEFAULT 'pending',
+            consent_captured BOOLEAN DEFAULT FALSE,
+            is_email_verified BOOLEAN DEFAULT FALSE,
+            is_deleted BOOLEAN DEFAULT FALSE,
             last_global_logout_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
         """)
 
@@ -53,6 +60,8 @@ async def run_essential_migrations(connection_id: str):
             tenant_id VARCHAR(50) DEFAULT 'default',
             resource_id VARCHAR(255),
             metadata JSONB DEFAULT '{}',
+            role VARCHAR(50),
+            archived BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
         """)
@@ -112,8 +121,13 @@ async def run_essential_migrations(connection_id: str):
             if user_count and user_count[0]['count'] == 0:
                 logger.info(" Seeding bootstrap admin user...")
                 await db_connector.execute(connection_id, """
-                    INSERT INTO users (email, hashed_password, role, is_active)
-                    VALUES ($1, $2, 'super_admin', TRUE)
+                    INSERT INTO users (
+                        email, hashed_password, role, is_active, is_superuser, 
+                        kyc_status, consent_captured, two_factor_enabled, 
+                        biometric_login_enabled, status, two_factor_pending, 
+                        is_email_verified, is_deleted, created_at, updated_at
+                    )
+                    VALUES ($1, $2, 'super_admin', TRUE, TRUE, 'verified', TRUE, FALSE, FALSE, 'active', FALSE, TRUE, FALSE, NOW(), NOW())
                 """, admin_email, admin_hash)
 
         logger.info(" Essential database migrations completed for %s", connection_id)

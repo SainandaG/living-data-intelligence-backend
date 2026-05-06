@@ -523,14 +523,17 @@ async def get_pk_distribution(connection_id: str, table_name: str, pk_column: st
                     "pct":   round(count / total_fk * 100, 1) if total_fk > 0 else 0.0,
                     "total_fk": total_fk,
                 }
-            return ref_table, per_val
+            return (ref_table, ref_col), per_val
+
 
         ref_results = await asyncio.gather(*[_query_one_ref(r) for r in referencing])
 
         distribution: Dict[str, Dict[str, dict]] = {v: {} for v in pk_values}
-        for ref_table, per_val in ref_results:
+        for (ref_table, ref_col), per_val in ref_results:
+            # Use composite key to avoid overwriting when same table has multiple FKs to same PK
+            dist_key = f"{ref_table}::{ref_col}"
             for val, stats in per_val.items():
-                distribution[val][ref_table] = stats
+                distribution[val][dist_key] = stats
 
         # 4. Assemble response
         pk_distribution = []
@@ -539,13 +542,17 @@ async def get_pk_distribution(connection_id: str, table_name: str, pk_column: st
             ref_pcts   = {}
             for ref in referencing:
                 rt = ref["table"]
-                ref_counts[rt] = distribution[val].get(rt, {}).get("count", 0)
-                ref_pcts[rt]   = distribution[val].get(rt, {}).get("pct", 0.0)
+                rc = ref["fk_column"]
+                dist_key = f"{rt}::{rc}"
+                # Use the composite key in the response as well so frontend can distinguish
+                ref_counts[dist_key] = distribution[val].get(dist_key, {}).get("count", 0)
+                ref_pcts[dist_key]   = distribution[val].get(dist_key, {}).get("pct", 0.0)
             pk_distribution.append({
                 "value":      val,
                 "ref_counts": ref_counts,
                 "ref_pcts":   ref_pcts,
             })
+
 
         result = {
             "table":              table_name,

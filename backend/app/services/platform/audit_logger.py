@@ -44,12 +44,24 @@ class AuditEventType(str, Enum):
     WORKSPACE_CREATE = "workspace.create"
     WORKSPACE_UPDATE = "workspace.update"
 
+    # Security & User Management
+    USER_ROLE_CHANGED = "user.role_changed"
+    USER_DEACTIVATED  = "user.deactivated"
+    USER_ACTIVATED    = "user.activated"
+    POLICY_CREATED    = "policy.created"
+    POLICY_DELETED    = "policy.deleted"
+    USER_REGISTERED   = "user.registered"
+    LOGIN_SUCCESS     = "auth.login_success"
+    LOGIN_FAILED      = "auth.login_failed"
+    LOGOUT            = "auth.logout"
+
 
 @dataclass
 class AuditEvent:
     event_type:    str
     connection_id: Optional[str]          = None
     user_id:       Optional[str]          = None
+    role:          Optional[str]          = None
     session_id:    Optional[str]          = None
     resource_type: Optional[str]          = None
     resource_id:   Optional[str]          = None
@@ -79,6 +91,30 @@ class AuditLogger:
         payload = asdict(event)
         # Structured JSON to app logger (non-blocking)
         logger.info("AUDIT %s", json.dumps(payload))
+        
+        # Persist to DB (using db_connector singleton)
+        try:
+            from app.services.db_connector import db_connector
+            insert_sql = """
+                INSERT INTO audit_log (event_type, user_id, role, session_id, tenant_id, resource_id, metadata)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """
+            tenant_id = payload.get("metadata", {}).get("tenant_id", "default")
+            args = (
+                event.event_type,
+                event.user_id,
+                event.role,
+                event.session_id,
+                tenant_id,
+                event.resource_id,
+                json.dumps(event.metadata)
+            )
+            # Use background execution if possible, but for now we'll just run it.
+            # In a real high-scale app, this would go into a queue.
+            await db_connector.execute_primary(insert_sql, *args)
+        except Exception as e:
+            logger.warning(f"Failed to persist audit log to DB: {e}")
+
         async with self._lock:
             self._ring.append(payload)
             if len(self._ring) > self.RING_SIZE:
