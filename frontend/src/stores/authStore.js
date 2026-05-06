@@ -74,11 +74,11 @@ export const useAuthStore = create((set, get) => ({
     
     // If not explicitly defined in DB, fallback to hierarchical check
     const checkRole = fallbackRole || featureOrRole;
-    const ROLE_HIERARCHY = { viewer: 1, editor: 2, analyst: 3, admin: 4, super_admin: 5 };
+    const ROLE_HIERARCHY = { viewer: 1, editor: 2, analyst: 3, admin: 4, super_admin: 1000 };
     const requiredLevel = ROLE_HIERARCHY[checkRole];
     
     if (requiredLevel !== undefined) {
-      const userLevel = ROLE_HIERARCHY[userRole] || 0;
+      const userLevel = ROLE_HIERARCHY[userRole] || 1; // Custom roles default to viewer level (1)
       return userLevel >= requiredLevel;
     }
     

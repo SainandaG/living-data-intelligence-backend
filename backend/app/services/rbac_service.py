@@ -117,12 +117,24 @@ async def _fetch_role_permissions(role_name: str) -> Dict[str, Any]:
     return permissions
 
 
-def get_user_role(user: dict) -> str:
-    """Extract the role string from a decoded JWT payload.
-
-    Returns 'viewer' as a safe default when the claim is missing.
-    """
-    return user.get("role", "viewer")
+async def get_user_role(user: dict) -> str:
+    """Extract the role string, checking Redis for live overrides."""
+    jwt_role = user.get("role", "viewer")
+    email = user.get("sub")
+    if not email:
+        return jwt_role
+        
+    try:
+        from app.services.redis_client import get_redis
+        redis = await get_redis()
+        if redis:
+            cached_role = await redis.get(f"user_role:{email}")
+            if cached_role:
+                return cached_role.decode("utf-8") if isinstance(cached_role, bytes) else cached_role
+    except Exception as e:
+        logger.warning(f"Redis role lookup failed for {email}: {e}")
+        
+    return jwt_role
 
 
 def require_role(min_role: str):
@@ -146,8 +158,8 @@ def require_role(min_role: str):
     min_level = ROLE_HIERARCHY.get(min_role, 0)
 
     async def _check(user: dict = Depends(get_current_user)) -> dict:
-        user_role = get_user_role(user)
-        user_level = _EFFECTIVE_LEVEL.get(user_role, 0)
+        user_role = await get_user_role(user)
+        user_level = _EFFECTIVE_LEVEL.get(user_role, 1)
 
         if user_level < min_level:
             logger.warning(
@@ -186,26 +198,17 @@ def require_feature(feature_id: str, min_role: str = "viewer"):
     min_level = ROLE_HIERARCHY.get(min_role, 0)
 
     async def _check(user: dict = Depends(get_current_user)) -> dict:
-        user_role = get_user_role(user)
-        user_level = _EFFECTIVE_LEVEL.get(user_role, 0)
-
-        # Layer 1: Hierarchical role check
-        if user_level < min_level:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions: requires '{min_role}' role or above",
-            )
-
-        # Layer 2: Granular feature permission check (from DB)
-        # Super-admin and admin always bypass granular checks
-        if user_level >= ROLE_HIERARCHY["admin"]:
-            return user
+        user_role = await get_user_role(user)
+        user_level = _EFFECTIVE_LEVEL.get(user_role, 1)
 
         permissions = await _fetch_role_permissions(user_role)
+        has_granular_grant = False
+        
         if permissions:
             for category, features in permissions.items():
                 if isinstance(features, dict) and feature_id in features:
-                    if features[feature_id] == "none":
+                    val = features[feature_id]
+                    if val == "none":
                         logger.warning(
                             "RBAC feature denied: user=%s role=%s feature=%s (set to 'none')",
                             user.get("sub", "?"),
@@ -214,8 +217,21 @@ def require_feature(feature_id: str, min_role: str = "viewer"):
                         )
                         raise HTTPException(
                             status_code=status.HTTP_403_FORBIDDEN,
-                            detail=f"Feature '{feature_id}' is disabled for your role",
+                            detail=f"Feature '{feature_id}' is explicitly disabled for your role",
                         )
+                    elif val in ("read", "execute"):
+                        has_granular_grant = True
+
+        # Super-admin and admin always bypass hierarchical fallback
+        if user_level >= ROLE_HIERARCHY["admin"]:
+            return user
+
+        # Fallback to hierarchical check if no explicit grant
+        if not has_granular_grant and user_level < min_level:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient permissions: requires '{min_role}' role or above",
+            )
 
         return user
 

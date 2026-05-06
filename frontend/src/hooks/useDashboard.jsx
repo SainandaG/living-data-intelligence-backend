@@ -87,8 +87,15 @@ export function useDashboard(graphRef) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
   useEffect(() => {
     registerAsyncErrorHandler((err) => {
-      if (['FORBIDDEN'].includes(err?.code)) throwAsyncError(err);
-      else logger.warn('[App] Recoverable API error:', err?.code, err?.message);
+      if (['FORBIDDEN'].includes(err?.code)) {
+        logger.warn('[App] Permission denied for background fetch:', err?.message);
+        // Do not throw for forbidden, just degrade gracefully
+      } else if (['UNAUTHORIZED'].includes(err?.code)) {
+        logger.error('[App] Critical Auth Error:', err);
+        throwAsyncError(err);
+      } else {
+        logger.warn('[App] Recoverable API error:', err?.code, err?.message);
+      }
     });
     initialize();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -249,11 +256,12 @@ export function useDashboard(graphRef) {
 
   // ── Data fetching ─────────────────────────────────────────────────────────────
   const fetchGravitySuggestions = useCallback(async (connId) => {
+    if (!canDo('analyst')) return;
     try {
       const data = await apiClient.get(`/ai/gravity-suggestions/${connId}`);
       setGravitySuggestions(data.suggestions || []);
     } catch (e) { logger.error('Failed to fetch gravity suggestions:', e); }
-  }, [setGravitySuggestions]);
+  }, [setGravitySuggestions, canDo]);
 
   const fetchRealGraphData = useCallback(async (id) => {
     if (firstLoadRef.current) { setLoading(true); firstLoadRef.current = false; }

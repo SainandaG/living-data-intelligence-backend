@@ -1,4 +1,3 @@
-
 import os
 import logging
 import asyncpg
@@ -77,15 +76,31 @@ async def get_admin_db_conn():
 
 @router.get("/users")
 async def list_users(_user: dict = Depends(require_role("admin"))):
-    """List all platform users."""
+    """List platform users scoped to the caller's tenant.
+
+    Multi-tenant isolation: super_admins see all tenants; admins only see
+    users within their own tenant_id.
+    """
+    from app.services.rbac_service import ROLE_HIERARCHY, _EFFECTIVE_LEVEL
+
+    caller_role   = _user.get("role", "viewer")
+    caller_level  = _EFFECTIVE_LEVEL.get(caller_role, 0)
+    caller_tenant = _user.get("tenant_id", "default")
+
     conn_id, manual_conn = await get_admin_db_conn()
     try:
-        sql = "SELECT id, email, role, is_active, two_factor_enabled AS mfa_enabled, created_at FROM users"
+        if caller_level >= ROLE_HIERARCHY["super_admin"]:
+            sql = "SELECT id, email, role, is_active, tenant_id, two_factor_enabled AS mfa_enabled, created_at FROM users"
+            args: tuple = ()
+        else:
+            sql = "SELECT id, email, role, is_active, tenant_id, two_factor_enabled AS mfa_enabled, created_at FROM users WHERE tenant_id = $1"
+            args = (caller_tenant,)
+
         if conn_id:
-            users = await db_connector.query(conn_id, sql)
+            users = await db_connector.query(conn_id, sql, *args)
             return users
         else:
-            rows = await manual_conn.fetch(sql)
+            rows  = await manual_conn.fetch(sql, *args)
             users = [dict(r) for r in rows]
             return users
     finally:
@@ -569,12 +584,70 @@ async def get_features(_user: dict = Depends(require_role("admin"))):
 
 @router.patch("/users/{email}/role")
 async def update_user_role(email: str, role_data: Dict[str, Any], _user: dict = Depends(require_role("admin"))):
-    """Update a user's role."""
+    """Update a user's role.
+
+    Supports both system roles (viewer/editor/analyst/admin/super_admin)
+    AND custom roles created in the Role Factory.
+
+    Privilege escalation guard: for system roles, a caller may only assign roles
+    strictly below their own level. Custom roles are treated as level 1 (safe)
+    unless they have an explicit level set in the roles table.
+    """
+    from app.services.rbac_service import ROLE_HIERARCHY, _EFFECTIVE_LEVEL
+
     role = role_data.get("role")
     if not role:
         raise HTTPException(status_code=400, detail="Role name is required")
-    
+
+    caller_role  = _user.get("role", "viewer")
+    caller_level = _EFFECTIVE_LEVEL.get(caller_role, 0)
+
+    # --- Resolve target role level (system or custom) ---
+    target_level = ROLE_HIERARCHY.get(role.lower(), None)
+
     conn_id, manual_conn = await get_admin_db_conn()
+
+    if target_level is None:
+        # Not a system role — look it up in the roles table (reuse main connection)
+        try:
+            check_sql = "SELECT level FROM roles WHERE LOWER(name) = LOWER($1)"
+            if conn_id:
+                res = await db_connector.query(conn_id, check_sql, role)
+                row_check = res[0] if res else None
+            else:
+                row_check = await manual_conn.fetchrow(check_sql, role)
+
+            if row_check is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown role: '{role}'. Create it in the Role Factory first."
+                )
+            # Custom roles default to level 1 unless explicitly set higher in the DB
+            target_level = row_check["level"] or 1
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Could not verify custom role level from DB: %s — treating as safe (level 1)", e)
+            target_level = 1   # fail-open: allow assigning unknown custom roles
+
+    # --- Privilege escalation guard ---
+    super_admin_level = ROLE_HIERARCHY.get("super_admin", 5)
+    if caller_level >= super_admin_level:
+        allowed = target_level <= caller_level
+    else:
+        allowed = target_level < caller_level
+
+    if not allowed:
+        if manual_conn:
+            await manual_conn.close()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"You cannot assign the '{role}' role. "
+                f"You may only assign roles strictly below your own level ('{caller_role}')."
+            ),
+        )
+    # --- End privilege escalation guard ---
     try:
         # Get old role for audit
         old_role = "unknown"
@@ -591,6 +664,15 @@ async def update_user_role(email: str, role_data: Dict[str, Any], _user: dict = 
             await db_connector.execute(conn_id, sql, role, email)
         else:
             await manual_conn.execute(sql, role, email)
+            
+        # Update Redis cache so the role change is immediate
+        try:
+            from app.services.redis_client import get_redis
+            redis = await get_redis()
+            if redis:
+                await redis.setex(f"user_role:{email}", 86400, role)  # Cache for 24h
+        except Exception as e:
+            logger.warning(f"Failed to cache new role for {email}: {e}")
             
         # Log role change
         await audit_logger.log(AuditEvent(

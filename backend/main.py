@@ -286,23 +286,28 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     Global exception handler to prevent leaking internal stack traces.
     Logs full details internally for debugging.
+    In non-production, includes the real error message to aid debugging.
     """
+    import traceback as _tb
     logger.error(
-        f"Unhandled exception: {str(exc)}",
+        f"Unhandled exception on {request.method} {request.url.path}: {str(exc)}",
         exc_info=True,
         extra={"path": request.url.path, "method": request.method}
     )
-    
-    # Check if it's already an HTTPException (which usually has a status code)
+
+    is_prod = os.getenv("APP_ENV", "development") == "production"
+
     status_code = 500
     detail = "An internal error occurred"
     error_code = "INTERNAL_ERROR"
-    
+
     if isinstance(exc, HTTPException):
         status_code = exc.status_code
         detail = exc.detail
-        # Try to map detail to a code or use a generic one
         error_code = getattr(exc, "code", "INTERNAL_ERROR")
+    elif not is_prod:
+        # In dev/staging: surface real error so it shows in browser console
+        detail = f"{type(exc).__name__}: {str(exc)}"
 
     return JSONResponse(
         status_code=status_code,

@@ -143,6 +143,27 @@ const UserManagementPanel = () => {
             await apiClient.patch(`/admin/users/${email}/role`, { role: roleName });
             setNotification({ type: 'success', message: `Updated ${email} role to ${roleName}` });
             fetchData(true); // Silent refresh
+            
+            // Check if user updated their own role, if so force a token refresh
+            const token = localStorage.getItem('token');
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (token && refreshToken) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    if (payload.sub === email) {
+                        const axios = (await import('axios')).default;
+                        const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+                        const res = await axios.post(`${BASE_URL}/api/auth/refresh`, { refresh_token: refreshToken });
+                        if (res.data && res.data.access_token) {
+                            localStorage.setItem('token', res.data.access_token);
+                            useAuthStore.getState().initialize(); // Reload permissions into frontend
+                            setNotification({ type: 'success', message: `Permissions refreshed successfully` });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to parse token or refresh session:', e);
+                }
+            }
         } catch (err) {
             logger.error('Failed to update user role:', err);
             setNotification({ type: 'error', message: `Failed to update ${email}` });
@@ -180,6 +201,27 @@ const UserManagementPanel = () => {
             setEditingRole(null);
             setNewRoleName('');
             fetchData(true); // Silent refresh
+            
+            // If the user modified their own role's permissions, refresh token to update UI
+            const currentUserRole = useAuthStore.getState().userRole;
+            if (currentUserRole && currentUserRole.toLowerCase() === roleName.toLowerCase()) {
+                const token = localStorage.getItem('token');
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (token && refreshToken) {
+                    try {
+                        const axios = (await import('axios')).default;
+                        const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+                        const res = await axios.post(`${BASE_URL}/api/auth/refresh`, { refresh_token: refreshToken });
+                        if (res.data && res.data.access_token) {
+                            localStorage.setItem('token', res.data.access_token);
+                            useAuthStore.getState().initialize(); // Reload permissions into frontend
+                            setNotification({ type: 'success', message: `Permissions refreshed successfully` });
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse token or refresh session:', e);
+                    }
+                }
+            }
         } catch (err) {
             logger.error('Failed to save role:', err);
             const detail = err.response?.data?.detail || 'System error: Database unreachable';

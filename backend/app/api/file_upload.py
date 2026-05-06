@@ -10,7 +10,7 @@ from typing import Dict, Any, List
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
 from fastapi.responses import JSONResponse
 
-from app.services.rbac_service import require_role
+from app.services.rbac_service import require_role, require_feature
 
 from app.services.file_connector import (
     connect_file,
@@ -32,7 +32,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 @router.post("/upload", summary="Upload a CSV or Excel file as a database connection")
-async def upload_file(file: UploadFile = File(...), _user: dict = Depends(require_role("editor"))) -> Dict[str, Any]:
+async def upload_file(file: UploadFile = File(...), _user: dict = Depends(require_feature("upload_file", "editor"))) -> Dict[str, Any]:
     """
     Upload a CSV (.csv) or Excel (.xlsx / .xls / .xlsm / .ods) file.
 
@@ -98,7 +98,7 @@ async def preview_table(
     connection_id: str,
     table: str = Query(..., description="Table name to preview"),
     limit: int = Query(100, ge=1, le=5000, description="Max rows to return"),
-    _user: dict = Depends(require_role("viewer")),
+    _user: dict = Depends(require_feature("file_preview", "viewer")),
 ) -> Dict[str, Any]:
     """Return the first N rows of a table from a file connection."""
     if not is_file_connection(connection_id):
@@ -123,7 +123,7 @@ async def preview_table(
 async def run_query(
     connection_id: str,
     body: Dict[str, Any],
-    _user: dict = Depends(require_role("analyst")),
+    _user: dict = Depends(require_feature("file_query", "analyst")),
 ) -> Dict[str, Any]:
     """
     Execute arbitrary SQL against the file connection.
@@ -154,7 +154,7 @@ async def run_query(
     "/{connection_id}/schema",
     summary="Get schema (tables + columns) for a file connection",
 )
-async def get_schema(connection_id: str, _user: dict = Depends(require_role("viewer"))) -> Dict[str, Any]:
+async def get_schema(connection_id: str, _user: dict = Depends(require_feature("file_schema", "viewer"))) -> Dict[str, Any]:
     """Return schema metadata (tables, columns, row counts)."""
     if not is_file_connection(connection_id):
         raise HTTPException(
@@ -170,7 +170,7 @@ async def get_schema(connection_id: str, _user: dict = Depends(require_role("vie
 # ---------------------------------------------------------------------------
 
 @router.get("/connections", summary="List all active file connections")
-async def list_file_connections(_user: dict = Depends(require_role("viewer"))) -> List[Dict[str, Any]]:
+async def list_file_connections(_user: dict = Depends(require_feature("file_connections", "viewer"))) -> List[Dict[str, Any]]:
     return list_connections()
 
 
@@ -178,7 +178,7 @@ async def list_file_connections(_user: dict = Depends(require_role("viewer"))) -
     "/{connection_id}",
     summary="Close and delete a file connection",
 )
-async def disconnect_file(connection_id: str, _user: dict = Depends(require_role("admin"))) -> Dict[str, Any]:
+async def disconnect_file(connection_id: str, _user: dict = Depends(require_feature("delete_file", "admin"))) -> Dict[str, Any]:
     if not is_file_connection(connection_id):
         raise HTTPException(
             status_code=404,

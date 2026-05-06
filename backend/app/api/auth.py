@@ -174,7 +174,7 @@ async def login(request: Request, login_data: LoginRequest):
             )
             try:
                 row = await conn.fetchrow(
-                    "SELECT hashed_password as password_hash, role, tenant_id, is_active, mfa_enabled "
+                    "SELECT hashed_password as password_hash, role, tenant_id, is_active, two_factor_enabled AS mfa_enabled "
                     "FROM users WHERE email = $1",
                     email,
                 )
@@ -430,9 +430,44 @@ async def refresh_token(request: Request, body: RefreshRequest):
     if not email:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-    # Carry forward role + tenant_id from the original refresh token
-    role = payload.get("role", "viewer")
-    tenant_id = payload.get("tenant_id", "default")
+    # --- DB re-validation: ensure user is still active with a valid role ---
+    try:
+        import os, ssl, asyncpg
+        db_host = os.getenv("DB_HOST")
+        ssl_ctx = None
+        if db_host and "neon.tech" in db_host:
+            ssl_ctx = ssl.create_default_context()
+        conn = await asyncpg.connect(
+            host=db_host,
+            port=int(os.getenv("DB_PORT", "5432")),
+            user=os.getenv("DB_USER", "postgres"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "wezu_backend"),
+            ssl=ssl_ctx,
+            timeout=5,
+        )
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_active, role, tenant_id FROM users WHERE email = $1", email
+            )
+        finally:
+            await conn.close()
+
+        if not row:
+            raise HTTPException(status_code=401, detail="User not found")
+        if not row["is_active"]:
+            raise HTTPException(status_code=401, detail="Account is deactivated")
+
+        # Use live values from DB, not stale JWT claims
+        role      = row["role"]
+        tenant_id = row["tenant_id"] or payload.get("tenant_id", "default")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Refresh: DB check failed, falling back to token claims: %s", exc)
+        role      = payload.get("role", "viewer")
+        tenant_id = payload.get("tenant_id", "default")
+    # --- End DB re-validation ---
 
     new_access_token = create_access_token(
         data={"sub": email, "role": role, "tenant_id": tenant_id}

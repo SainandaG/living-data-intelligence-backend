@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Activity } from 'lucide-react';
 import { WindowManagerProvider } from './context/WindowManagerContext';
 import Window from './components/WindowManager/Window';
-import Taskbar from './components/WindowManager/Taskbar';
 import ConnectionModal from './components/WindowManager/ConnectionModal';
 import { CommandRegistryProvider } from './context/CommandRegistryContext';
 import { useDashboard } from './hooks/useDashboard';
@@ -322,7 +321,6 @@ const MainDashboard = () => {
       <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 9999 }}>
         <div className="pointer-events-auto">
           <AnimatePresence>{d.windows.map((w) => <Window key={w.id} {...w} />)}</AnimatePresence>
-          {d.windows.length > 0 && <Taskbar />}
         </div>
       </div>
     </>

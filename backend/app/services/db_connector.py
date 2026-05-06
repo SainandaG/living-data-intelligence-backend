@@ -287,8 +287,12 @@ class DatabaseConnector:
             idx += 1
         return sql
 
-    async def query(self, connection_id: str, sql: str, params: tuple = ()):
+    async def query(self, connection_id: str, sql: str, *params):
         """Execute an asynchronous query and return results directly from the pool"""
+        # [FIX] Backwards compatibility for callers passing a single tuple/list
+        if len(params) == 1 and isinstance(params[0], (list, tuple)):
+            params = params[0]
+
         # [FIX] Pre-convert placeholders so delegated connectors (DuckDB) get standard $1, $2 format
         if params and "%s" in sql:
             sql = self._convert_psycopg2_to_asyncpg_params(sql)
@@ -297,7 +301,7 @@ class DatabaseConnector:
         try:
             from app.services import file_connector as _fc
             if _fc.is_file_connection(connection_id):
-                return await _fc.query_file(connection_id, sql, params)
+                return await _fc.query_file(connection_id, sql, *params)
         except Exception as _fc_err:
             if 'file_' in str(connection_id):
                 raise  # re-raise only for obvious file connection IDs
@@ -366,6 +370,10 @@ class DatabaseConnector:
 
     async def execute(self, connection_id: str, sql: str, *params):
         """Execute a non-returning query (INSERT, UPDATE, DELETE, CREATE)"""
+        # [FIX] Backwards compatibility for callers passing a single tuple/list
+        if len(params) == 1 and isinstance(params[0], (list, tuple)):
+            params = params[0]
+
         logger.info(f" [DB EXECUTE] conn={connection_id} sql={sql[:100]}... params={params}")
         # Reuse the placeholder conversion logic if needed
         if params and "%s" in sql:
@@ -376,7 +384,7 @@ class DatabaseConnector:
             from app.services import file_connector as _fc
             if _fc.is_file_connection(connection_id):
                 # DuckDB execute is usually same as query for our wrapper
-                return await _fc.query_file(connection_id, sql, params)
+                return await _fc.query_file(connection_id, sql, *params)
         except Exception:
             if 'file_' in str(connection_id):
                 raise
@@ -415,7 +423,7 @@ class DatabaseConnector:
                         return cur.rowcount
             else:
                 # Fallback to query if execute not specialized
-                return await self.query(connection_id, sql, params)
+                return await self.query(connection_id, sql, *params)
         except Exception as e:
             logger.error(f"FAIL: Async Execute Error: {str(e)}")
             raise
@@ -493,7 +501,7 @@ class DatabaseConnector:
             
         return await self.execute(conn_id, sql, *params)
 
-    async def query_primary(self, sql: str, params: tuple = ()):
+    async def query_primary(self, sql: str, *params):
         """Query primary DB connection."""
         conn_id = self.get_primary_connection_id()
         if not conn_id:
@@ -503,7 +511,7 @@ class DatabaseConnector:
                 return []
             conn_id = connections[0]
             
-        return await self.query(conn_id, sql, params)
+        return await self.query(conn_id, sql, *params)
 
 # Global instance
 db_connector = DatabaseConnector()

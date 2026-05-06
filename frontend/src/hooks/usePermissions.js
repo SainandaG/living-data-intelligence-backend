@@ -11,7 +11,7 @@ export const usePermissions = () => {
   const [features, setFeatures] = useState([]);
   const [roles, setRoles] = useState([]);
 
-  const ROLE_HIERARCHY = { viewer: 1, editor: 2, analyst: 3, admin: 4, super_admin: 5 };
+  const ROLE_HIERARCHY = { viewer: 1, editor: 2, analyst: 3, admin: 4, super_admin: 1000 };
   const userLevel = ROLE_HIERARCHY[userRole] || 0;
 
   useEffect(() => {

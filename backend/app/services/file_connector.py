@@ -98,7 +98,7 @@ async def connect_file(
     return {"id": conn_id, "type": db_type}
 
 
-async def query_file(connection_id: str, sql: str, params: tuple = ()):
+async def query_file(connection_id: str, sql: str, *params):
     """
     Execute a SQL query against the DuckDB in-memory connection.
     Returns a list of dicts (same shape as db_connector.query).
