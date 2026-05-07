@@ -14,15 +14,15 @@ const UserManagementPanel = () => {
     const [roles, setRoles] = useState([]);
     const [features, setFeatures] = useState(null);
     const [loading, setLoading] = useState(true);
-    
+
     // Determine initial tab based on permissions
     const getInitialTab = () => {
         if (can('rbac')) return 'users';
         if (can('masking')) return 'redaction';
         return 'users';
     };
-    
-    const [activeTab, setActiveTab] = useState(getInitialTab()); 
+
+    const [activeTab, setActiveTab] = useState(getInitialTab());
     const [editingRole, setEditingRole] = useState(null);
     const [newRoleName, setNewRoleName] = useState('');
     const [notification, setNotification] = useState(null);
@@ -142,28 +142,12 @@ const UserManagementPanel = () => {
         try {
             await apiClient.patch(`/admin/users/${email}/role`, { role: roleName });
             setNotification({ type: 'success', message: `Updated ${email} role to ${roleName}` });
-            fetchData(true); // Silent refresh
-            
-            // Check if user updated their own role, if so force a token refresh
-            const token = localStorage.getItem('token');
-            const refreshToken = localStorage.getItem('refresh_token');
-            if (token && refreshToken) {
-                try {
-                    const payload = JSON.parse(atob(token.split('.')[1]));
-                    if (payload.sub === email) {
-                        const axios = (await import('axios')).default;
-                        const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-                        const res = await axios.post(`${BASE_URL}/api/auth/refresh`, { refresh_token: refreshToken });
-                        if (res.data && res.data.access_token) {
-                            localStorage.setItem('token', res.data.access_token);
-                            useAuthStore.getState().initialize(); // Reload permissions into frontend
-                            setNotification({ type: 'success', message: `Permissions refreshed successfully` });
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to parse token or refresh session:', e);
-                }
-            }
+            fetchData(true); // Silent refresh of the user list
+
+            // Note: the target user's browser receives a real-time `role_update`
+            // WebSocket event and refreshes its own token automatically.
+            // If the admin changed their *own* role, the WS event also reaches
+            // this browser so no special-case handling is needed here.
         } catch (err) {
             logger.error('Failed to update user role:', err);
             setNotification({ type: 'error', message: `Failed to update ${email}` });
@@ -184,7 +168,7 @@ const UserManagementPanel = () => {
     const handleSaveRole = async () => {
         const roleName = editingRole?.name || newRoleName;
         if (!roleName) return;
-        
+
         // Prevent editing system roles in frontend too for better UX
         if (editingRole?.is_system_role && roles.some(r => r.name === roleName)) {
             setNotification({ type: 'error', message: 'System roles cannot be modified' });
@@ -201,27 +185,9 @@ const UserManagementPanel = () => {
             setEditingRole(null);
             setNewRoleName('');
             fetchData(true); // Silent refresh
-            
-            // If the user modified their own role's permissions, refresh token to update UI
-            const currentUserRole = useAuthStore.getState().userRole;
-            if (currentUserRole && currentUserRole.toLowerCase() === roleName.toLowerCase()) {
-                const token = localStorage.getItem('token');
-                const refreshToken = localStorage.getItem('refresh_token');
-                if (token && refreshToken) {
-                    try {
-                        const axios = (await import('axios')).default;
-                        const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-                        const res = await axios.post(`${BASE_URL}/api/auth/refresh`, { refresh_token: refreshToken });
-                        if (res.data && res.data.access_token) {
-                            localStorage.setItem('token', res.data.access_token);
-                            useAuthStore.getState().initialize(); // Reload permissions into frontend
-                            setNotification({ type: 'success', message: `Permissions refreshed successfully` });
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse token or refresh session:', e);
-                    }
-                }
-            }
+
+            // Note: all users who currently hold this role will receive a real-time
+            // `permissions_update` WebSocket event and their tokens refresh automatically.
         } catch (err) {
             logger.error('Failed to save role:', err);
             const detail = err.response?.data?.detail || 'System error: Database unreachable';
@@ -231,7 +197,7 @@ const UserManagementPanel = () => {
 
     const togglePermission = (category, featureId) => {
         if (!editingRole) return;
-        
+
         // [FIX] Ensure permissions is an object before spreading. 
         // If it arrived as a string from the backend, parse it first.
         let currentPerms = editingRole.permissions || {};
@@ -242,7 +208,7 @@ const UserManagementPanel = () => {
                 currentPerms = {};
             }
         }
-        
+
         const newPerms = { ...currentPerms };
         if (!newPerms[category]) newPerms[category] = {};
 
@@ -337,7 +303,7 @@ const UserManagementPanel = () => {
                                         <br />
                                         2. Enter the 6-digit verification code below to confirm setup.
                                     </p>
-                                    
+
                                     <div className="relative">
                                         <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
                                         <input
@@ -455,39 +421,39 @@ const UserManagementPanel = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                                     <div className="space-y-1">
                                         <label className="text-[10px] text-slate-500 uppercase font-bold">Connection ID</label>
-                                        <input 
-                                            type="text" 
+                                        <input
+                                            type="text"
                                             placeholder="e.g. primary"
                                             value={newPolicy.connection_id}
-                                            onChange={e => setNewPolicy({...newPolicy, connection_id: e.target.value})}
+                                            onChange={e => setNewPolicy({ ...newPolicy, connection_id: e.target.value })}
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50"
                                         />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] text-slate-500 uppercase font-bold">Table Name</label>
-                                        <input 
-                                            type="text" 
+                                        <input
+                                            type="text"
                                             placeholder="e.g. users"
                                             value={newPolicy.table_name}
-                                            onChange={e => setNewPolicy({...newPolicy, table_name: e.target.value})}
+                                            onChange={e => setNewPolicy({ ...newPolicy, table_name: e.target.value })}
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50"
                                         />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] text-slate-500 uppercase font-bold">Column Name</label>
-                                        <input 
-                                            type="text" 
+                                        <input
+                                            type="text"
                                             placeholder="e.g. password"
                                             value={newPolicy.column_name}
-                                            onChange={e => setNewPolicy({...newPolicy, column_name: e.target.value})}
+                                            onChange={e => setNewPolicy({ ...newPolicy, column_name: e.target.value })}
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500/50"
                                         />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] text-slate-500 uppercase font-bold">Access Level</label>
-                                        <select 
+                                        <select
                                             value={newPolicy.min_role}
-                                            onChange={e => setNewPolicy({...newPolicy, min_role: e.target.value})}
+                                            onChange={e => setNewPolicy({ ...newPolicy, min_role: e.target.value })}
                                             className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-blue-400 focus:outline-none focus:border-blue-500/50"
                                         >
                                             {roles.map(r => <option key={r.name} value={r.name}>{r.name.toUpperCase()}</option>)}
@@ -496,9 +462,9 @@ const UserManagementPanel = () => {
                                     <div className="space-y-1">
                                         <label className="text-[10px] text-slate-500 uppercase font-bold">Strategy</label>
                                         <div className="flex gap-2">
-                                            <select 
+                                            <select
                                                 value={newPolicy.mask_strategy}
-                                                onChange={e => setNewPolicy({...newPolicy, mask_strategy: e.target.value})}
+                                                onChange={e => setNewPolicy({ ...newPolicy, mask_strategy: e.target.value })}
                                                 className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-emerald-400 focus:outline-none focus:border-blue-500/50"
                                             >
                                                 <option value="none">NONE</option>
@@ -507,7 +473,7 @@ const UserManagementPanel = () => {
                                                 <option value="partial">PARTIAL</option>
                                                 <option value="null">NULL</option>
                                             </select>
-                                            <button 
+                                            <button
                                                 onClick={() => handleSavePolicy(newPolicy)}
                                                 className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-500 transition-all"
                                             >
@@ -538,7 +504,7 @@ const UserManagementPanel = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <button 
+                                            <button
                                                 onClick={() => handleDeletePolicy(p.id)}
                                                 className="p-2 text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all"
                                             >
@@ -602,8 +568,8 @@ const UserManagementPanel = () => {
                                             {(!editingRole.name || !roles.some(r => r.name === editingRole.name)) ? (
                                                 <button onClick={handleSaveRole} className="px-4 py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-lg uppercase shadow-lg shadow-blue-900/40">Initialize</button>
                                             ) : (
-                                                <button 
-                                                    onClick={handleSaveRole} 
+                                                <button
+                                                    onClick={handleSaveRole}
                                                     disabled={editingRole.is_system_role}
                                                     className={`px-4 py-1.5 text-white text-[10px] font-bold rounded-lg uppercase shadow-lg transition-all ${editingRole.is_system_role ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 shadow-emerald-900/40 hover:bg-emerald-500'}`}
                                                 >

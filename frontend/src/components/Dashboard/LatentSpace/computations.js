@@ -67,6 +67,14 @@ export const LENS_CATEGORIES = {
         { id: 'Warning Sensors',    color: '#f97316' },
         { id: 'Grid Infrastructure',color: '#3b82f6' },
         { id: 'Energy Consumers',   color: '#22c55e' },
+    ],
+    activity_week: [
+        { id: 'Active (Past Week)', color: '#22c55e' }, // Green
+        { id: 'Inactive', color: '#64748b' },           // Slate/Gray
+    ],
+    activity_day: [
+        { id: 'Active (Past Day)', color: '#3b82f6' },  // Blue
+        { id: 'Inactive', color: '#64748b' },           // Slate/Gray
     ]
 };
 
@@ -105,8 +113,9 @@ export function computeCentroids(nodes, currentLens = 'ops') {
         });
     }
 
+    const offset = (categories.length - 1) / 2;
     return categories.map((cat, index) => ({
-        x: (index - 1.5) * spacing,
+        x: (index - offset) * spacing,
         z: 0,
         count: Math.max(5, counts[cat.id]),
         semanticHeight: semanticHeights[cat.id],
@@ -367,6 +376,20 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
                 const rowNorm = Math.min(10, Math.log10((node.row_count || 1) + 1));
                 nodeHeight = baseHealth * rowNorm * 0.2 * multiplier;
             }
+        } else if (currentLens === 'activity_week' || currentLens === 'activity_day') {
+            const now = new Date();
+            const lastInteraction = node.last_interaction ? new Date(node.last_interaction) : new Date(0);
+            const hoursSince = (now - lastInteraction) / (1000 * 60 * 60);
+            const isWeek = currentLens === 'activity_week';
+            const limit = isWeek ? (24 * 7) : 24;
+
+            if (hoursSince <= limit) {
+                assignedCat = cats[0]; // Active
+                nodeHeight = baseHealth * 1.5 * multiplier;
+            } else {
+                assignedCat = cats[1]; // Inactive
+                nodeHeight = baseHealth * 0.2 * multiplier;
+            }
         }
 
         // Clamp height for visual stability
@@ -415,8 +438,8 @@ export function applyLatentSpaceLayout(nodes, currentLens = 'ops') {
         const clusterNodes = clusters[key];
         const numInCluster = clusterNodes.length;
 
-        // "One after one" inline array along X-axis
-        const cx = (index - 1.5) * spacing;
+        const offset = (clusterKeys.length - 1) / 2;
+        const cx = (index - offset) * spacing;
         const cz = 0;
 
         // Micro-distribution: Organic Noisy Gaussian Spread
@@ -532,7 +555,7 @@ export function propagateImpact(toggledNodeId, allNodes) {
 /**
  * Create 3D Axes for Latent Space (ORGANIC + SHADOWS)
  */
-export function create3DAxes(layoutMode) {
+export function create3DAxes(layoutMode, currentLens = 'ops') {
     const group = new THREE.Group();
     if (layoutMode !== 'latent') return group;
 
@@ -574,20 +597,22 @@ export function create3DAxes(layoutMode) {
         return sprite;
     }
 
-    // "Risk" — left Y wall, elevated
-    const riskLabel = makeLabel('Risk', '#f87171');
-    riskLabel.position.set(-size / 2.5 - 4000, 10000, 0);
-    group.add(riskLabel);
+    if (layoutMode === 'latent' && (currentLens === 'ops' || currentLens === 'tier3' || currentLens === 'security' || currentLens === 'energy')) {
+        // "Risk" — left Y wall, elevated
+        const riskLabel = makeLabel('Risk', '#f87171');
+        riskLabel.position.set(-size / 2.5 - 4000, 10000, 0);
+        group.add(riskLabel);
 
-    // "Health" — back Z wall, elevated
-    const healthLabel = makeLabel('Health', '#4ade80');
-    healthLabel.position.set(0, 10000, -depth / 2.5 - 4000);
-    group.add(healthLabel);
+        // "Health" — back Z wall, elevated
+        const healthLabel = makeLabel('Health', '#4ade80');
+        healthLabel.position.set(0, 10000, -depth / 2.5 - 4000);
+        group.add(healthLabel);
 
-    // "Value" — floor level, along X axis
-    const valueLabel = makeLabel('Value', '#94a3b8');
-    valueLabel.position.set(0, -1500, depth / 2 + 5000);
-    group.add(valueLabel);
+        // "Value" — floor level, along X axis
+        const valueLabel = makeLabel('Value', '#94a3b8');
+        valueLabel.position.set(0, -1500, depth / 2 + 5000);
+        group.add(valueLabel);
+    }
 
     return group;
 }
@@ -595,46 +620,11 @@ export function create3DAxes(layoutMode) {
 /**
  * Create Flow Arrows for Latent Space
  */
-export function createFlowArrows(_manifoldData) {
+export function createFlowArrows(_manifoldData, currentLens = 'ops') {
     const group = new THREE.Group();
-
-    // Default spacing matches computeCentroids with ~20 nodes
-    const spacing = 15000;
-    // 4 cluster peak positions along X (same order as computeCentroids categories)
-    // Green → Blue → Amber → Red  (healthy → dependent → independent → anomalous)
-    const peaks = [
-        new THREE.Vector3(-1.5 * spacing, 4000, 0),
-        new THREE.Vector3(-0.5 * spacing, 4000, 0),
-        new THREE.Vector3( 0.5 * spacing, 4000, 0),
-        new THREE.Vector3( 1.5 * spacing, 4000, 0),
-    ];
-
-    for (let i = 0; i < peaks.length - 1; i++) {
-        const from = peaks[i];
-        const to   = peaks[i + 1];
-        const dir  = new THREE.Vector3().subVectors(to, from).normalize();
-        const len  = from.distanceTo(to) * 0.52; // arrow covers ~52% of gap
-
-        const arrow = new THREE.ArrowHelper(
-            dir,
-            from,
-            len,
-            0xffffff,        // white shaft + head
-            len * 0.18,      // head length
-            len * 0.10,      // head width
-        );
-
-        // Semi-transparent white
-        arrow.line.material.transparent = true;
-        arrow.line.material.opacity = 0.70;
-        arrow.cone.material.transparent = true;
-        arrow.cone.material.opacity = 0.75;
-
-        group.add(arrow);
-    }
-
     return group;
 }
+
 
 /**
  * Specialized Curved Edge for Latent Mode (Bridge Arcs)

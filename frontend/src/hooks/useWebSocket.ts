@@ -16,7 +16,7 @@ export const useWebSocket = (url: string | null) => {
     const [lastMessage, setLastMessage] = useState<ParsedMessage | null>(null);
     const [reconnectAttempt, setReconnectAttempt] = useState(0);
     const [dbReconnecting, setDbReconnecting] = useState(false);
-    
+
     const socketRef = useRef<WebSocket | null>(null);
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dbReconnectingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,7 +26,7 @@ export const useWebSocket = (url: string | null) => {
 
     const connect = useCallback(() => {
         if (!url) return;
-        
+
         // Clean up any existing connection/timers
         if (socketRef.current) {
             socketRef.current.onclose = null;
@@ -53,7 +53,7 @@ export const useWebSocket = (url: string | null) => {
             logger.debug("WebSocket connected");
             setStatus("connected");
             setReconnectAttempt(0);
-            
+
             // Flush message queue
             while (messageQueueRef.current.length > 0) {
                 const msg = messageQueueRef.current.shift();
@@ -64,11 +64,11 @@ export const useWebSocket = (url: string | null) => {
         socket.onmessage = (event) => {
             try {
                 const data: ParsedMessage = JSON.parse(event.data);
-                
+
                 // 1. ADD pong response to server ping
                 if (data.type === "ping") {
                     socket.send(JSON.stringify({ type: "pong" }));
-                    return; // Do this BEFORE dispatching to any state handler
+                    return;
                 }
 
                 // 2. Handle db_reconnecting
@@ -76,6 +76,28 @@ export const useWebSocket = (url: string | null) => {
                     setDbReconnecting(true);
                     if (dbReconnectingTimerRef.current) clearTimeout(dbReconnectingTimerRef.current);
                     dbReconnectingTimerRef.current = setTimeout(() => setDbReconnecting(false), 30000);
+                    return;
+                }
+
+                // 3. RBAC: role assigned to this specific user by an admin
+                if (data.type === "role_update") {
+                    // Lazily import to avoid circular deps at module load time
+                    import('../stores/authStore').then(({ useAuthStore }) => {
+                        const newRole = data.role as string;
+                        const newPermissions = (data.permissions as Record<string, unknown>) || {};
+                        useAuthStore.getState().applyRoleUpdate(newRole, newPermissions);
+                        logger.info(`[RBAC] Role updated in real-time → ${newRole}`);
+                    }).catch((e) => logger.error('[RBAC] Failed to apply role_update:', e));
+                    return;
+                }
+
+                // 4. RBAC: permission set for the user's role was edited in Role Factory
+                if (data.type === "permissions_update") {
+                    import('../stores/authStore').then(({ useAuthStore }) => {
+                        const changedRole = data.role as string;
+                        useAuthStore.getState().applyPermissionsUpdate(changedRole);
+                        logger.info(`[RBAC] Permissions updated in real-time for role=${changedRole}`);
+                    }).catch((e) => logger.error('[RBAC] Failed to apply permissions_update:', e));
                     return;
                 }
 
@@ -94,13 +116,13 @@ export const useWebSocket = (url: string | null) => {
             }
 
             setStatus("reconnecting");
-            
+
             if (reconnectAttempt < maxReconnectAttempts) {
                 const delay = Math.min(Math.pow(2, reconnectAttempt) * 1000, 30000);
                 const nextAttempt = reconnectAttempt + 1;
-                
+
                 logger.warn(`WS reconnect attempt ${nextAttempt}/${maxReconnectAttempts} in ${delay / 1000}s`);
-                
+
                 reconnectTimerRef.current = setTimeout(() => {
                     setReconnectAttempt(nextAttempt);
                 }, delay);
@@ -165,12 +187,12 @@ export const useWebSocket = (url: string | null) => {
         }
     }, []);
 
-    return { 
-        status, 
-        lastMessage, 
-        send, 
-        reconnectAttempt, 
-        dbReconnecting, 
-        disconnect 
+    return {
+        status,
+        lastMessage,
+        send,
+        reconnectAttempt,
+        dbReconnecting,
+        disconnect
     };
 };

@@ -3,7 +3,8 @@ import logging
 import asyncpg
 from typing import List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.services.rbac_service import require_role, invalidate_permissions_cache
+from app.services.rbac_service import require_role, invalidate_permissions_cache, _EFFECTIVE_LEVEL
+from app.api.websocket import broadcast_role_change, broadcast_permission_change_for_role
 
 import json
 from app.services.db_connector import db_connector
@@ -108,7 +109,7 @@ async def list_users(_user: dict = Depends(require_role("admin"))):
             await manual_conn.close()
 
 @router.get("/roles")
-async def list_roles(_user: dict = Depends(require_role("admin"))):
+async def list_roles(_user: dict = Depends(require_role("viewer"))):
     """List all dynamic roles and their permissions."""
     conn_id, manual_conn = await get_admin_db_conn()
     try:
@@ -223,6 +224,12 @@ async def upsert_role(role_data: Dict[str, Any], _user: dict = Depends(require_r
             
         # Invalidate the RBAC permissions cache so changes take effect immediately
         await invalidate_permissions_cache(name)
+
+        # Real-time push: notify all connected users with this role so their
+        # UI reflects the new permission set without requiring a page reload.
+        import asyncio
+        asyncio.create_task(broadcast_permission_change_for_role(name, final_permissions))
+
         return {"success": True, "message": f"Role '{name}' saved successfully"}
     except Exception as e:
         logger.error(f"Error in upsert_role: {e}", exc_info=True)
@@ -236,351 +243,1530 @@ async def upsert_role(role_data: Dict[str, Any], _user: dict = Depends(require_r
             await manual_conn.close()
 
 @router.get("/features")
-async def get_features(_user: dict = Depends(require_role("admin"))):
+async def get_features(_user: dict = Depends(require_role("viewer"))):
     """Return the registry of controllable features (Full RBAC Feature Matrix).
 
     Covers all 134 API endpoints + 60 frontend components = 194 controllable features.
     """
     return {
         "categories": [
+
+            # ──────────────────────────────────────────────────────────────────────
+            # AUTHENTICATION  (auth.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "AUTHENTICATION",
-                "name": "Authentication",
+                "name": "🔐 Authentication",
                 "features": [
-                    {"id": "login", "name": "User Login", "description": "Access to login and session management", "min_role": "viewer"},
-                    {"id": "refresh", "name": "Token Refresh", "description": "Ability to refresh expired sessions", "min_role": "viewer"},
-                    {"id": "register", "name": "Self Registration", "description": "Allow users to register themselves", "min_role": "viewer"},
-                    {"id": "dev_token", "name": "Dev Tokens", "description": "Generate development bypass tokens", "min_role": "admin"},
+                    {
+                        "id": "login",
+                        "name": "Login",
+                        "description": "POST /auth/login — sign in and obtain access + refresh tokens",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "register",
+                        "name": "Register",
+                        "description": "POST /auth/register — create a new user account",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "refresh",
+                        "name": "Token Refresh",
+                        "description": "POST /auth/refresh — exchange refresh token for new access token",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "logout",
+                        "name": "Logout",
+                        "description": "POST /auth/logout — invalidate the refresh token / end session",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "dev_token",
+                        "name": "Dev Token",
+                        "description": "POST /auth/dev-token — generate a development bypass token",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # MULTI-FACTOR AUTH  (mfa_api.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "MFA",
-                "name": "Multi-Factor Auth (MFA)",
+                "name": "🛡️ Multi-Factor Auth (MFA)",
                 "features": [
-                    {"id": "mfa_setup", "name": "Setup MFA", "description": "Generate MFA secrets and QR codes", "min_role": "viewer"},
-                    {"id": "mfa_enable", "name": "Enable MFA", "description": "Confirm and activate MFA protection", "min_role": "viewer"},
-                    {"id": "mfa_status", "name": "MFA Status", "description": "Check MFA status for accounts", "min_role": "viewer"},
+                    {
+                        "id": "mfa_setup",
+                        "name": "MFA Setup",
+                        "description": "POST /mfa/setup — generate TOTP secret and QR code",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "mfa_enable",
+                        "name": "MFA Enable",
+                        "description": "POST /mfa/enable — confirm and activate MFA on an account",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "mfa_verify",
+                        "name": "MFA Verify",
+                        "description": "POST /mfa/verify — verify TOTP code during login",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # DATABASE CONNECTIONS  (database.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "DATABASE",
-                "name": "Database",
+                "name": "🗄️ Database Connections",
                 "features": [
-                    {"id": "connect", "name": "Connect Database", "description": "Establish new database connections", "min_role": "editor"},
-                    {"id": "manage", "name": "Manage Connections", "description": "View and delete existing connections", "min_role": "editor"},
-                    {"id": "seed", "name": "Seed Data", "description": "Populate demo data for testing", "min_role": "admin"},
+                    {
+                        "id": "connections",
+                        "name": "List Connections",
+                        "description": "GET /connections — list all active database connections",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "connect",
+                        "name": "Connect Database",
+                        "description": "POST /connect — establish a new database connection",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "disconnect",
+                        "name": "Disconnect Database",
+                        "description": "DELETE /disconnect/{id} — remove an existing database connection",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
+                    {
+                        "id": "seed",
+                        "name": "Seed Connection",
+                        "description": "POST /seed/{id} — populate a connection with sample/demo data",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SCHEMA  (schema.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "SCHEMA",
-                "name": "Schema",
+                "name": "📋 Schema",
                 "features": [
-                    {"id": "view_schema", "name": "View Schema", "description": "Get full schema (tables, columns, FKs)", "min_role": "viewer"},
+                    {
+                        "id": "view_schema",
+                        "name": "View Schema",
+                        "description": "GET /schema/{id} — fetch full DB schema: tables, columns, foreign keys",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # GRAPH VISUALIZATION  (graph.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "GRAPH",
-                "name": "Graph Visualization",
+                "name": "🕸️ Graph Visualization",
                 "features": [
-                    {"id": "view_graph", "name": "View 3D Graph", "description": "Get 3D graph data (nodes + edges)", "min_role": "viewer"},
-                    {"id": "generation_logs", "name": "Generation Logs", "description": "View graph generation logs", "min_role": "viewer"},
-                    {"id": "edge_stats", "name": "Edge Statistics", "description": "Get edge statistics", "min_role": "viewer"},
-                    {"id": "recalculate_gravity", "name": "Recalculate Gravity", "description": "Recalculate node gravity scores", "min_role": "editor"},
-                    {"id": "clusters", "name": "Semantic Clusters", "description": "Get semantic cluster data", "min_role": "viewer"},
-                    {"id": "evolution_graph", "name": "Graph Evolution", "description": "Get graph evolution data", "min_role": "viewer"},
-                    {"id": "node_detail", "name": "Node Detail", "description": "Detailed node metrics", "min_role": "viewer"},
+                    {
+                        "id": "view_graph",
+                        "name": "View 3D Graph",
+                        "description": "GET /graph/{id} — full graph: nodes, edges, positions",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "generation_logs",
+                        "name": "Graph Generation Logs",
+                        "description": "GET /graph/generation-logs/{session} — graph build logs",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "neural_metrics",
+                        "name": "Neural Metrics",
+                        "description": "GET /graph/neural-metrics/{id} — neural core metrics (distinct from /api/metrics)",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "cluster_metadata",
+                        "name": "Cluster Metadata",
+                        "description": "GET /graph/cluster-metadata/{id} — semantic cluster groups for 3D Tables visualization",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "node_frequency",
+                        "name": "Node FK Frequency",
+                        "description": "GET /graph/{id}/node-frequency/{table} — real-time FK frequency distribution",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "pk_distribution",
+                        "name": "PK Distribution",
+                        "description": "GET /graph/{id}/pk-distribution/{table}/{col} — PK/FK value distribution",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "edge_stats",
+                        "name": "Edge Statistics",
+                        "description": "GET graph edge statistics and relationship counts",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "clusters",
+                        "name": "Semantic Clusters",
+                        "description": "GET semantic cluster data and groupings",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "recalculate_gravity",
+                        "name": "Recalculate Gravity",
+                        "description": "POST /recalculate-gravity — recompute all node gravity scores",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "optimize_layout",
+                        "name": "Optimize Layout",
+                        "description": "POST /ai/optimize — toggle AI-driven graph layout optimization",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # METRICS  (metrics.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "METRICS",
-                "name": "Metrics",
+                "name": "📊 Metrics",
                 "features": [
-                    {"id": "realtime_metrics", "name": "Real-time Metrics", "description": "Get real-time DB metrics", "min_role": "viewer"},
-                    {"id": "anomaly_history", "name": "Anomaly History", "description": "View historical system anomalies", "min_role": "viewer"},
+                    {
+                        "id": "realtime_metrics",
+                        "name": "Real-time Metrics",
+                        "description": "GET /metrics/{id} — live database performance metrics",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
-            {
-                "id": "STREAMS",
-                "name": "Live Telemetry Streams",
-                "features": [
-                    {"id": "ws_metrics", "name": "Metrics Stream", "description": "Real-time WebSocket metrics feed", "min_role": "viewer"},
-                    {"id": "ws_traffic", "name": "Traffic Stream", "description": "Real-time WebSocket traffic feed", "min_role": "viewer"},
-                    {"id": "ws_intelligence", "name": "Intelligence Stream", "description": "Real-time AI insight feed", "min_role": "viewer"},
-                ]
-            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SYSTEM VITALS  (vitals.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "VITALS",
-                "name": "Vitals",
+                "name": "💓 System Vitals",
                 "features": [
-                    {"id": "system_vitals", "name": "System Vitals", "description": "System health vitals (CPU, RAM, latency)", "min_role": "viewer"},
+                    {
+                        "id": "system_vitals",
+                        "name": "System Vitals",
+                        "description": "GET / — CPU, RAM, latency system health vitals",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # LIVE TELEMETRY STREAMS  (websocket.py)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "STREAMS",
+                "name": "📡 Live Telemetry (WebSocket)",
+                "features": [
+                    {
+                        "id": "ws_metrics",
+                        "name": "Metrics Stream",
+                        "description": "WS — real-time database metrics stream",
+                        "min_role": "viewer",
+                        "method": "WS"
+                    },
+                    {
+                        "id": "ws_traffic",
+                        "name": "Traffic Stream",
+                        "description": "WS — real-time query traffic stream",
+                        "min_role": "viewer",
+                        "method": "WS"
+                    },
+                    {
+                        "id": "ws_intelligence",
+                        "name": "Intelligence Stream",
+                        "description": "WS — real-time AI insight and anomaly stream",
+                        "min_role": "viewer",
+                        "method": "WS"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # DRILLDOWN  (drilldown.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "DRILLDOWN",
-                "name": "Drill Down",
+                "name": "🔍 Drill Down",
                 "features": [
-                    {"id": "table_records", "name": "Table Records", "description": "Get table rows (paginated)", "min_role": "viewer"},
-                    {"id": "record_detail", "name": "Record Detail", "description": "Get single record detail", "min_role": "viewer"},
-                    {"id": "search_records", "name": "Search Records", "description": "Search within table", "min_role": "viewer"},
-                    {"id": "clustered_records", "name": "Clustered Records", "description": "Get clustered records by column", "min_role": "viewer"},
-                    {"id": "gravity_calculate", "name": "Gravity Calculate", "description": "Calculate gravity for nodes", "min_role": "editor"},
-                    {"id": "semantic_discovery", "name": "Semantic Discovery", "description": "AI-powered table discovery", "min_role": "analyst"},
-                    {"id": "column_intelligence", "name": "Column Intelligence", "description": "AI column analysis", "min_role": "analyst"},
-                    {"id": "impact_analysis", "name": "Impact Analysis", "description": "Impact analysis for table", "min_role": "analyst"},
+                    {
+                        "id": "table_records",
+                        "name": "Table Records",
+                        "description": "GET /drilldown/{id}/table/{t} — paginated table rows",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "record_detail",
+                        "name": "Record Detail",
+                        "description": "GET /drilldown/{id}/table/{t}/record/{r} — single row detail",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "search_records",
+                        "name": "Search Records",
+                        "description": "GET /drilldown/{id}/table/{t}/search — keyword search within a table",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "clustered_records",
+                        "name": "Clustered Records",
+                        "description": "GET /drilldown/clustered-records/{id}/{t}/{col} — cluster rows by column",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "gravity_calculate",
+                        "name": "Gravity Calculate",
+                        "description": "POST /gravity/calculate — calculate gravity scores for selected nodes",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "semantic_discovery",
+                        "name": "Semantic Discovery",
+                        "description": "GET /drilldown/{id}/semantic-discovery/{t} — AI-powered table discovery",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "column_intelligence",
+                        "name": "Column Intelligence",
+                        "description": "GET /drilldown/{id}/column-intelligence/{t}/{col} — AI column analysis",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "impact_analysis",
+                        "name": "Impact Analysis",
+                        "description": "GET /drilldown/{id}/impact-analysis/{t} — impact analysis for a table",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # MULTI-TABLE INSPECTOR  (multi_table_inspector.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "MULTI_TABLE",
-                "name": "Multi-Table Inspector",
+                "name": "🗂️ Multi-Table Inspector",
                 "features": [
-                    {"id": "multi_schema", "name": "Multi-Table Schema", "description": "Multi-table schema overview", "min_role": "viewer"},
-                    {"id": "multi_rows", "name": "Multi-Table Rows", "description": "Fetch rows from any table", "min_role": "viewer"},
-                    {"id": "multi_detail", "name": "Row Detail", "description": "Single row with FK traversal", "min_role": "viewer"},
+                    {
+                        "id": "multi_schema",
+                        "name": "Multi-Table Schema",
+                        "description": "GET /multi-table/schema/{id} — cross-table schema overview",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "multi_rows",
+                        "name": "Multi-Table Rows",
+                        "description": "GET /multi-table/rows/{id}/{t} — fetch rows from any table",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "multi_detail",
+                        "name": "Row Detail (FK)",
+                        "description": "GET /multi-table/row-detail/{id}/{t}/{pk} — single row with FK traversal",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
-            {
-                "id": "SAVED_SELECTIONS",
-                "name": "Saved Selections",
-                "features": [
-                    {"id": "view_selections", "name": "View Selections", "description": "List saved selections", "min_role": "viewer"},
-                    {"id": "save_selection", "name": "Save Selection", "description": "Save a new selection", "min_role": "editor"},
-                    {"id": "delete_selection", "name": "Delete Selection", "description": "Delete a saved selection", "min_role": "editor"},
-                ]
-            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # DATA EXPLORER  (data_explorer.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "DATA_EXPLORER",
-                "name": "Data Explorer",
+                "name": "🧪 Data Explorer",
                 "features": [
-                    {"id": "sample_data", "name": "Sample Data", "description": "Sample values from a column", "min_role": "viewer"},
-                    {"id": "distinct_values", "name": "Distinct Values", "description": "Distinct values in a column", "min_role": "viewer"},
+                    {
+                        "id": "sample_data",
+                        "name": "Sample Column Data",
+                        "description": "GET /data/sample/{t}/{col} — sample values from a column",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "distinct_values",
+                        "name": "Distinct Values",
+                        "description": "GET /data/distinct/{t}/{col} — distinct values in a column",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SAVED SELECTIONS  (saved_selections.py)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "SAVED_SELECTIONS",
+                "name": "💾 Saved Selections",
+                "features": [
+                    {
+                        "id": "view_selections",
+                        "name": "View Selections",
+                        "description": "GET /selections/{id}/{t} — list saved table selections",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "save_selection",
+                        "name": "Save Selection",
+                        "description": "POST /selections/{id}/{t} — save a new selection",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "delete_selection",
+                        "name": "Delete Selection",
+                        "description": "DELETE /selections/{id}/{t}/{sel} — permanently delete a selection",
+                        "min_role": "editor",
+                        "method": "DELETE"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # DATA FLOW & LINEAGE  (data_flow.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "DATA_FLOW",
-                "name": "Data Flow",
+                "name": "🌊 Data Flow & Lineage",
                 "features": [
-                    {"id": "view_lineage", "name": "Data Lineage", "description": "Data lineage flow for table", "min_role": "viewer"},
-                    {"id": "trace_path", "name": "Trace Path", "description": "Trace path between two tables", "min_role": "viewer"},
+                    {
+                        "id": "view_lineage",
+                        "name": "Data Lineage",
+                        "description": "GET /data-flow/{id}/{t} — full lineage flow for a table",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "trace_path",
+                        "name": "Trace Path",
+                        "description": "GET /data-flow/path/{id}/{from}/{to} — trace path between two tables",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # HIERARCHY  (hierarchy.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "HIERARCHY",
-                "name": "Hierarchy",
+                "name": "🌳 Hierarchy",
                 "features": [
-                    {"id": "view_hierarchy", "name": "View Hierarchy", "description": "Parent/child hierarchy", "min_role": "viewer"},
-                    {"id": "hierarchy_flow", "name": "Hierarchy Flow", "description": "Hierarchy flow diagram data", "min_role": "viewer"},
-                    {"id": "hierarchy_animate", "name": "Hierarchy Animate", "description": "Animated hierarchy playback", "min_role": "viewer"},
+                    {
+                        "id": "view_hierarchy",
+                        "name": "View Hierarchy",
+                        "description": "GET /hierarchy/{id}/table/{t} — parent/child hierarchy tree",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "hierarchy_flow",
+                        "name": "Hierarchy Flow",
+                        "description": "GET /hierarchy/{id}/table/{t}/flow — hierarchy flow diagram data",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "hierarchy_animate",
+                        "name": "Hierarchy Animate",
+                        "description": "GET /hierarchy/{id}/table/{t}/animate/{ts} — animated hierarchy playback",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # TABLE GROUPS  (table_groups.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "TABLE_GROUPS",
-                "name": "Table Groups",
+                "name": "📁 Table Groups",
                 "features": [
-                    {"id": "view_groups", "name": "View Groups", "description": "List custom table groups", "min_role": "viewer"},
-                    {"id": "create_group", "name": "Create Group", "description": "Create a new table group", "min_role": "editor"},
-                    {"id": "delete_group", "name": "Delete Group", "description": "Delete a table group", "min_role": "editor"},
+                    {
+                        "id": "view_groups",
+                        "name": "View Groups",
+                        "description": "GET /table-groups/{id} — list all custom table groups",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "create_group",
+                        "name": "Create Group",
+                        "description": "POST /table-groups/{id} — create a new table group",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "delete_group",
+                        "name": "Delete Group",
+                        "description": "DELETE /table-groups/{id}/{gid} — delete a table group",
+                        "min_role": "editor",
+                        "method": "DELETE"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # INTELLIGENCE SUITE  (intelligence.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "INTELLIGENCE",
-                "name": "Intelligence Suite",
+                "name": "🧠 Intelligence Suite",
                 "features": [
-                    {"id": "deep_status", "name": "Deep Status", "description": "Deep diagnostic status", "min_role": "viewer"},
-                    {"id": "health_overview", "name": "Health Overview", "description": "System health overview", "min_role": "viewer"},
-                    {"id": "data_analysis", "name": "Data Analysis", "description": "Table data analysis", "min_role": "analyst"},
-                    {"id": "data_quality", "name": "Data Quality", "description": "Data quality score + issues", "min_role": "analyst"},
-                    {"id": "bulk_analysis", "name": "Bulk Analysis", "description": "Neural bulk analysis report", "min_role": "analyst"},
-                    {"id": "business_insights", "name": "Business Insights", "description": "Business patterns & trends", "min_role": "analyst"},
-                    {"id": "patterns", "name": "Pattern Analysis", "description": "Traffic pattern analysis", "min_role": "analyst"},
-                    {"id": "correlations", "name": "Correlations", "description": "Column correlation detection", "min_role": "analyst"},
-                    {"id": "anomalies", "name": "Anomaly Detection", "description": "Current anomaly list", "min_role": "viewer"},
-                    {"id": "predictions", "name": "Predictions", "description": "Growth forecasts (30-day)", "min_role": "analyst"},
-                    {"id": "root_cause", "name": "Root Cause", "description": "Root cause & impact analysis", "min_role": "analyst"},
-                    {"id": "recommendations", "name": "Recommendations", "description": "Global and table-specific action plans", "min_role": "analyst"},
-                    {"id": "intel_hub", "name": "Intelligence Hub", "description": "Unified intelligence hub", "min_role": "analyst"},
-                    {"id": "health_history", "name": "Health History", "description": "Health trend history", "min_role": "viewer"},
-                    {"id": "latent_projection", "name": "Latent Projection", "description": "Latent space 3D projection", "min_role": "viewer"},
-                    {"id": "latent_similar", "name": "Similar Nodes", "description": "Find semantically similar nodes", "min_role": "viewer"},
-                    {"id": "semantic_search", "name": "Semantic Search", "description": "Semantic table search", "min_role": "viewer"},
+                    {
+                        "id": "deep_status",
+                        "name": "Deep Status",
+                        "description": "GET /deep-status/{id}/{t} — deep diagnostic status report",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "health_overview",
+                        "name": "Health Overview",
+                        "description": "GET /health/{id} — overall system health overview",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "health_history",
+                        "name": "Health History",
+                        "description": "GET /health/history/{id} — historical health trend data",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "anomalies",
+                        "name": "Anomaly Detection",
+                        "description": "GET /anomalies/{id} — current active anomaly list",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "anomaly_history",
+                        "name": "Anomaly History",
+                        "description": "Historical anomaly records over time",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "recommendations",
+                        "name": "Recommendations",
+                        "description": "GET /recommendations/{id} — global action plan recommendations",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "recommendations_table",
+                        "name": "Table Recommendations",
+                        "description": "GET /recommendations/{id}/{t} — table-specific recommendations",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "latent_projection",
+                        "name": "Latent Projection",
+                        "description": "GET /latent/projection — 3D latent space projection",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "semantic_search",
+                        "name": "Semantic Search",
+                        "description": "GET /semantic-search/{id} — AI-powered semantic table search",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "data_analysis",
+                        "name": "Data Analysis",
+                        "description": "GET /data-analysis/{id}/{t} — full table data analysis",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "data_quality",
+                        "name": "Data Quality",
+                        "description": "GET /data-quality/{id}/{t} — data quality score and issues",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "bulk_analysis",
+                        "name": "Bulk Analysis",
+                        "description": "GET /bulk-analysis/{id} — neural bulk analysis report",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "business_insights",
+                        "name": "Business Insights",
+                        "description": "GET /business-insights/{id}/{t} — business patterns and trends",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "patterns",
+                        "name": "Pattern Analysis",
+                        "description": "GET /patterns/{id}/{t} — traffic and query pattern analysis",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "correlations",
+                        "name": "Correlations",
+                        "description": "GET /correlations/{id}/{t} — column-level correlation detection",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "predictions",
+                        "name": "Predictions",
+                        "description": "GET /predictions/{id}/{t} — 30-day growth forecasts",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "root_cause",
+                        "name": "Root Cause Analysis",
+                        "description": "GET /root-cause/{id}/{t} — root cause and impact analysis",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "intel_hub",
+                        "name": "Intelligence Hub",
+                        "description": "GET /hub/{id} — unified intelligence hub dashboard",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "latent_similar",
+                        "name": "Similar Nodes",
+                        "description": "GET /latent/similar/{node} — find semantically similar nodes",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # INTERNAL NODE  (internal_node.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "INTERNAL_NODE",
-                "name": "Internal Node",
+                "name": "🔩 Internal Node",
                 "features": [
-                    {"id": "node_clusters", "name": "Node Clusters", "description": "Internal node cluster data", "min_role": "viewer"},
+                    {
+                        "id": "node_clusters",
+                        "name": "Node Clusters",
+                        "description": "GET /internal-node/clusters/{id}/{t} — internal node cluster data",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # NODE X-RAY  (node_xray.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "NODE_XRAY",
-                "name": "Node X-Ray",
+                "name": "🔬 Node X-Ray",
                 "features": [
-                    {"id": "xray_diagnostics", "name": "X-Ray Diagnostics", "description": "Full node X-ray diagnostics", "min_role": "analyst"},
+                    {
+                        "id": "xray_diagnostics",
+                        "name": "X-Ray Diagnostics",
+                        "description": "GET /node-xray/{id}/{t} — full node X-ray diagnostics report",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # ONTOLOGY  (ontology.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "ONTOLOGY",
-                "name": "Ontology",
+                "name": "🕸️ Ontology",
                 "features": [
-                    {"id": "entity_mapping", "name": "Entity Mapping", "description": "Ontology entity mapping", "min_role": "viewer"},
+                    {
+                        "id": "entity_mapping",
+                        "name": "Entity Mapping",
+                        "description": "GET /ontology/{id} — ontology entity mapping",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # AI SERVICES  (ai.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "AI_SERVICES",
-                "name": "AI Services",
+                "name": "🤖 AI Services",
                 "features": [
-                    {"id": "ai_chat", "name": "AI Chat", "description": "Natural language AI chat", "min_role": "viewer"},
-                    {"id": "gravity_suggestions", "name": "Gravity Suggestions", "description": "AI gravity suggestions", "min_role": "analyst"},
-                    {"id": "optimize_layout", "name": "Optimize Layout", "description": "Toggle layout optimization", "min_role": "editor"},
+                    {
+                        "id": "ai_chat",
+                        "name": "AI Chat",
+                        "description": "POST /ai/chat — natural language AI chat interface",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "gravity_suggestions",
+                        "name": "Gravity Suggestions",
+                        "description": "GET /gravity-suggestions/{id} — AI gravity score suggestions",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # CHAT  (chat.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "CHAT",
-                "name": "Chat",
+                "name": "💬 Chat",
                 "features": [
-                    {"id": "data_chat", "name": "Data Chat", "description": "Simple chat interface for DB queries", "min_role": "viewer"},
+                    {
+                        "id": "data_chat",
+                        "name": "Data Chat",
+                        "description": "POST /chat — natural language database query chat",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # ML — GNN  (ml.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "ML_GNN",
-                "name": "ML  GNN",
+                "name": "🧬 ML — Graph Neural Network",
                 "features": [
-                    {"id": "gnn_predict", "name": "GNN Predict", "description": "Predict single node importance", "min_role": "analyst"},
-                    {"id": "gnn_batch", "name": "GNN Batch", "description": "Batch node importance prediction", "min_role": "analyst"},
-                    {"id": "gnn_status", "name": "GNN Status", "description": "GNN model status", "min_role": "analyst"},
+                    {
+                        "id": "gnn_predict",
+                        "name": "GNN Predict",
+                        "description": "POST /gnn/predict — predict importance for a single node",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "gnn_batch",
+                        "name": "GNN Batch Predict",
+                        "description": "POST /gnn/predict/batch — batch node importance prediction",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "gnn_status",
+                        "name": "GNN Status",
+                        "description": "GET /gnn/status — GNN model availability and status",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # ML ANALYSIS  (ml_analysis.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "ML_ANALYSIS",
-                "name": "ML Analysis",
+                "name": "🔬 ML Analysis",
                 "features": [
-                    {"id": "ml_analyze", "name": "Run ML Analysis", "description": "Run ML analysis (Classification/Regression/Clustering/TimeSeries)", "min_role": "analyst"},
-                    {"id": "ml_run", "name": "Start ML Job", "description": "Start async ML job", "min_role": "analyst"},
-                    {"id": "ml_status", "name": "Job Status", "description": "Check ML job status", "min_role": "analyst"},
-                    {"id": "ml_model", "name": "Download Model", "description": "Download trained model", "min_role": "analyst"},
-                    {"id": "ml_suggest", "name": "Auto-Suggest", "description": "Auto-suggest ML config for a table", "min_role": "analyst"},
-                    {"id": "ml_csv_upload", "name": "CSV Upload", "description": "Upload CSV for ML analysis", "min_role": "editor"},
-                    {"id": "ml_automl", "name": "AutoML", "description": "Run AutoML (auto algo selection)", "min_role": "analyst"},
-                    {"id": "ml_experiments", "name": "Experiments", "description": "List and manage experiment runs", "min_role": "analyst"},
-                    {"id": "ml_pdf", "name": "PDF Report", "description": "Download PDF report", "min_role": "analyst"},
-                    {"id": "ml_health", "name": "ML Health", "description": "ML service health check", "min_role": "viewer"},
-                    {"id": "ml_whatif", "name": "What-If", "description": "What-If scenario simulation", "min_role": "analyst"},
+                    {
+                        "id": "ml_analyze",
+                        "name": "Run ML Analysis",
+                        "description": "POST /ml/analyze — Classification / Regression / Clustering / TimeSeries",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "ml_run",
+                        "name": "Start Async Job",
+                        "description": "POST /ml/run — start an async ML job (returns job id)",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "ml_status",
+                        "name": "Job Status",
+                        "description": "GET /ml/run/{id}/status — poll async ML job status",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_model",
+                        "name": "Download Model",
+                        "description": "GET /ml/run/{id}/model — download the trained model file",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_delete",
+                        "name": "Delete ML Run",
+                        "description": "DELETE /ml/run/{id} — permanently delete a completed ML run",
+                        "min_role": "analyst",
+                        "method": "DELETE"
+                    },
+                    {
+                        "id": "ml_suggest",
+                        "name": "Auto-Suggest",
+                        "description": "GET /ml/suggest — auto-suggest ML algorithm for a table",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_csv_upload",
+                        "name": "CSV Upload",
+                        "description": "POST /ml/csv/upload — upload a CSV file for ML analysis",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "ml_automl",
+                        "name": "AutoML",
+                        "description": "POST /ml/automl — run AutoML (automatic algorithm selection)",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "ml_experiments",
+                        "name": "List Experiments",
+                        "description": "GET /ml/experiments — list all experiment runs",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_experiments_best",
+                        "name": "Best Experiment",
+                        "description": "GET /ml/experiments/best — get the best-performing experiment",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_pdf",
+                        "name": "PDF Report",
+                        "description": "GET /ml/run/{id}/pdf — download PDF analysis report",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_health",
+                        "name": "ML Health",
+                        "description": "GET /ml/health — ML service health check",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "ml_whatif",
+                        "name": "What-If Simulation",
+                        "description": "POST /ml/whatif — run a What-If scenario simulation",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # EXPLAINABILITY  (explainability.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "EXPLAINABILITY",
-                "name": "Explainability",
+                "name": "💡 Explainability",
                 "features": [
-                    {"id": "explain_decision", "name": "Explain Decision", "description": "SHAP/LIME explanation for model", "min_role": "analyst"},
-                    {"id": "explain_status", "name": "Explainability Status", "description": "Explainability service status", "min_role": "analyst"},
-                    {"id": "justification", "name": "Node Justification", "description": "AI justification for a node", "min_role": "analyst"},
-                    {"id": "reasoning_trace", "name": "Reasoning Trace", "description": "Trace decision path", "min_role": "analyst"},
+                    {
+                        "id": "explain_decision",
+                        "name": "Explain Decision",
+                        "description": "POST /explainability/explain — SHAP/LIME model explanation",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "explain_status",
+                        "name": "Explainability Status",
+                        "description": "GET /explainability/status — explainability service health",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "justification",
+                        "name": "Node Justification",
+                        "description": "GET /explainability/justification/{id}/{t} — AI node justification",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "reasoning_trace",
+                        "name": "Reasoning Trace",
+                        "description": "POST /explainability/trace — trace the decision reasoning path",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SCHEMA EVOLUTION  (evolution.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "EVOLUTION",
-                "name": "Evolution",
+                "name": "📈 Schema Evolution",
                 "features": [
-                    {"id": "evolution_analyze", "name": "Schema Evolution", "description": "Schema evolution analysis", "min_role": "viewer"},
-                    {"id": "evolution_timeline", "name": "Timeline", "description": "Schema change timeline", "min_role": "viewer"},
-                    {"id": "evolution_snapshot", "name": "Snapshot", "description": "Current schema snapshot", "min_role": "viewer"},
-                    {"id": "evolution_playback", "name": "Playback", "description": "Schema playback animation data", "min_role": "viewer"},
-                    {"id": "evolution_table", "name": "Table Evolution", "description": "Table-level evolution analysis", "min_role": "viewer"},
-                    {"id": "evolution_insight", "name": "Evolution Insight", "description": "AI-powered evolution insight for table", "min_role": "viewer"},
+                    {
+                        "id": "evolution_analyze",
+                        "name": "Schema Evolution",
+                        "description": "GET /evolution/analyze/{id} — full schema evolution analysis",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "evolution_timeline",
+                        "name": "Evolution Timeline",
+                        "description": "GET /evolution/timeline/{id} — schema change timeline",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "evolution_snapshot",
+                        "name": "Schema Snapshot",
+                        "description": "GET /evolution/snapshot/{id} — current schema snapshot",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "evolution_playback",
+                        "name": "Evolution Playback",
+                        "description": "GET /evolution/playback/{id} — animated schema playback data",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "evolution_table",
+                        "name": "Table Evolution",
+                        "description": "GET /evolution/analysis/table/{id}/{t} — table-level evolution",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "evolution_insight",
+                        "name": "Evolution Insight",
+                        "description": "GET /evolution/analysis/insight/{id}/{t} — AI evolution insight",
+                        "min_role": "analyst",
+                        "method": "GET"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # EVENTS  (events.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "EVENTS",
-                "name": "Events",
+                "name": "⚡ Events",
                 "features": [
-                    {"id": "process_event", "name": "Process Event", "description": "Process an incoming event", "min_role": "editor"},
-                    {"id": "event_status", "name": "Event Status", "description": "Event processing status", "min_role": "editor"},
+                    {
+                        "id": "event_status",
+                        "name": "Event Status",
+                        "description": "GET /events/status — check event processing status",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "process_event",
+                        "name": "Process Event",
+                        "description": "POST /events/process — submit an event for processing",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # DECISIONS  (decisions.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "DECISIONS",
-                "name": "Decisions",
+                "name": "⚖️ Decisions",
                 "features": [
-                    {"id": "list_decisions", "name": "List Decisions", "description": "List all decisions", "min_role": "viewer"},
-                    {"id": "create_decision", "name": "Create Decision", "description": "Create a new decision", "min_role": "analyst"},
-                    {"id": "decision_stats", "name": "Decision Stats", "description": "Decision statistics", "min_role": "viewer"},
-                    {"id": "decision_stream", "name": "Decision Stream", "description": "SSE stream of live decisions", "min_role": "viewer"},
-                    {"id": "decision_detail", "name": "Decision Detail", "description": "Get single decision detail", "min_role": "viewer"},
-                    {"id": "decision_status", "name": "Update Status", "description": "Update decision status", "min_role": "editor"},
-                    {"id": "decision_dispatch", "name": "Dispatch Decision", "description": "Dispatch/execute a decision", "min_role": "editor"},
+                    {
+                        "id": "list_decisions",
+                        "name": "List Decisions",
+                        "description": "GET /decisions — list all decisions",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "decision_stats",
+                        "name": "Decision Stats",
+                        "description": "GET /decisions/stats — decision count and status statistics",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "decision_stream",
+                        "name": "Decision Stream",
+                        "description": "GET /decisions/stream — SSE live decision event stream",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "decision_detail",
+                        "name": "Decision Detail",
+                        "description": "GET /decisions/{id} — get a single decision full detail",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "create_decision",
+                        "name": "Create Decision",
+                        "description": "POST /decisions — create a new decision",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "decision_status",
+                        "name": "Update Status",
+                        "description": "PATCH /decisions/{id}/status — update a decision status",
+                        "min_role": "admin",
+                        "method": "PATCH"
+                    },
+                    {
+                        "id": "decision_dispatch",
+                        "name": "Dispatch Decision",
+                        "description": "POST /decisions/{id}/dispatch — dispatch and execute a decision",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # AUTONOMOUS AGENT  (agent.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "AGENT",
-                "name": "Agent",
+                "name": "🤖 Autonomous Agent",
                 "features": [
-                    {"id": "agent_state", "name": "Agent State", "description": "Get autonomous agent state", "min_role": "viewer"},
-                    {"id": "agent_logs", "name": "Agent Logs", "description": "Get agent activity logs", "min_role": "viewer"},
-                    {"id": "agent_config", "name": "Agent Config", "description": "Get/update agent configuration", "min_role": "analyst"},
-                    {"id": "agent_pause", "name": "Pause Agent", "description": "Pause the agent", "min_role": "analyst"},
-                    {"id": "agent_resume", "name": "Resume Agent", "description": "Resume the agent", "min_role": "analyst"},
-                    {"id": "agent_trigger", "name": "Trigger Agent", "description": "Manually trigger agent cycle", "min_role": "analyst"},
+                    {
+                        "id": "agent_state",
+                        "name": "Agent State",
+                        "description": "GET /agent/state — current autonomous agent state",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_logs",
+                        "name": "Agent Logs",
+                        "description": "GET /agent/logs — agent activity and command history",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_commands",
+                        "name": "Agent Commands",
+                        "description": "GET /agent/commands — list all available agent commands",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_stats",
+                        "name": "Agent Stats",
+                        "description": "GET /agent/statistics — agent performance statistics",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_command",
+                        "name": "Command Detail",
+                        "description": "GET /agent/command/{id} — get detail for a specific command",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_config",
+                        "name": "Agent Config",
+                        "description": "GET /agent/config — get system configuration",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "agent_intent",
+                        "name": "Agent Intent",
+                        "description": "POST /agent/intent — submit a natural language intent to agent",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_execute",
+                        "name": "Agent Execute",
+                        "description": "POST /agent/execute — execute a specific agent action",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_pause",
+                        "name": "Pause Agent",
+                        "description": "POST /agent/pause — pause the autonomous agent",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_resume",
+                        "name": "Resume Agent",
+                        "description": "POST /agent/resume — resume the autonomous agent",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_trigger",
+                        "name": "Trigger Agent",
+                        "description": "POST /agent/trigger — manually trigger an agent cycle",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_clear",
+                        "name": "Clear Context",
+                        "description": "POST /agent/context/clear — clear agent context and memory",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "agent_reset",
+                        "name": "Reset Agent",
+                        "description": "POST /agent/reset — fully reset agent to initial state",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # APEX AGENT  (apex_agent.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "APEX_AGENT",
-                "name": "APEX Agent",
+                "name": "⚡ APEX Agent",
                 "features": [
-                    {"id": "apex_chat", "name": "APEX Chat", "description": "APEX agent chat", "min_role": "viewer"},
-                    {"id": "apex_status", "name": "APEX Status", "description": "APEX agent status", "min_role": "viewer"},
-                    {"id": "apex_sessions", "name": "APEX Sessions", "description": "List and manage APEX chat sessions", "min_role": "viewer"},
+                    {
+                        "id": "apex_chat",
+                        "name": "APEX Chat Run",
+                        "description": "POST /apex/run — start an APEX agent chat session",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "apex_sessions",
+                        "name": "List APEX Sessions",
+                        "description": "GET /apex/sessions — list all APEX chat sessions",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "apex_session_detail",
+                        "name": "APEX Session Detail",
+                        "description": "GET /apex/sessions/{id} — get a single APEX session detail",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "apex_delete_session",
+                        "name": "Delete APEX Session",
+                        "description": "DELETE /apex/sessions/{id} — permanently delete an APEX session",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SIMULATION  (simulation.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "SIMULATION",
-                "name": "Simulation",
+                "name": "🎮 Simulation",
                 "features": [
-                    {"id": "sim_status", "name": "Simulation Status", "description": "Simulation running status", "min_role": "viewer"},
-                    {"id": "sim_start", "name": "Start Simulation", "description": "Start data simulator", "min_role": "editor"},
-                    {"id": "sim_stop", "name": "Stop Simulation", "description": "Stop data simulator", "min_role": "editor"},
+                    {
+                        "id": "sim_status",
+                        "name": "Simulation Status",
+                        "description": "GET /simulation/status — check if simulator is running",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "sim_start",
+                        "name": "Start Simulation",
+                        "description": "POST /simulation/start — start the data simulator",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "sim_stop",
+                        "name": "Stop Simulation",
+                        "description": "POST /simulation/stop — stop the data simulator",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # SEEDER  (seeder_api.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "SEEDER",
-                "name": "Seeder",
+                "name": "🌱 Seeder",
                 "features": [
-                    {"id": "seed_data", "name": "Seed Data", "description": "Seed database with demo data", "min_role": "admin"},
+                    {
+                        "id": "seed_data",
+                        "name": "Seed Database",
+                        "description": "POST /seeder/seed — seed a database connection with demo data",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # WORKSPACE & INVESTIGATION  (workspace.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "WORKSPACE",
-                "name": "Workspace & Investigation",
+                "name": "🔭 Workspace & Investigation",
                 "features": [
-                    {"id": "list_workspaces", "name": "List Workspaces", "description": "List all workspaces", "min_role": "viewer"},
-                    {"id": "create_workspace", "name": "Create Workspace", "description": "Create a workspace", "min_role": "editor"},
-                    {"id": "manage_workspace", "name": "Manage Workspace", "description": "Update and delete workspace", "min_role": "editor"},
-                    {"id": "add_evidence", "name": "Add Evidence", "description": "Add evidence to investigation chain", "min_role": "editor"},
+                    {
+                        "id": "list_workspaces",
+                        "name": "List Workspaces",
+                        "description": "GET /workspaces — list all investigation workspaces",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "create_workspace",
+                        "name": "Create Workspace",
+                        "description": "POST /workspaces — create a new investigation workspace",
+                        "min_role": "viewer",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "get_workspace",
+                        "name": "Get Workspace",
+                        "description": "GET /workspaces/{id} — get a single workspace detail",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "manage_workspace",
+                        "name": "Update Workspace",
+                        "description": "PATCH /workspaces/{id} — update workspace name or description",
+                        "min_role": "viewer",
+                        "method": "PATCH"
+                    },
+                    {
+                        "id": "delete_workspace",
+                        "name": "Delete Workspace",
+                        "description": "DELETE /workspaces/{id} — permanently delete a workspace",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
+                    {
+                        "id": "add_evidence",
+                        "name": "Add Evidence",
+                        "description": "POST /workspaces/{id}/evidence — add an evidence item to the chain",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "delete_evidence",
+                        "name": "Delete Evidence",
+                        "description": "DELETE /workspaces/{id}/evidence/{eid} — remove an evidence item",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # FILE UPLOAD  (file_upload.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
                 "id": "FILE_UPLOAD",
-                "name": "File Upload",
+                "name": "📂 File Upload (CSV / Excel)",
                 "features": [
-                    {"id": "upload_file", "name": "Upload File", "description": "Upload CSV/Excel as connection", "min_role": "editor"},
-                    {"id": "file_schema", "name": "File Schema", "description": "Get uploaded file schema", "min_role": "viewer"},
-                    {"id": "file_query", "name": "Query File", "description": "Query uploaded file data", "min_role": "viewer"},
-                    {"id": "file_preview", "name": "Preview File", "description": "Preview uploaded file", "min_role": "viewer"},
-                    {"id": "file_connections", "name": "File Connections", "description": "List file connections", "min_role": "viewer"},
-                    {"id": "delete_file", "name": "Delete File", "description": "Delete file connection", "min_role": "editor"},
+                    {
+                        "id": "upload_file",
+                        "name": "Upload File",
+                        "description": "POST /files/upload — upload CSV or Excel as a database connection",
+                        "min_role": "editor",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "file_connections",
+                        "name": "List File Connections",
+                        "description": "GET /files/connections — list all file-based connections",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "file_preview",
+                        "name": "Preview File",
+                        "description": "GET /files/{id}/preview — preview rows from an uploaded file",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "file_query",
+                        "name": "Query File",
+                        "description": "POST /files/{id}/query — run SQL against a file-based connection",
+                        "min_role": "analyst",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "file_schema",
+                        "name": "File Schema",
+                        "description": "GET /files/{id}/schema — get schema of an uploaded file",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "delete_file",
+                        "name": "Delete File",
+                        "description": "DELETE /files/{id} — close and delete a file-based connection",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
                 ]
             },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # ADMIN — USER MANAGEMENT  (admin.py)
+            # ──────────────────────────────────────────────────────────────────────
             {
-                "id": "SECURITY",
-                "name": "Security",
+                "id": "ADMIN_USERS",
+                "name": "👥 Admin — User Management",
                 "features": [
-                    {"id": "masking", "name": "Column Masking", "description": "Configure field-level redaction policies", "min_role": "admin"},
-                    {"id": "audit", "name": "View Audit Logs", "description": "View system-wide administrative activity", "min_role": "admin"},
-                    {"id": "audit_export", "name": "Export Audit Logs", "description": "Download audit trails for compliance", "min_role": "admin"},
-                    {"id": "rbac", "name": "RBAC Management", "description": "Access to the User Management Panel and Role Factory", "min_role": "admin"},
+                    {
+                        "id": "list_users",
+                        "name": "List Users",
+                        "description": "GET /admin/users — list all users in the tenant",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "update_user_role",
+                        "name": "Update User Role",
+                        "description": "PATCH /admin/users/{email}/role — assign a role to a user",
+                        "min_role": "admin",
+                        "method": "PATCH"
+                    },
+                    {
+                        "id": "update_user_status",
+                        "name": "Enable / Disable User",
+                        "description": "PATCH /admin/users/{email}/status — enable or disable a user account",
+                        "min_role": "admin",
+                        "method": "PATCH"
+                    },
+                    {
+                        "id": "terminate_session",
+                        "name": "Terminate User Session",
+                        "description": "POST /admin/users/{email}/terminate — force-logout a specific user",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "terminate_all",
+                        "name": "Terminate All Sessions",
+                        "description": "POST /admin/system/terminate-all — force-logout all active users",
+                        "min_role": "super_admin",
+                        "method": "POST"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # ADMIN — ROLE FACTORY  (admin.py)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "ADMIN_ROLES",
+                "name": "🏭 Admin — Role Factory",
+                "features": [
+                    {
+                        "id": "list_roles",
+                        "name": "List Roles",
+                        "description": "GET /admin/roles — list all roles and their permission sets",
+                        "min_role": "viewer",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "create_role",
+                        "name": "Create / Edit Role",
+                        "description": "POST /admin/roles — create or update a custom role",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "rbac",
+                        "name": "RBAC Page Access",
+                        "description": "Access the full RBAC user management and role factory pages",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # COLUMN MASKING  (admin.py masking routes)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "MASKING",
+                "name": "🎭 Column Masking",
+                "features": [
+                    {
+                        "id": "masking_read",
+                        "name": "View Masking Policies",
+                        "description": "GET /admin/masking — list all column redaction policies",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "masking",
+                        "name": "Create Masking Policy",
+                        "description": "POST /admin/masking — create a new column masking policy",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
+                    {
+                        "id": "masking_delete",
+                        "name": "Delete Masking Policy",
+                        "description": "DELETE /admin/masking/{id} — remove a column masking policy",
+                        "min_role": "admin",
+                        "method": "DELETE"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # AUDIT LOGS  (audit_api.py)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "AUDIT",
+                "name": "📜 Audit Logs",
+                "features": [
+                    {
+                        "id": "audit",
+                        "name": "View Audit Logs",
+                        "description": "GET /audit — view paginated system-wide audit log",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "audit_stats",
+                        "name": "Audit Statistics",
+                        "description": "GET /audit/stats — audit log statistics and summaries",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "audit_export",
+                        "name": "Archived Logs",
+                        "description": "GET /audit/archived — retrieve archived audit log entries",
+                        "min_role": "admin",
+                        "method": "GET"
+                    },
+                    {
+                        "id": "audit_purge",
+                        "name": "Purge Audit Logs",
+                        "description": "POST /audit/purge — permanently purge old audit log records",
+                        "min_role": "super_admin",
+                        "method": "POST"
+                    },
+                ]
+            },
+
+            # ──────────────────────────────────────────────────────────────────────
+            # INTERNAL / DEV TOOLS  (latent_stream.py)
+            # ──────────────────────────────────────────────────────────────────────
+            {
+                "id": "INTERNAL",
+                "name": "🔧 Internal / Dev Tools",
+                "features": [
+                    {
+                        "id": "test_emit",
+                        "name": "Test Emit (Dev)",
+                        "description": "POST /api/test-emit/{node} — internal test event emit (dev only)",
+                        "min_role": "admin",
+                        "method": "POST"
+                    },
                 ]
             },
         ]
     }
+
 
 @router.patch("/users/{email}/role")
 async def update_user_role(email: str, role_data: Dict[str, Any], _user: dict = Depends(require_role("admin"))):
@@ -683,6 +1869,15 @@ async def update_user_role(email: str, role_data: Dict[str, Any], _user: dict = 
             resource_id=email,
             metadata={"old_role": old_role, "new_role": role}
         ))
+
+        # Fetch updated permissions for this role to include in the WS push
+        from app.services.rbac_service import _fetch_role_permissions, invalidate_permissions_cache
+        await invalidate_permissions_cache(role)
+        fresh_permissions = await _fetch_role_permissions(role)
+
+        # Real-time push: notify the target user's open browser sessions immediately
+        import asyncio
+        asyncio.create_task(broadcast_role_change(email, role, fresh_permissions))
 
         return {"success": True, "message": f"User {email} updated to {role}"}
     finally:

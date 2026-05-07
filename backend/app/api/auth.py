@@ -472,7 +472,42 @@ async def refresh_token(request: Request, body: RefreshRequest):
     new_access_token = create_access_token(
         data={"sub": email, "role": role, "tenant_id": tenant_id}
     )
-    return {"access_token": new_access_token}
+
+    # Fetch fresh permissions so the frontend can update its store in one round-trip
+    fresh_permissions: dict = {}
+    try:
+        import ssl as _ssl, asyncpg as _asyncpg
+        _db_host = os.getenv("DB_HOST")
+        _ssl_ctx = None
+        if _db_host and "neon.tech" in _db_host:
+            _ssl_ctx = _ssl.create_default_context()
+        _perm_conn = await _asyncpg.connect(
+            host=_db_host,
+            port=int(os.getenv("DB_PORT", "5432")),
+            user=os.getenv("DB_USER", "postgres"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "wezu_backend"),
+            ssl=_ssl_ctx,
+            timeout=5,
+        )
+        try:
+            _perm_row = await _perm_conn.fetchrow(
+                "SELECT permissions FROM roles WHERE name = $1", role
+            )
+            if _perm_row and _perm_row["permissions"]:
+                import json as _json
+                raw = _perm_row["permissions"]
+                fresh_permissions = _json.loads(raw) if isinstance(raw, str) else raw
+        finally:
+            await _perm_conn.close()
+    except Exception as _perm_exc:
+        logger.debug("Refresh: could not fetch permissions for role '%s': %s", role, _perm_exc)
+
+    return {
+        "access_token": new_access_token,
+        "role": role,
+        "permissions": fresh_permissions,
+    }
 
 
 @router.post("/logout")

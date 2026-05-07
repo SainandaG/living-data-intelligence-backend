@@ -19,7 +19,7 @@ const getInitialViewMode = () => {
 };
 
 const getInitialActiveLens = () =>
-  localStorage.getItem('activeLens') || 'ops';
+  localStorage.getItem('activeLens') || 'activity_week';
 
 const getInitialLayoutMode = () =>
   localStorage.getItem('activeLayoutMode') || 'galaxy';
@@ -29,7 +29,7 @@ const getInitialFilters = () => {
   if (saved) {
     try { return JSON.parse(saved); } catch { }
   }
-  return { 'Independent Facts': true, 'Dependent Facts': true, 'Healthy Tables': true, 'Anomalous Peaks': true };
+  return { 'Active': true, 'Inactive': true };
 };
 
 export const useViewStore = create((set, get) => ({

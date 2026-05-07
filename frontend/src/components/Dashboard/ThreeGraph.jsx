@@ -372,19 +372,16 @@ const ThreeGraph = forwardRef(({
                 // Dynamic Lens fallback if latent layout wasn't run yet
                 const cats = getLensCategories(currentLensRef.current);
 
-                // Fallback heuristic:
-                const isAnomalous = vitality < 50 || name.includes('anomaly');
-                const isIndependent = rc > 50000 || name.includes('trans') || name.includes('sale');
-                const isFact = name.includes('fact') || type === 'fact' || rc > 10000;
+                // Fallback heuristic for activity
+                const now = new Date();
+                const lastInteraction = n.last_interaction ? new Date(n.last_interaction) : new Date(0);
+                const hoursSince = (now - lastInteraction) / (1000 * 60 * 60);
+                const limit = currentLensRef.current === 'activity_week' ? (24 * 7) : 24;
 
-                if (isAnomalous) {
-                    category = cats[0].id; // Red
-                } else if (isFact && !isIndependent) {
-                    category = cats[1].id; // Blue
-                } else if (isIndependent) {
-                    category = cats[3].id; // Yellow
+                if (hoursSince <= limit) {
+                    category = cats[0].id; // Active
                 } else {
-                    category = cats[2].id; // Green
+                    category = cats[1].id; // Inactive
                 }
             }
 
@@ -2745,17 +2742,17 @@ const ThreeGraph = forwardRef(({
                     axesRef.current = null;
                 }
 
-                const manifold = createLatentManifold(layoutNodes);
+                const manifold = createLatentManifold(layoutNodes, currentLens);
                 if (manifold) {
                     scene.add(manifold);
                     manifoldRef.current = manifold;
                 }
 
-                const axes = create3DAxes('latent');
+                const axes = create3DAxes('latent', currentLens);
                 scene.add(axes);
                 axesRef.current = axes;
 
-                const flows = createFlowArrows(data.latent_manifold);
+                const flows = createFlowArrows(data.latent_manifold, currentLens);
                 flows.userData = { isFlow: true };
                 scene.add(flows);
                 axesRef.current.add(flows);

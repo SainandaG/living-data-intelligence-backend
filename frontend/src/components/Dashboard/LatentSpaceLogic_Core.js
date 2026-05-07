@@ -190,6 +190,23 @@ function _resolveClusterInternal(node, lens) {
         // Gate 5: Everything else — consumers
         return 'green';
     }
+
+    // ── ACTIVITY LENS ─────────────────────────
+    if (lens === 'activity_week') {
+        const now = new Date();
+        const lastInteraction = node.last_interaction ? new Date(node.last_interaction) : new Date(0);
+        const hoursSince = (now - lastInteraction) / (1000 * 60 * 60);
+        if (hoursSince <= 24 * 7) return 'green';
+        return 'slate';
+    }
+
+    if (lens === 'activity_day') {
+        const now = new Date();
+        const lastInteraction = node.last_interaction ? new Date(node.last_interaction) : new Date(0);
+        const hoursSince = (now - lastInteraction) / (1000 * 60 * 60);
+        if (hoursSince <= 24) return 'blue';
+        return 'slate';
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -202,6 +219,7 @@ export function getClusterColor(cluster) {
         yellow: '#ffdd00',
         blue: '#0088ff',
         green: '#00ff88',
+        slate: '#64748b',
     };
     return colors[cluster] || '#ffffff';
 }
@@ -216,6 +234,7 @@ const CLUSTER_CENTERS = {
     blue: { x: -1800, z: 1800 },
     orange: { x: 0, z: -2200 },
     green: { x: 1800, z: 1800 },
+    slate: { x: 0, z: 2200 },
 };
 
 export function getClusterTargetPosition(cluster, node) {

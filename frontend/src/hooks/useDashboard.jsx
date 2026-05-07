@@ -25,7 +25,7 @@ import { logger } from '../utils/logger';
 import { MODAL_DELAY, STATUS_CLEAR_DELAY, DRILLDOWN_CAMERA_DELAY, SHARE_TOAST_DURATION } from '../config/timing';
 const UserManagementPanel = React.lazy(() => import('../components/Admin/UserManagementPanel'));
 
-export function useDashboard(graphRef) {
+export const useDashboard = (graphRef) => {
   const throwAsyncError = useAsyncError();
 
   // ── Stores ───────────────────────────────────────────────────────────────────
@@ -119,16 +119,29 @@ export function useDashboard(graphRef) {
   }, [setIsSidebarPanelActive]);
 
   // ── URL navigation ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const rawPath = location.pathname.substring(1).replace(/\/$/, '');
-    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
-    const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
-    if (viewMode !== targetMode) setViewMode(targetMode);
-    if (location.pathname !== `/${targetMode}`) {
-      if (location.pathname === '/' && targetMode === 'overview') return;
-      navigate(`/${targetMode}`, { replace: true });
-    }
-  }, [location.pathname, viewMode, navigate, setViewMode]);
+    useEffect(() => {
+      const rawPath = location.pathname.substring(1).replace(/\/$/, '');
+      const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
+      const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
+      if (viewMode !== targetMode) setViewMode(targetMode);
+      
+      // Auto-switch lens if entering Latent Space with a Galaxy-only lens
+      if ((targetMode === 'globalLatent' || targetMode === 'latent') && !['activity_week', 'activity_day'].includes(activeLens)) {
+        setActiveLens('activity_week');
+        graphRef.current?.setLens?.('activity_week');
+      }
+
+      // Auto-switch lens if entering Overview with a Latent-only lens
+      if (targetMode === 'overview' && ['activity_week', 'activity_day'].includes(activeLens)) {
+        setActiveLens('ops');
+        graphRef.current?.setLens?.('ops');
+      }
+
+      if (location.pathname !== `/${targetMode}`) {
+        if (location.pathname === '/' && targetMode === 'overview') return;
+        navigate(`/${targetMode}`, { replace: true });
+      }
+    }, [location.pathname, viewMode, navigate, setViewMode, activeLens, setActiveLens]);
 
   // ── Graph mode sync ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -220,7 +233,19 @@ export function useDashboard(graphRef) {
   const handleNavigate = useCallback((view) => {
     navigate(`/${view}`);
     if (view === 'overview') { setBreadcrumbs([]); setDrillDownTable(null); }
-  }, [navigate, setBreadcrumbs, setDrillDownTable]);
+
+    // Ensure Latent Space uses an activity lens
+    if ((view === 'globalLatent' || view === 'latent') && !['activity_week', 'activity_day'].includes(activeLens)) {
+      setActiveLens('activity_week');
+      graphRef.current?.setLens?.('activity_week');
+    }
+
+    // Ensure Overview uses a category lens
+    if (view === 'overview' && ['activity_week', 'activity_day'].includes(activeLens)) {
+      setActiveLens('ops');
+      graphRef.current?.setLens?.('ops');
+    }
+  }, [navigate, setBreadcrumbs, setDrillDownTable, activeLens, setActiveLens]);
 
   const handleNodeDrillDown = useCallback((nodeId, shouldSimulate = false) => {
     if (viewMode === 'overview' && graphRef.current) {

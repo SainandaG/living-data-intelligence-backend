@@ -89,9 +89,12 @@ export default function NavigationBar({
             )}
 
             {/* Lens Selector - Compact Pill */}
-            {(currentView === 'globalLatent' || currentView === 'overview') && (
+            {(currentView === 'globalLatent' || currentView === 'overview' || currentView === 'latent') && (
                 <div className="hidden xl:flex items-center gap-1 bg-white/5 rounded-lg p-1 border border-white/10">
-                    {['ops', 'energy', 'security', 'tier3'].map(lens => (
+                    {(['globalLatent', 'latent'].includes(currentView)
+                        ? ['activity_week', 'activity_day'] 
+                        : ['ops', 'energy', 'security', 'tier3']
+                    ).map(lens => (
                         <button
                             key={lens}
                             onClick={() => onToggleLens && onToggleLens(lens)}

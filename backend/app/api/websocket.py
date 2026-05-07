@@ -32,6 +32,93 @@ monitor = RealtimeMonitor()
 # Module-level registry: Key = connection_id, Value = list of WebSockets
 active_connections: dict[str, list[WebSocket]] = {}
 
+# User email → set of WebSockets (for targeted role-change pushes)
+# Key = user email (str), Value = list of WebSocket objects
+_user_ws_registry: dict[str, list[WebSocket]] = {}
+
+
+def _register_user_ws(email: str, ws: WebSocket) -> None:
+    """Register a WebSocket as belonging to a specific user email."""
+    if email not in _user_ws_registry:
+        _user_ws_registry[email] = []
+    if ws not in _user_ws_registry[email]:
+        _user_ws_registry[email].append(ws)
+
+
+def _unregister_user_ws(email: str, ws: WebSocket) -> None:
+    """Remove a WebSocket from the user registry."""
+    if email in _user_ws_registry:
+        try:
+            _user_ws_registry[email].remove(ws)
+        except ValueError:
+            pass
+        if not _user_ws_registry[email]:
+            del _user_ws_registry[email]
+
+
+async def broadcast_role_change(email: str, new_role: str, permissions: dict = None) -> int:
+    """Push a role_update event to every open WebSocket for *email*.
+
+    Returns the number of sockets successfully notified.
+    Called from admin.py after a role assignment or permission change.
+    """
+    sockets = list(_user_ws_registry.get(email, []))
+    if not sockets:
+        logger.info("RBAC broadcast: no open sockets for %s — will rely on next token refresh", email)
+        return 0
+
+    payload = {
+        "type": "role_update",
+        "email": email,
+        "role": new_role,
+        "permissions": permissions or {},
+        "timestamp": time.time(),
+    }
+    sent = 0
+    stale = []
+    for ws in sockets:
+        ok = await safe_send(ws, payload)
+        if ok:
+            sent += 1
+        else:
+            stale.append(ws)
+    for ws in stale:
+        _unregister_user_ws(email, ws)
+
+    logger.info("RBAC broadcast: sent role_update to %d/%d sockets for %s", sent, len(sockets), email)
+    return sent
+
+
+async def broadcast_permission_change_for_role(role_name: str, permissions: dict) -> int:
+    """Push a role_update event to every connected user that has *role_name*.
+
+    Called from admin.py when a role's permission set is modified in Role Factory.
+    The frontend will then silently re-fetch a fresh token via /auth/refresh.
+    """
+    total_sent = 0
+    for email, sockets in list(_user_ws_registry.items()):
+        # We don't store roles in the registry — send to all and let the frontend
+        # check if the role matches before reloading. The payload includes the role name
+        # so the frontend can filter.
+        payload = {
+            "type": "permissions_update",
+            "role": role_name,
+            "permissions": permissions or {},
+            "timestamp": time.time(),
+        }
+        stale = []
+        for ws in list(sockets):
+            ok = await safe_send(ws, payload)
+            if ok:
+                total_sent += 1
+            else:
+                stale.append(ws)
+        for ws in stale:
+            _unregister_user_ws(email, ws)
+
+    logger.info("RBAC broadcast: sent permissions_update for role=%s to %d sockets", role_name, total_sent)
+    return total_sent
+
 # Graph cache: avoid regenerating the full graph on every 2-second tick.
 # Key = connection_id, Value = (generated_at_epoch, graph_dict)
 _graph_cache: dict[str, tuple[float, dict]] = {}
@@ -60,11 +147,20 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
     Production-grade WebSocket endpoint with heartbeat, registry tracking,
     and multi-tab support.
     """
-    if os.getenv("APP_ENV", "development") == "production":
-        if not token or not verify_token(token):
+    # Authenticate and extract user email for targeted role-change broadcasts
+    _ws_user_email: str | None = None
+    if token:
+        _token_payload = verify_token(token)
+        if _token_payload:
+            _ws_user_email = _token_payload.get("sub")
+        elif os.getenv("APP_ENV", "development") == "production":
             logger.warning("WebSocket auth failed for connection %s  closing with 1008", connection_id)
             await websocket.close(code=1008)
             return
+    elif os.getenv("APP_ENV", "development") == "production":
+        logger.warning("WebSocket auth failed for connection %s  closing with 1008", connection_id)
+        await websocket.close(code=1008)
+        return
 
     await websocket.accept()
     
@@ -72,6 +168,10 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
     if connection_id not in active_connections:
         active_connections[connection_id] = []
     active_connections[connection_id].append(websocket)
+
+    # Register user email → ws mapping for RBAC role-change broadcasts
+    if _ws_user_email:
+        _register_user_ws(_ws_user_email, websocket)
     
     total_clients = get_total_client_count()
     logger.info(f" WS connect: {connection_id} | total clients: {total_clients}")
@@ -100,12 +200,14 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                             if pong_data == "ping": # Legacy support
                                 continue
                             
-                            payload = json.loads(pong_data)
-                            if payload.get("type") == "pong":
-                                continue
-                            else:
-                                # Unexpected message instead of pong, process it?
-                                data = pong_data
+                            try:
+                                payload = json.loads(pong_data)
+                                if payload.get("type") == "pong":
+                                    continue
+                                else:
+                                    data = pong_data
+                            except json.JSONDecodeError:
+                                data = pong_data # Process as raw text if not JSON
                         except asyncio.TimeoutError:
                             logger.warning(f" Heartbeat timeout: {connection_id}")
                             break
@@ -136,6 +238,8 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                 break
     finally:
         # 3. Cleanup logic
+        if _ws_user_email:
+            _unregister_user_ws(_ws_user_email, websocket)
         if connection_id in active_connections:
             if websocket in active_connections[connection_id]:
                 active_connections[connection_id].remove(websocket)
@@ -315,9 +419,3 @@ async def stream_metrics():
 async def start_streaming_task():
     """Starts the streaming task. Note: main.py now tracks this directly."""
     return asyncio.create_task(stream_metrics())
-
-
-
-
-
-

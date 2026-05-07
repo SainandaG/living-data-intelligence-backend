@@ -183,7 +183,7 @@ export const LatentWorld = ({ targetNode, onClose, schemaData, connectionId, mul
             const sky = new THREE.PointLight(0x00f2ff, 1000, 300); sky.position.set(0, 150, 0);
             sceneRef.current.add(sky);
 
-            const grid = create3DAxes('latent');
+            const grid = create3DAxes('latent', 'activity_week');
             sceneRef.current.add(grid);
 
             const onResize = () => {

@@ -169,10 +169,10 @@ const DashboardLayout = ({
 
                         <div>
                             <h2 className="text-lg font-bold text-white">
-                                WEZU Master Spec v2.1
+                                Gannetz Technologies
                             </h2>
                             <p className="text-[10px] tracking-widest text-[var(--primary)]/70">
-                                Data Engineering Suite
+                                Data Intelligence Platform
                             </p>
                         </div>
 
