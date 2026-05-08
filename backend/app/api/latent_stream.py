@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, Depends
+from fastapi import APIRouter, WebSocket, Depends, Query
 import asyncio
 import logging
 
@@ -39,7 +39,17 @@ async def emit_node_diff(node_id: str, changed_fields: dict):
             active_latent_connections.remove(ws)
 
 @router.websocket("/ws/latent-stream")
-async def latent_stream(websocket: WebSocket):
+async def latent_stream(websocket: WebSocket, token: str = Query(None)):
+    import os
+    if token:
+        from app.services.auth import verify_token
+        _token_payload = verify_token(token)
+        if not _token_payload and os.getenv("APP_ENV", "development") == "production":
+            await websocket.close(code=1008)
+            return
+    elif os.getenv("APP_ENV", "development") == "production":
+        await websocket.close(code=1008)
+        return
     await latent_websocket_endpoint(websocket)
 
 from pydantic import BaseModel

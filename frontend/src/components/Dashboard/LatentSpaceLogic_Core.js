@@ -262,7 +262,8 @@ export function startLatentWebSocket(retryDelay = 3000) {
     if (_latentSocket &&
         _latentSocket.readyState === WebSocket.OPEN) return;
 
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/latent-stream`;
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/latent-stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
     _latentSocket = new WebSocket(wsUrl);
 
     _latentSocket.onopen = () => {

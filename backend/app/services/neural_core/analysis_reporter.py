@@ -66,7 +66,7 @@ class NeuralCore:
         vitality_data = {}
         try:
             from app.services.graph_intelligence import graph_intelligence
-            health_report = await graph_intelligence.analyze_graph_health(connection_id)
+            health_report = graph_intelligence.analyze_graph_health(connection_id, {})
             if health_report and "node_stats" in health_report:
                 vitality_data = health_report["node_stats"]
         except Exception as e:

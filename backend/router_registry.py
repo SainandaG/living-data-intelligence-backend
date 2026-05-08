@@ -40,7 +40,7 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_required("app.api.ai", prefix="/api/ai", tags=["ai"], dependencies=auth_dep)
     registry.register_optional("app.api.agent", dependencies=auth_dep)  # optional: torch DLL may fail on Windows
     # ── Optional Routers ─────────────────────────────────────────────────────
-    registry.register_optional("app.api.latent_stream", tags=["latent_stream"], dependencies=auth_dep)
+    registry.register_optional("app.api.latent_stream", tags=["latent_stream"])
     registry.register_required("app.api.websocket")  # WS token validated inside its own route
     registry.register_optional("app.api.data_explorer", prefix="/api", tags=["data"], dependencies=auth_dep)
     registry.register_optional("app.api.data_flow", prefix="/api", tags=["data-flow"], dependencies=auth_dep)
