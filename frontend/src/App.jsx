@@ -35,6 +35,7 @@ import EvolutionMathOverlay from './components/Evolution/EvolutionMathOverlay';
 import TimeMachinePanel from './components/Panels/TimeMachinePanel';
 import AuthPage from './components/Auth/AuthPage';
 import ErrorBoundary from './components/ErrorBoundary';
+import TrafficDashboard from './components/Dashboard/TrafficDashboard';
 import { cn } from './utils/cn';
 import RemoteCursors from './components/Multiplayer/RemoteCursors';
 import { logger } from './utils/logger';
@@ -74,6 +75,7 @@ const App = () => (
 const MainDashboard = () => {
   const graphRef = useRef(null);
   const d = useDashboard(graphRef);
+  const [showTrafficDashboard, setShowTrafficDashboard] = React.useState(false);
 
   const uiContext = React.useMemo(() => ({
     currentView: d.viewMode,
@@ -98,7 +100,14 @@ const MainDashboard = () => {
   return (
     <>
       <DashboardLayout
-        sidebarProps={d.sidebarProps} timeValue={d.timeValue}
+        sidebarProps={{
+          ...d.sidebarProps,
+          actions: {
+            ...d.sidebarProps.actions,
+            openTrafficDashboard: () => setShowTrafficDashboard(true),
+          }
+        }}
+        timeValue={d.timeValue}
         onTimeChange={(d.viewMode === 'latent' || d.viewMode === 'globalLatent') ? d.setTimeValue : null}
         isInspectorActive={d.isInspectorActive}
         navbar={
@@ -310,6 +319,15 @@ const MainDashboard = () => {
                 onClose={d.closeTimeMachine}
               />
             </ErrorBoundary>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showTrafficDashboard && (
+            <TrafficDashboard
+              connectionId={d.connectionId}
+              onClose={() => setShowTrafficDashboard(false)}
+            />
           )}
         </AnimatePresence>
 

@@ -44,6 +44,7 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_required("app.api.websocket")  # WS token validated inside its own route
     registry.register_optional("app.api.data_explorer", prefix="/api", tags=["data"], dependencies=auth_dep)
     registry.register_optional("app.api.data_flow", prefix="/api", tags=["data-flow"], dependencies=auth_dep)
+    registry.register_optional("app.api.traffic", prefix="/api", tags=["traffic"], dependencies=auth_dep)
     registry.register_optional("app.api.chat", prefix="/api", tags=["chat"], dependencies=auth_dep)
     registry.register_optional("app.api.evolution", dependencies=auth_dep)
     registry.register_optional("app.api.ml", dependencies=auth_dep)

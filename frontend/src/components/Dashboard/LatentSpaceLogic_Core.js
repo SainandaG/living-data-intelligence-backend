@@ -58,6 +58,18 @@ export function initLatentRegistry(graphDataNodes, activeLens, onNodeUpdate) {
 export function switchLatentLens(newLens) {
     _activeLens = newLens;
 
+    // Send period update to backend if it's an activity lens
+    if (_latentSocket && _latentSocket.readyState === WebSocket.OPEN) {
+        if (newLens === 'activity_week' || newLens === 'activity_day') {
+            const period = newLens === 'activity_week' ? 'week' : 'day';
+            _latentSocket.send(JSON.stringify({
+                type: 'set_period',
+                period: period
+            }));
+            logger.debug(`[LATENT] Sent set_period: ${period}`);
+        }
+    }
+
     latentNodeRegistry.forEach(node => {
         const prevCluster = node._currentCluster;
         const newCluster = resolveCluster(node, newLens);

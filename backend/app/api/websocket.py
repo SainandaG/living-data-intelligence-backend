@@ -129,6 +129,12 @@ _LIVE_TABLES: list[str] = [
     t.strip() for t in os.getenv("WS_LIVE_TABLES", "").split(",") if t.strip()
 ]
 
+# Track previous table counts to detect inserts
+_prev_table_counts: dict[str, dict[str, int]] = {}
+
+# Track period preference per WebSocket client
+_ws_periods: dict[WebSocket, str] = {}
+
 def get_total_client_count():
     return sum(len(sockets) for sockets in active_connections.values())
 
@@ -168,6 +174,9 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
     if connection_id not in active_connections:
         active_connections[connection_id] = []
     active_connections[connection_id].append(websocket)
+
+    # Set default period
+    _ws_periods[websocket] = 'day'
 
     # Register user email → ws mapping for RBAC role-change broadcasts
     if _ws_user_email:
@@ -224,6 +233,10 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                         payload = json.loads(data)
                         if payload.get("type") == "pong":
                             continue
+                        elif payload.get("type") == "set_period":
+                            period = payload.get("period", "day")
+                            _ws_periods[websocket] = period
+                            logger.info(f"WS: Set period to {period} for {connection_id}")
                         elif payload.get("type") == "presence_update":
                             payload["server_time"] = time.time()
                             # Relay to other clients on the same DB connection
@@ -238,6 +251,8 @@ async def websocket_endpoint(websocket: WebSocket, connection_id: str, token: st
                 break
     finally:
         # 3. Cleanup logic
+        if websocket in _ws_periods:
+            del _ws_periods[websocket]
         if _ws_user_email:
             _unregister_user_ws(_ws_user_email, websocket)
         if connection_id in active_connections:
@@ -282,13 +297,11 @@ async def websocket_logs_endpoint(websocket: WebSocket, session_id: str):
         connection_manager.disconnect(ws_id)
 
 
-async def _collect_table_counts(conn_id: str) -> dict:
-    """Fetch live row counts for tables listed in WS_LIVE_TABLES env var."""
-    if not _LIVE_TABLES:
-        return {}
+async def _collect_table_counts(conn_id: str, tables: list[str]) -> dict:
+    """Fetch live row counts for specified tables."""
     from app.services.db_connector import db_connector
     table_counts = {}
-    for tbl in _LIVE_TABLES:
+    for tbl in tables:
         try:
             res = await db_connector.query(
                 conn_id,
@@ -301,14 +314,56 @@ async def _collect_table_counts(conn_id: str) -> dict:
     return table_counts
 
 
-async def _broadcast_evolved_nodes(conn_id: str, graph_data: dict, data: dict) -> list:
+async def _collect_table_activity(conn_id: str, tables: list[str], period: str = 'day') -> dict:
+    """Fetch row counts for specified tables within the last day or week."""
+    from app.services.db_connector import db_connector
+    activity = {}
+    
+    # Define interval based on period
+    interval = "interval '7 days'" if period == 'week' else "interval '1 day'"
+        
+    for tbl in tables:
+        # Try with 'timestamp' column
+        try:
+            res = await db_connector.query(
+                conn_id,
+                f"SELECT COUNT(*) as c FROM {db_connector.validate_identifier(tbl)} WHERE timestamp > NOW() - {interval}"
+            )
+            if res:
+                activity[tbl] = int(res[0].get('c') or 0)
+                continue
+        except Exception:
+            pass # Try next column
+            
+        # Try with 'updated_at' column
+        try:
+            res = await db_connector.query(
+                conn_id,
+                f"SELECT COUNT(*) as c FROM {db_connector.validate_identifier(tbl)} WHERE updated_at > NOW() - {interval}"
+            )
+            if res:
+                activity[tbl] = int(res[0].get('c') or 0)
+                continue
+        except Exception:
+            pass
+            
+        # Fallback: 0 activity if no timestamp column
+        activity[tbl] = 0
+        
+    return activity
+
+
+async def _broadcast_evolved_nodes(conn_id: str, graph_data: dict, data: dict, deltas: dict, period: str = 'day') -> list:
     """Compute evolved node diffs and emit latent space updates. Returns evolved_nodes list."""
     from app.services.living_graph_engine import living_graph_engine
     evolved_nodes = []
     for node in graph_data.get("nodes", []):
+        tbl_id = node['id']
+        delta = deltas.get(tbl_id, 0)
+        
         tx_rate = data['data'].get('transaction_rate', 0)
         activity = {
-            "transaction_volume": tx_rate * 10,
+            "transaction_volume": (tx_rate * 10) + (delta * 100), # Boost activity if rows were inserted
             "error_rate": 0.0,
             "avg_latency": 0.0,
             "connection_id": conn_id
@@ -321,15 +376,24 @@ async def _broadcast_evolved_nodes(conn_id: str, graph_data: dict, data: dict) -
             "vitality": evolved_node.get('vitality', 1.0)
         })
         from app.api.latent_stream import emit_node_diff
+        
+        diff_payload = {
+            'period': period,
+            'healthScore': evolved_node.get('health_score', evolved_node.get('vitality', 100)),
+            'vitality': evolved_node.get('vitality', 100),
+            'isAnomalous': evolved_node.get('is_anomalous', False),
+            'row_count': evolved_node.get('row_count', 0),
+            'dependencyDepth': evolved_node.get('dependency_depth', 0)
+        }
+        
+        # If the table has activity in this period, update last_interaction!
+        if delta > 0:
+            from datetime import datetime
+            diff_payload['last_interaction'] = datetime.now().isoformat()
+            
         asyncio.create_task(emit_node_diff(
             evolved_node['id'],
-            {
-                'healthScore': evolved_node.get('health_score', evolved_node.get('vitality', 100)),
-                'vitality': evolved_node.get('vitality', 100),
-                'isAnomalous': evolved_node.get('is_anomalous', False),
-                'row_count': evolved_node.get('row_count', 0),
-                'dependencyDepth': evolved_node.get('dependency_depth', 0)
-            }
+            diff_payload
         ))
     return evolved_nodes
 
@@ -370,26 +434,44 @@ async def _stream_to_connection(conn_id: str, sockets: list, consecutive_failure
         graph_data = await graph_generator.generate_graph(conn_id)
         _graph_cache[conn_id] = (now, graph_data)
 
-    evolved_nodes = await _broadcast_evolved_nodes(conn_id, graph_data, data)
-    table_counts = await _collect_table_counts(conn_id)
+    # Get table names from graph_data
+    table_names = [node['id'] for node in graph_data.get("nodes", [])]
+    
+    # Collect current counts for total counts
+    current_counts = await _collect_table_counts(conn_id, table_names)
+    
+    # Collect activity counts for both day and week
+    activity_day = await _collect_table_activity(conn_id, table_names, period='day')
+    activity_week = await _collect_table_activity(conn_id, table_names, period='week')
+    
+    logger.info(f"Activity counts (day): {activity_day}")
+    logger.info(f"Activity counts (week): {activity_week}")
+
+    # Calculate evolved nodes for both
+    evolved_day = await _broadcast_evolved_nodes(conn_id, graph_data, data, activity_day, period='day')
+    evolved_week = await _broadcast_evolved_nodes(conn_id, graph_data, data, activity_week, period='week')
 
     if data:
-        payload = {
-            "type": "metrics_update",
-            "data": data.get('data'),
-            "health": data.get('health'),
-            "anomalies": data.get('anomalies', []),
-            "ai_stats": data.get('ai_stats'),
-            "evolved_nodes": evolved_nodes,
-            "table_counts": table_counts,
-            "timestamp": time.time()
-        }
-        results = await asyncio.gather(*[safe_send(ws, payload) for ws in sockets], return_exceptions=True)
-        stale = [sockets[i] for i, ok in enumerate(results) if ok is False or isinstance(ok, Exception)]
-        for ws in stale:
-            if ws in sockets:
-                sockets.remove(ws)
-                logger.info(f"Removed stale WS connection during metrics broadcast for {conn_id}")
+        # Send appropriate data to each socket based on preference
+        for ws in sockets:
+            period = _ws_periods.get(ws, 'day')
+            evolved_nodes = evolved_week if period == 'week' else evolved_day
+            
+            payload = {
+                "type": "metrics_update",
+                "data": data.get('data'),
+                "health": data.get('health'),
+                "anomalies": data.get('anomalies', []),
+                "ai_stats": data.get('ai_stats'),
+                "evolved_nodes": evolved_nodes,
+                "table_counts": current_counts,
+                "timestamp": time.time()
+            }
+            asyncio.create_task(safe_send(ws, payload))
+            
+        # Clean up stale sockets (done in gather in original code, but here we do it fire-and-forget)
+        # We assume safe_send handles failures or they will be caught on next cycle
+        
         if not active_connections.get(conn_id) and conn_id in active_connections:
             del active_connections[conn_id]
 

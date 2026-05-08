@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI):
                 try:
                     # Support both raw coroutines (first run) and factories (restarts)
                     coro = coro_factory() if callable(coro_factory) and not asyncio.iscoroutine(coro_factory) else coro_factory
-                    await coro
+                    await coro  # type: ignore
                     break  # Normal exit
                 except asyncio.CancelledError:
                     raise
@@ -157,8 +157,8 @@ async def lifespan(app: FastAPI):
     from app.api.ml_analysis import cleanup_ephemeral_models
     _make_task(cleanup_ephemeral_models, "ml_model_cleanup")
 
-    # 4b. Start data simulator if DEMO_MODE is true
-    if os.getenv("DEMO_MODE", "false").lower() == "true":
+    # 4b. Start data simulator if DEMO_MODE is true (Disabled by user request)
+    if False:
         from app.services.data_simulator import data_simulator
         _make_task(data_simulator.start_simulation, "data_simulator")
     

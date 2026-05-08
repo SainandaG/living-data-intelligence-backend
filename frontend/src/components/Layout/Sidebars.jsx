@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus, LogOut, Shield, Fingerprint } from 'lucide-react';
+import { Database, Zap, Brain, Activity, Settings, Play, RefreshCw, Share2, Bot, X, HardDrive, Plus, LogOut, Shield, Fingerprint, Radio } from 'lucide-react';
 import CollapsiblePanel from '../UI/CollapsiblePanel';
 import { cn } from '../../utils/cn';
 import AgentStatusPanel from '../Voice/AgentStatusPanel';
@@ -349,6 +349,15 @@ const LeftSidebar = React.memo(({ actions }) => {
                     icon={Share2}
                     label="Data Flow"
                     onClick={() => actions.navigateTo?.('dataflow')}
+                />
+            </FeatureGate>
+
+            <FeatureGate feature="view_lineage">
+                <RailButton
+                    icon={Radio}
+                    label="Traffic Intelligence"
+                    accentColor="#ff6b35"
+                    onClick={() => actions.openTrafficDashboard?.()}
                 />
             </FeatureGate>
 
