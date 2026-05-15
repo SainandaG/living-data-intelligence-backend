@@ -119,29 +119,29 @@ export const useDashboard = (graphRef) => {
   }, [setIsSidebarPanelActive]);
 
   // ── URL navigation ────────────────────────────────────────────────────────────
-    useEffect(() => {
-      const rawPath = location.pathname.substring(1).replace(/\/$/, '');
-      const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
-      const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
-      if (viewMode !== targetMode) setViewMode(targetMode);
-      
-      // Auto-switch lens if entering Latent Space with a Galaxy-only lens
-      if ((targetMode === 'globalLatent' || targetMode === 'latent') && !['activity_week', 'activity_day'].includes(activeLens)) {
-        setActiveLens('activity_week');
-        graphRef.current?.setLens?.('activity_week');
-      }
+  useEffect(() => {
+    const rawPath = location.pathname.substring(1).replace(/\/$/, '');
+    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
+    const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
+    if (viewMode !== targetMode) setViewMode(targetMode);
 
-      // Auto-switch lens if entering Overview with a Latent-only lens
-      if (targetMode === 'overview' && ['activity_week', 'activity_day'].includes(activeLens)) {
-        setActiveLens('ops');
-        graphRef.current?.setLens?.('ops');
-      }
+    // Auto-switch lens if entering Latent Space with a Galaxy-only lens
+    if ((targetMode === 'globalLatent' || targetMode === 'latent') && !['activity_week', 'activity_day'].includes(activeLens)) {
+      setActiveLens('activity_week');
+      graphRef.current?.setLens?.('activity_week');
+    }
 
-      if (location.pathname !== `/${targetMode}`) {
-        if (location.pathname === '/' && targetMode === 'overview') return;
-        navigate(`/${targetMode}`, { replace: true });
-      }
-    }, [location.pathname, viewMode, navigate, setViewMode, activeLens, setActiveLens]);
+    // Auto-switch lens if entering Overview with a Latent-only lens
+    if (targetMode === 'overview' && ['activity_week', 'activity_day'].includes(activeLens)) {
+      setActiveLens('ops');
+      graphRef.current?.setLens?.('ops');
+    }
+
+    if (location.pathname !== `/${targetMode}`) {
+      if (location.pathname === '/' && targetMode === 'overview') return;
+      navigate(`/${targetMode}`, { replace: true });
+    }
+  }, [location.pathname, viewMode, navigate, setViewMode, activeLens, setActiveLens]);
 
   // ── Graph mode sync ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -223,7 +223,12 @@ export const useDashboard = (graphRef) => {
       updateGraphData((prev) => ({
         ...prev, nodes: prev.nodes.map((node) => {
           const e = lastMessage.evolved_nodes.find((ev) => ev.id === node.id);
-          return e ? { ...node, size: e.size || node.size, status: e.status || node.status, vitality: e.vitality || node.vitality } : node;
+          if (!e) return node;
+          const merged = { ...node, size: e.size || node.size, status: e.status || node.status, vitality: e.vitality || node.vitality };
+          // Carry last_interaction forward so activity_day / activity_week lenses
+          // can correctly classify this node as Active vs Inactive.
+          if (e.last_interaction) merged.last_interaction = e.last_interaction;
+          return merged;
         }),
       }));
     }

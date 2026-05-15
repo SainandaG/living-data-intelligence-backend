@@ -132,6 +132,9 @@ _LIVE_TABLES: list[str] = [
 # Track previous table counts to detect inserts
 _prev_table_counts: dict[str, dict[str, int]] = {}
 
+# Track previous activity counts to detect pulses
+_prev_activity_counts: dict[str, dict[str, int]] = {}
+
 # Track period preference per WebSocket client
 _ws_periods: dict[WebSocket, str] = {}
 
@@ -297,59 +300,43 @@ async def websocket_logs_endpoint(websocket: WebSocket, session_id: str):
         connection_manager.disconnect(ws_id)
 
 
-async def _collect_table_counts(conn_id: str, tables: list[str]) -> dict:
-    """Fetch live row counts for specified tables."""
+async def _collect_table_counts(conn_id: str, tables: list[tuple[str, str]]) -> dict:
+    """Fetch live row counts for specified tables using pg_stat_user_tables for speed."""
     from app.services.db_connector import db_connector
     table_counts = {}
-    for tbl in tables:
-        try:
-            res = await db_connector.query(
-                conn_id,
-                'SELECT COUNT(*) as c FROM ' + db_connector.validate_identifier(tbl)
-            )
-            if res:
-                table_counts[tbl] = int(res[0].get('c') or 0)
-        except Exception as e:
-            logger.debug("Table count failed for %s/%s: %s", conn_id, tbl, e)
+    try:
+        res = await db_connector.query(
+            conn_id,
+            "SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE schemaname IN ('public', 'evolution')"
+        )
+        if res:
+            for row in res:
+                table_counts[row['relname']] = int(row['n_live_tup'] or 0)
+    except Exception as e:
+        logger.debug(f"Failed to fetch table counts: {e}")
+        pass
     return table_counts
 
 
-async def _collect_table_activity(conn_id: str, tables: list[str], period: str = 'day') -> dict:
-    """Fetch row counts for specified tables within the last day or week."""
+async def _collect_table_activity(conn_id: str, tables: list[tuple[str, str]], period: str = 'day') -> dict:
+    """Fetch activity using pg_stat_user_tables for speed.
+    Returns the total inserts + updates count as a proxy for activity.
+    """
     from app.services.db_connector import db_connector
     activity = {}
-    
-    # Define interval based on period
-    interval = "interval '7 days'" if period == 'week' else "interval '1 day'"
-        
-    for tbl in tables:
-        # Try with 'timestamp' column
-        try:
-            res = await db_connector.query(
-                conn_id,
-                f"SELECT COUNT(*) as c FROM {db_connector.validate_identifier(tbl)} WHERE timestamp > NOW() - {interval}"
-            )
-            if res:
-                activity[tbl] = int(res[0].get('c') or 0)
-                continue
-        except Exception:
-            pass # Try next column
-            
-        # Try with 'updated_at' column
-        try:
-            res = await db_connector.query(
-                conn_id,
-                f"SELECT COUNT(*) as c FROM {db_connector.validate_identifier(tbl)} WHERE updated_at > NOW() - {interval}"
-            )
-            if res:
-                activity[tbl] = int(res[0].get('c') or 0)
-                continue
-        except Exception:
-            pass
-            
-        # Fallback: 0 activity if no timestamp column
-        activity[tbl] = 0
-        
+
+    try:
+        res = await db_connector.query(
+            conn_id,
+            "SELECT relname, (n_tup_ins + n_tup_upd) as act FROM pg_stat_user_tables WHERE schemaname IN ('public', 'evolution')"
+        )
+        if res:
+            for row in res:
+                activity[row['relname']] = int(row['act'] or 0)
+    except Exception as e:
+        logger.debug(f"Failed to fetch pg_stat_user_tables: {e}")
+        pass
+
     return activity
 
 
@@ -369,14 +356,9 @@ async def _broadcast_evolved_nodes(conn_id: str, graph_data: dict, data: dict, d
             "connection_id": conn_id
         }
         evolved_node = living_graph_engine.evolve_node(node, activity)
-        evolved_nodes.append({
-            "id": evolved_node['id'],
-            "size": evolved_node['size'],
-            "status": evolved_node.get('status', 'healthy'),
-            "vitality": evolved_node.get('vitality', 1.0)
-        })
         from app.api.latent_stream import emit_node_diff
-        
+        from datetime import datetime
+
         diff_payload = {
             'period': period,
             'healthScore': evolved_node.get('health_score', evolved_node.get('vitality', 100)),
@@ -385,12 +367,27 @@ async def _broadcast_evolved_nodes(conn_id: str, graph_data: dict, data: dict, d
             'row_count': evolved_node.get('row_count', 0),
             'dependencyDepth': evolved_node.get('dependency_depth', 0)
         }
-        
-        # If the table has activity in this period, update last_interaction!
+
+        # If the table has activity in this period, stamp last_interaction on
+        # BOTH the latent-stream diff AND the evolved_nodes entry so that the
+        # main metrics WebSocket delivers it to the frontend graph nodes.
+        last_interaction_ts = None
         if delta > 0:
-            from datetime import datetime
-            diff_payload['last_interaction'] = datetime.now().isoformat()
-            
+            last_interaction_ts = datetime.now().isoformat()
+            diff_payload['last_interaction'] = last_interaction_ts
+
+        evolved_entry = {
+            "id": evolved_node['id'],
+            "size": evolved_node['size'],
+            "status": evolved_node.get('status', 'healthy'),
+            "vitality": evolved_node.get('vitality', 1.0),
+        }
+        if last_interaction_ts is not None:
+            evolved_entry['last_interaction'] = last_interaction_ts
+
+        evolved_nodes.append(evolved_entry)
+
+        logger.info(f"[LATENT TRIGGER] Emitting diff for {evolved_node['id']} with payload: {diff_payload}")
         asyncio.create_task(emit_node_diff(
             evolved_node['id'],
             diff_payload
@@ -425,31 +422,67 @@ async def _stream_to_connection(conn_id: str, sockets: list, consecutive_failure
                     sockets.remove(ws)
         return
 
-    # Use cached graph to avoid regenerating the full graph on every 2-second tick
+    # Use cached graph to avoid regenerating the full graph on every 2-second tick.
+    # However, if the live DB has more (or fewer) tables than the cached graph,
+    # the cache is stale — a new table was added or dropped — so we bust it
+    # immediately regardless of TTL.
     now = time.time()
     cached = _graph_cache.get(conn_id)
     if cached and (now - cached[0]) < _GRAPH_CACHE_TTL:
         graph_data = cached[1]
+        # Fast schema-change detection: compare total column count across user schemas
+        try:
+            live_col_count_res = await db_connector.query(
+                conn_id,
+                "SELECT COUNT(*) as c FROM information_schema.columns "
+                "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
+            )
+            live_count = int(live_col_count_res[0].get('c') or 0) if live_col_count_res else 0
+            
+            # Calculate total columns in cached graph
+            cached_count = sum(len(node.get('columns', [])) for node in graph_data.get("nodes", []))
+            
+            if live_count != cached_count:
+                logger.info(
+                    f"Schema change detected for {conn_id}: "
+                    f"cached={cached_count} columns, live={live_count} columns — busting graph cache."
+                )
+                graph_data = await graph_generator.generate_graph(conn_id)
+                _graph_cache[conn_id] = (now, graph_data)
+        except Exception as e:
+            logger.debug(f"Schema change detection failed: {e}")
+            pass  # If the count query fails, keep using the cache
     else:
         graph_data = await graph_generator.generate_graph(conn_id)
         _graph_cache[conn_id] = (now, graph_data)
 
-    # Get table names from graph_data
-    table_names = [node['id'] for node in graph_data.get("nodes", [])]
+    # Get table names and schemas from graph_data
+    tables_with_schema = [(node['id'], node.get('schema_name', 'public')) for node in graph_data.get("nodes", [])]
     
     # Collect current counts for total counts
-    current_counts = await _collect_table_counts(conn_id, table_names)
+    current_counts = await _collect_table_counts(conn_id, tables_with_schema)
     
     # Collect activity counts for both day and week
-    activity_day = await _collect_table_activity(conn_id, table_names, period='day')
-    activity_week = await _collect_table_activity(conn_id, table_names, period='week')
+    activity_day = await _collect_table_activity(conn_id, tables_with_schema, period='day')
+    activity_week = await _collect_table_activity(conn_id, tables_with_schema, period='week')
     
     logger.info(f"Activity counts (day): {activity_day}")
     logger.info(f"Activity counts (week): {activity_week}")
 
+    # Calculate pulses (deltas) for day period to trigger active status
+    prev_activity = _prev_activity_counts.get(conn_id, {})
+    day_deltas = {}
+    for tbl, count in activity_day.items():
+        prev = prev_activity.get(tbl, 0)
+        if count > prev:
+            day_deltas[tbl] = count - prev
+        else:
+            day_deltas[tbl] = 0
+    _prev_activity_counts[conn_id] = activity_day
+
     # Calculate evolved nodes for both
-    evolved_day = await _broadcast_evolved_nodes(conn_id, graph_data, data, activity_day, period='day')
-    evolved_week = await _broadcast_evolved_nodes(conn_id, graph_data, data, activity_week, period='week')
+    evolved_day = await _broadcast_evolved_nodes(conn_id, graph_data, data, day_deltas, period='day')
+    evolved_week = await _broadcast_evolved_nodes(conn_id, graph_data, data, day_deltas, period='week')
 
     if data:
         # Send appropriate data to each socket based on preference

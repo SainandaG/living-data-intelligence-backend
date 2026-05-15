@@ -68,6 +68,7 @@ class Table(BaseModel):
     row_count: int
     numeric_columns: List[str]
     table_type: Optional[str] = None  # 'fact' or 'dimension'
+    last_interaction: Optional[str] = None
     business_entity: Optional[str] = None
     importance_score: Optional[int] = None
     decision_provenance: Optional[str] = None

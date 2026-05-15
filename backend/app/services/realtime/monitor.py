@@ -98,6 +98,13 @@ class RealtimeMonitor:
             if table_name:
                 node_metrics = await self._get_node_specific_metrics(connection_id, table_name)
 
+            # [INTEGRATION] Enrich global metrics with traffic score
+            try:
+                from app.services.traffic_service import enrich_metrics_with_traffic
+                db_metrics = enrich_metrics_with_traffic(db_metrics)
+            except Exception as e:
+                logger.debug(f"Global traffic enrichment fail: {e}")
+
             data = {
                 'type': 'metrics_update',
                 'timestamp': datetime.now().isoformat(),
@@ -834,6 +841,22 @@ class RealtimeMonitor:
             if idx_count == 0: score -= 10
             if row_count > 1000 and idx_count < 2: score -= 5
  
+            # [INTEGRATION] Compute and record traffic
+            try:
+                from app.services.traffic_service import compute_node_traffic, record_traffic_history
+                mapped_metrics = {
+                    "reads_per_sec": 0,
+                    "writes_per_sec": 0,
+                    "avg_query_time_ms": 0,
+                    "error_rate": 0,
+                    "active_connections": 0,
+                    "row_count": row_count,
+                }
+                traffic = compute_node_traffic(mapped_metrics)
+                record_traffic_history(connection_id, table_name, traffic['score'])
+            except Exception as e:
+                logger.debug(f"Traffic recording fail: {e}")
+
             return {
                 'table_name': table_name,
                 'score': score,

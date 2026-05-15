@@ -19,26 +19,20 @@ class DatabaseSeeder:
         """Create schema and seed data for evolution playback."""
         logger.info(f"Seeding database for connection: {connection_id}...")
         
-        # Determine schema (Neon workaround: if public is locked, use 'evolution')
-        self.schema = 'public'  # hardcoded  no user input
+        # Force 'evolution' schema to avoid conflicts with existing app tables in 'public'
+        self.schema = 'evolution'
+        await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
         try:
-            await db_connector.query(connection_id, "CREATE TABLE IF NOT EXISTS public._seeder_test (id int)")
-            await db_connector.query(connection_id, "DROP TABLE public._seeder_test")
-        except Exception:
-            logger.warning("Schema 'public' is restricted. Falling back to 'evolution' schema.")
-            await db_connector.query(connection_id, "CREATE SCHEMA IF NOT EXISTS evolution")
-            try:
-                # Explicitly grant permissions to ensure access (Using permissive public grants for reliability)
-                await db_connector.query(connection_id, "GRANT USAGE ON SCHEMA evolution TO public")
-                await db_connector.query(connection_id, "GRANT SELECT ON ALL TABLES IN SCHEMA evolution TO public")
-                await db_connector.query(connection_id, "ALTER DEFAULT PRIVILEGES IN SCHEMA evolution GRANT SELECT ON TABLES TO public")
-                
-                # Ensure owner retains full control
-                await db_connector.query(connection_id, "GRANT ALL ON SCHEMA evolution TO neondb_owner")
-                await db_connector.query(connection_id, "GRANT ALL ON ALL TABLES IN SCHEMA evolution TO neondb_owner")
-            except Exception as e:
-                logger.warning(f"Failed to grant schema permissions: {e}")
-            self.schema = 'evolution'  # hardcoded  no user input
+            # Explicitly grant permissions to ensure access
+            await db_connector.query(connection_id, "GRANT USAGE ON SCHEMA evolution TO public")
+            await db_connector.query(connection_id, "GRANT SELECT ON ALL TABLES IN SCHEMA evolution TO public")
+            await db_connector.query(connection_id, "ALTER DEFAULT PRIVILEGES IN SCHEMA evolution GRANT SELECT ON TABLES TO public")
+            
+            # Ensure owner retains full control
+            await db_connector.query(connection_id, "GRANT ALL ON SCHEMA evolution TO neondb_owner")
+            await db_connector.query(connection_id, "GRANT ALL ON ALL TABLES IN SCHEMA evolution TO neondb_owner")
+        except Exception as e:
+            logger.warning(f"Failed to grant schema permissions: {e}")
 
         # Validate schema name to prevent injection if it ever changes
         db_connector.validate_identifier(self.schema)

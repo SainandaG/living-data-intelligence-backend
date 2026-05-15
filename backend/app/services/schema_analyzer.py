@@ -236,7 +236,8 @@ class SchemaAnalyzer:
                     referenced_column=fk['foreign_column_name']
                 ) for fk in t_fks],
                 row_count=t_row_count,
-                numeric_columns=[col['column_name'] for col in t_cols if col['data_type'] in numeric_types]
+                numeric_columns=[col['column_name'] for col in t_cols if col['data_type'] in numeric_types],
+                last_interaction=__import__('datetime').datetime.utcnow().isoformat()
             )
             
             schema.tables.append(table_obj)
@@ -361,7 +362,8 @@ class SchemaAnalyzer:
                     referenced_column=fk['referenced_column']
                 ) for fk in t_fks],
                 row_count=table_row['row_count'] or 0,
-                numeric_columns=[col['column_name'] for col in t_cols if col['data_type'] in numeric_types]
+                numeric_columns=[col['column_name'] for col in t_cols if col['data_type'] in numeric_types],
+                last_interaction=__import__('datetime').datetime.utcnow().isoformat()
             )
             
             schema.tables.append(table_obj)

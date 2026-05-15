@@ -172,7 +172,7 @@ class NeuralCore:
         now = time.time()
         last_save = self.last_save_time.get(conn_id, 0)
         
-        if (now - last_save) > 60 and len(analyzed) >= len(tables):
+        if (now - last_save) > 60:
             # Trigger Latent Space Update
             # Extract basic node/edge structure for the GNN
             gnn_nodes = [{"id": t['name'], "metadata": t} for t in tables]

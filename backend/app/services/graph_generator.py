@@ -477,6 +477,7 @@ class GraphGenerator:
             'name': t_name,
             'table_type': t_type,
             'entity': b_entity,
+            'schema_name': table.get('schema_name', 'public'),
             'size': min(size, 80), # Limit max size
             'color': color,
             'row_count': row_count,

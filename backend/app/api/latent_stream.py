@@ -14,8 +14,26 @@ async def latent_websocket_endpoint(websocket: WebSocket):
     active_latent_connections.append(websocket)
     try:
         while True:
-            await asyncio.sleep(30)  # Keep-alive ping
-            await websocket.send_json({"ping": True})
+            # Use wait_for so we can send keep-alive pings while also reading
+            # client messages (e.g. set_period sent by LatentSpaceLogic_Core.js).
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                try:
+                    import json
+                    msg = json.loads(raw)
+                    # Currently the latent-stream WS only needs to acknowledge
+                    # set_period — no server-side state change is required because
+                    # the period filtering happens in the main metrics WebSocket.
+                    # We log it for observability and ignore it gracefully.
+                    if msg.get("type") == "set_period":
+                        logger.debug("[LATENT] Received set_period=%s (acknowledged)", msg.get("period"))
+                    else:
+                        logger.debug("[LATENT] Received message type=%s", msg.get("type", "unknown"))
+                except Exception:
+                    pass  # Non-JSON frame — ignore
+            except asyncio.TimeoutError:
+                # No message in 30s — send keep-alive ping
+                await websocket.send_json({"ping": True})
     except Exception as e:
         logger.debug("Latent WebSocket closed: %s", e)
     finally:
