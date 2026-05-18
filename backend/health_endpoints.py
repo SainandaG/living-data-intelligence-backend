@@ -42,7 +42,7 @@ def mount_health_endpoints(app: FastAPI, registry):
             logger.error(f"Vitals collection failed: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to collect system vitals")
 
-    if os.getenv("APP_ENV") == "development":
+    if os.getenv("APP_ENV", "development") == "development":
         @app.get("/api/debug-singletons")
         async def debug_singletons():
             import sys

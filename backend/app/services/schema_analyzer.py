@@ -139,16 +139,16 @@ class SchemaAnalyzer:
         
         # 2. Bulk fetch columns
         columns_query = """
-            SELECT table_name, column_name, data_type, is_nullable, column_default, character_maximum_length
+            SELECT table_schema, table_name, column_name, data_type, is_nullable, column_default, character_maximum_length
             FROM information_schema.columns
             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY table_name, ordinal_position;
+            ORDER BY table_schema, table_name, ordinal_position;
         """
         all_columns = await db_connector.query(connection_id, columns_query)
         
         # 3. Bulk fetch PKs
         pk_query = """
-            SELECT tc.table_name, kcu.column_name
+            SELECT tc.table_schema, tc.table_name, kcu.column_name
             FROM information_schema.table_constraints AS tc
             JOIN information_schema.key_column_usage AS kcu 
               ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
@@ -159,7 +159,7 @@ class SchemaAnalyzer:
         
         # 4. Bulk fetch FKs
         fk_query = """
-            SELECT kcu.table_name, kcu.column_name, 
+            SELECT kcu.table_schema, kcu.table_name, kcu.column_name, 
                    ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
             FROM information_schema.table_constraints AS tc
             JOIN information_schema.key_column_usage AS kcu 
@@ -174,32 +174,52 @@ class SchemaAnalyzer:
         # 5. Bulk fetch row counts from pg_stat_user_tables (Very Fast, O(1) metadata access)
         # This replaces the O(N) sequential COUNT(*) loop which caused 60s timeouts.
         stats_query = """
-            SELECT relname as table_name, n_live_tup as row_count
+            SELECT schemaname as table_schema, relname as table_name, n_live_tup as row_count
             FROM pg_stat_user_tables;
         """
         all_stats = await db_connector.query(connection_id, stats_query)
-        stats_map = {s['table_name']: int(s['row_count']) for s in all_stats if s['row_count'] is not None}
         
-        # Group data for easy lookup
+        # Group data for easy lookup using (schema, table) composite key
         col_map = {}
         for c in all_columns:
-            t = c['table_name']
-            if t not in col_map: col_map[t] = []
-            col_map[t].append(c)
+            key = (c['table_schema'], c['table_name'])
+            if key not in col_map: col_map[key] = []
+            col_map[key].append(c)
             
         pk_map = {}
         for p in all_pks:
-            t = p['table_name']
-            if t not in pk_map: pk_map[t] = []
-            pk_map[t].append(p['column_name'])
+            key = (p['table_schema'], p['table_name'])
+            if key not in pk_map: pk_map[key] = []
+            pk_map[key].append(p['column_name'])
             
         fk_map = {}
         for f in all_fks:
-            t = f['table_name']
-            if t not in fk_map: fk_map[t] = []
-            fk_map[t].append(f)
+            key = (f['table_schema'], f['table_name'])
+            if key not in fk_map: fk_map[key] = []
+            fk_map[key].append(f)
             
-        count_map = stats_map
+        count_map = {}
+        for s in all_stats:
+            if s['row_count'] is not None:
+                key = (s['table_schema'], s['table_name'])
+                count_map[key] = int(s['row_count'])
+
+        # Deduplicate tables, preferring 'public' then 'evolution'
+        seen_tables = {}
+        for row in tables_data:
+            name = row['table_name']
+            schema_name = row['table_schema']
+            
+            if name not in seen_tables:
+                seen_tables[name] = row
+            else:
+                current_seen = seen_tables[name]
+                if schema_name == 'public' and current_seen['table_schema'] != 'public':
+                    seen_tables[name] = row
+                elif schema_name == 'evolution' and current_seen['table_schema'] not in ['public', 'evolution']:
+                    seen_tables[name] = row
+                    
+        tables_data = list(seen_tables.values())
 
         # Build schema
         schema = Schema(
@@ -212,10 +232,13 @@ class SchemaAnalyzer:
         
         for table_row in tables_data:
             table_name = table_row['table_name']
-            t_cols = col_map.get(table_name, [])
-            t_pks = pk_map.get(table_name, [])
-            t_fks = fk_map.get(table_name, [])
-            t_row_count = count_map.get(table_name, 0)
+            table_schema = table_row['table_schema']
+            key = (table_schema, table_name)
+            
+            t_cols = col_map.get(key, [])
+            t_pks = pk_map.get(key, [])
+            t_fks = fk_map.get(key, [])
+            t_row_count = count_map.get(key, 0)
             
             table_obj = Table(
                 name=table_name,
@@ -250,6 +273,16 @@ class SchemaAnalyzer:
                     to_column=fk['foreign_column_name']
                 ))
                 
+        # Deduplicate relationships
+        unique_relations = []
+        seen_relations = set()
+        for rel in schema.relationships:
+            key = (rel.from_table, rel.to_table, rel.from_column, rel.to_column)
+            if key not in seen_relations:
+                seen_relations.add(key)
+                unique_relations.append(rel)
+        schema.relationships = unique_relations
+        
         return schema
 
     async def _analyze_mysql(self, connection_id: str) -> Schema:

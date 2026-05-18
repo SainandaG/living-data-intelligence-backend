@@ -167,34 +167,37 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     
     # 5. Auto-Connect to Primary Database
-    from app.services.db_connector import db_connector
-        
-    db_config = {
-        "db_type": "postgres",
-        "host": os.getenv("DB_HOST"),
-        "port": os.getenv("DB_PORT"),
-        "username": os.getenv("DB_USER"),
-        "password": os.getenv("DB_PASSWORD"),
-        "database": os.getenv("DB_NAME")
-    }
-        
-    if db_config["host"] and db_config["username"]:
-        logger.info(f"🔌 Auto-connecting to database: {db_config['database']}...")
-        try:
-            conn_info = await db_connector.connect(db_config)
-            logger.info("✅ Auto-connection established.")
+    async def connect_and_warm_db():
+        from app.services.db_connector import db_connector
             
-            # Run essential migrations (schema creation)
-            from app.services.db_migrations import run_essential_migrations
-            await run_essential_migrations(conn_info['id'])
+        db_config = {
+            "db_type": "postgres",
+            "host": os.getenv("DB_HOST"),
+            "port": os.getenv("DB_PORT"),
+            "username": os.getenv("DB_USER"),
+            "password": os.getenv("DB_PASSWORD"),
+            "database": os.getenv("DB_NAME")
+        }
+            
+        if db_config["host"] and db_config["username"]:
+            logger.info(f"🔌 Auto-connecting to database: {db_config['database']}...")
+            try:
+                conn_info = await db_connector.connect(db_config)
+                logger.info("✅ Auto-connection established.")
+                
+                # Run essential migrations (schema creation)
+                from app.services.db_migrations import run_essential_migrations
+                await run_essential_migrations(conn_info['id'])
 
-            logger.info("🔥 Warming up primary database...")
-            await db_connector.query(conn_info['id'], "SELECT 1")
-            logger.info("✨ Primary database is warm and ready.")
-        except Exception as e:
-            logger.warning(f"⚠️ Auto-connect failed: {e}")
-    else:
-        logger.warning("⚠️ DB Credentials missing in .env, skipping auto-connect.")
+                logger.info("🔥 Warming up primary database...")
+                await db_connector.query(conn_info['id'], "SELECT 1")
+                logger.info("✨ Primary database is warm and ready.")
+            except Exception as e:
+                logger.warning(f"⚠️ Auto-connect failed: {e}")
+        else:
+            logger.warning("⚠️ DB Credentials missing in .env, skipping auto-connect.")
+
+    _make_task(connect_and_warm_db, "db_autoconnect", restart=False)
 
     yield
     # Shutdown

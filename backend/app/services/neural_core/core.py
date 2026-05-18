@@ -166,13 +166,15 @@ class NeuralCore:
         analyzed = self.analyzed_tables.get(conn_id, set())
         cursor = self.scan_cursors.get(conn_id, 0)
 
+        # Collect unique target table names to scan
+        unique_targets = set()
+        for t in tables:
+            name = t.get('name') if isinstance(t, dict) else getattr(t, 'name', None)
+            if name and name != 'Neural Core':
+                unique_targets.add(name)
+
         # OPTIMIZATION: Stop scanning if we are done
-        if len(analyzed) >= len(tables):
-            # If this is just a heartbeat, do nothing
-            if node_id == "heartbeat" and self.agent_status != "ACTIVE_SCANNING":
-                self.agent_status = "IDLE (Optimized)" 
-                return
-            
+        if len(analyzed) >= len(unique_targets):
             # If manual re-calc specifically requested
             if node_id == "manual_recalc":
                 analyzed.clear()
@@ -180,8 +182,7 @@ class NeuralCore:
                 self.signal_counts[conn_id] = 0
                 self.scan_cursors[conn_id] = 0
                 self.agent_status = "ACTIVE_SCANNING"
-            elif node_id == "heartbeat":
-                # Fallback: if we were stuck in active but done, idle now
+            else:
                 self.agent_status = "IDLE (Optimized)"
                 return
                 
@@ -199,7 +200,14 @@ class NeuralCore:
             
         # Process Batch
         for target_table in batch_tables:
-            await self._analyze_table_intelligence(target_table, conn_id, analyzed)
+            t_name = target_table.get('name')
+            if not t_name: continue
+            try:
+                await self._analyze_table_intelligence(target_table, conn_id, analyzed)
+            except Exception as e:
+                logger.error(f"Neural Core: Error analyzing table {t_name}: {e}")
+                analyzed.add(t_name)
+                self.analyzed_tables[conn_id] = analyzed
 
         # Update global growth factor based on total connection knowledge
         total_complexity = sum(self.patterns_learned.values()) + (sum(self.signal_counts.values()) * 0.1)
@@ -268,9 +276,17 @@ class NeuralCore:
         from app.services.graph_intelligence import graph_intelligence
         
         # Use authenticated formula for structural importance and gravity
+        raw_rows = target_table.get('row_count')
+        row_count = 0
+        if raw_rows is not None:
+            try:
+                row_count = int(raw_rows)
+            except (ValueError, TypeError):
+                row_count = 0
+
         auth_metrics = graph_intelligence.get_authenticated_metrics(
             t_name, 
-            target_table.get('row_count', 0),
+            row_count,
             in_deg,
             out_deg
         )
@@ -442,6 +458,13 @@ class NeuralCore:
         signal_load = self.signal_counts.get(conn_id, 0)
         analyzed = self.analyzed_tables.get(conn_id, set())
         
+        unique_targets = set()
+        if schema and 'tables' in schema:
+            for t in schema['tables']:
+                name = t.get('name') if isinstance(t, dict) else getattr(t, 'name', None)
+                if name and name != 'Neural Core':
+                    unique_targets.add(name)
+        
         return {
             "model_state": self.model_state,
             "growth": float(f"{self.growth_factor:.2f}"),
@@ -452,7 +475,7 @@ class NeuralCore:
             # Status
             "status": self.agent_status,
             "scanned_nodes": len(analyzed),
-            "total_nodes": len(schema['tables']) if schema and 'tables' in schema else 0
+            "total_nodes": len(unique_targets)
         }
 
     async def _get_relative_value(self, connection_id: str, table: dict, vitality: float) -> float:

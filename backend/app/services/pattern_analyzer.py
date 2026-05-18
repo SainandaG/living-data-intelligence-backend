@@ -308,7 +308,7 @@ class PatternAnalyzer:
             FROM information_schema.tables
             WHERE LOWER(table_name) = LOWER($1)
             AND table_schema IN ('evolution', 'public')
-            ORDER BY CASE WHEN table_schema = 'evolution' THEN 1 ELSE 2 END
+            ORDER BY CASE WHEN table_schema = 'public' THEN 1 ELSE 2 END
             LIMIT 1
         """
         res = await db_connector.query(connection_id, check_query, (table_name,))

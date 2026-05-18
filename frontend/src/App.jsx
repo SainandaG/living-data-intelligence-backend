@@ -1,6 +1,7 @@
 import React, { useRef, Suspense, lazy } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Activity } from 'lucide-react';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { WindowManagerProvider } from './context/WindowManagerContext';
 import Window from './components/WindowManager/Window';
 import ConnectionModal from './components/WindowManager/ConnectionModal';
@@ -275,14 +276,60 @@ const MainDashboard = () => {
                 </div>
               </div>
             ) : (
-              <>
-                {d.viewMode === 'drilldown' && d.drillDownTable && <ErrorBoundary fallback={(_, reset) => <PanelError name="Drill Down" reset={reset} />}><DrillDownView connectionId={d.connectionId} tableName={d.drillDownTable} onBack={d.handleBackToOverview} onToggleLatent={d.handleToggleLatent} initialShowSimulation={false} /></ErrorBoundary>}
-                {d.viewMode === 'dataflow' && <ErrorBoundary fallback={(_, reset) => <PanelError name="Data Flow" reset={reset} />}><DataFlowView connectionId={d.connectionId} /></ErrorBoundary>}
-                {d.viewMode === 'analytics' && <ErrorBoundary fallback={(_, reset) => <PanelError name="Analytics" reset={reset} />}><AnalyticsView connectionId={d.connectionId} graphData={d.graphData} mlInsights={d.mlInsights} gravitySuggestions={d.gravitySuggestions} /></ErrorBoundary>}
-                {d.viewMode === 'vitals' && <ErrorBoundary fallback={(_, reset) => <PanelError name="System Vitals" reset={reset} />}><SystemVitalsDashboard /></ErrorBoundary>}
-                {d.viewMode === 'schema' && <ErrorBoundary fallback={(_, reset) => <PanelError name="Schema" reset={reset} />}><SchemaView connectionId={d.connectionId} /></ErrorBoundary>}
-                {d.viewMode === 'intelligence' && <ErrorBoundary fallback={(_, reset) => <PanelError name="Intelligence Hub" reset={reset} />}><IntelligenceHub connectionId={d.connectionId} selectedNode={d.selectedNode} /></ErrorBoundary>}
-                {d.viewMode === 'lineage' && (
+              <Routes>
+                {/* Root paths */}
+                <Route path="/" element={null} />
+                <Route path="/overview" element={null} />
+                <Route path="/globalLatent" element={null} />
+                <Route path="/latent" element={null} />
+
+                {/* Parametric drilldown view */}
+                <Route path="/drilldown/:tableName" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Drill Down" reset={reset} />}>
+                    <DrillDownRouteWrapper d={d} />
+                  </ErrorBoundary>
+                } />
+
+                {/* Fallback drilldown path mapping to the stored active table, or overview if empty */}
+                <Route path="/drilldown" element={
+                  d.drillDownTable ? (
+                    <Navigate to={`/drilldown/${d.drillDownTable}`} replace />
+                  ) : (
+                    <Navigate to="/overview" replace />
+                  )
+                } />
+
+                <Route path="/dataflow" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Data Flow" reset={reset} />}>
+                    <DataFlowView connectionId={d.connectionId} />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/analytics" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Analytics" reset={reset} />}>
+                    <AnalyticsView connectionId={d.connectionId} graphData={d.graphData} mlInsights={d.mlInsights} gravitySuggestions={d.gravitySuggestions} />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/vitals" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="System Vitals" reset={reset} />}>
+                    <SystemVitalsDashboard />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/schema" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Schema" reset={reset} />}>
+                    <SchemaView connectionId={d.connectionId} />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/intelligence" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Intelligence Hub" reset={reset} />}>
+                    <IntelligenceHub connectionId={d.connectionId} selectedNode={d.selectedNode} />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/lineage" element={
                   <ErrorBoundary fallback={(_, reset) => <PanelError name="Perspective Lineage" reset={reset} />}>
                     <PerspectiveLineageView multiSelectedNodes={d.multiSelectedNodes} setMultiSelectedNodes={d.setMultiSelectedNodes}
                       showMultiConnections={d.showMultiConnections} setShowMultiConnections={d.setShowMultiConnections}
@@ -292,8 +339,11 @@ const MainDashboard = () => {
                       pinnedCols={d.pinnedCols} setPinnedCols={d.setPinnedCols} columnAliases={d.columnAliases} setColumnAliases={d.setColumnAliases}
                     />
                   </ErrorBoundary>
-                )}
-              </>
+                } />
+
+                {/* Fallback route */}
+                <Route path="*" element={<Navigate to="/overview" replace />} />
+              </Routes>
             )}
           </div>
         </div>
@@ -342,6 +392,31 @@ const MainDashboard = () => {
         </div>
       </div>
     </>
+  );
+};
+
+// Route wrapper to synchronize URL params with Zustand store
+const DrillDownRouteWrapper = ({ d }) => {
+  const { tableName } = useParams();
+
+  React.useEffect(() => {
+    if (tableName && d.drillDownTable !== tableName) {
+      d.setDrillDownTable(tableName);
+      d.setBreadcrumbs([
+        { label: 'Overview', onClick: () => d.handleNavigate('overview') },
+        { label: `Table: ${tableName}` }
+      ]);
+    }
+  }, [tableName, d]);
+
+  return (
+    <DrillDownView
+      connectionId={d.connectionId}
+      tableName={tableName || d.drillDownTable}
+      onBack={d.handleBackToOverview}
+      onToggleLatent={d.handleToggleLatent}
+      initialShowSimulation={false}
+    />
   );
 };
 

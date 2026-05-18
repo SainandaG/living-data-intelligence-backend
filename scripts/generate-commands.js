@@ -1,109 +1,98 @@
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
-// Mocking the export for a simple JS execution
-const COMMAND_DEFINITIONS = [
-    {
-        intent: 'highlight_node',
-        phrases: [
-            'highlight {table_name}',
-            'focus on {table_name}',
-            'zoom {table_name}',
-            'zoom to {table_name}',
-            'show me {table_name}',
-            'find {table_name}',
-            'center on {table_name}',
-            'select {table_name}',
-            'where is {table_name}'
-        ],
-        action: 'graph.highlight',
-        handler: 'GraphActionHandler',
-        paramMapping: { 'table_name': 'table_name' },
-        examples: ['highlight patient table', 'show me orders']
-    },
-    {
-        intent: 'zoom_cluster',
-        phrases: [
-            'zoom into {cluster_name}',
-            'focus cluster {cluster_name}',
-            'show cluster {cluster_name}',
-            'go to cluster {cluster_name}',
-            'drill into {cluster_name}'
-        ],
-        action: 'graph.zoom_cluster',
-        handler: 'GraphActionHandler',
-        paramMapping: { 'cluster_name': 'cluster_name' },
-        examples: ['zoom into revenue cluster']
-    },
-    {
-        intent: 'start_flow',
-        phrases: [
-            'start data flow',
-            'play transaction flow',
-            'start flow',
-            'begin animation',
-            'show data moving',
-            'activate particles',
-            'transaction flow of {table_name}',
-            'show flow for {table_name}',
-            'flow of {table_name}',
-            'start flow for {table_name}'
-        ],
-        action: 'graph.start_flow',
-        handler: 'DataflowActionHandler',
-        paramMapping: { 'table_name': 'table_name' },
-        examples: ['start data flow', 'play transaction flow']
-    },
-    {
-        intent: 'stop_flow',
-        phrases: ['stop flow', 'pause flow', 'stop data flow', 'pause animation'],
-        action: 'graph.stop_flow',
-        handler: 'DataflowActionHandler',
-        paramMapping: {},
-        examples: ['stop flow']
-    },
-    {
-        intent: 'run_anomaly_detection',
-        phrases: ['show anomalies', 'detect anomalies', 'find anomalies', 'run health check'],
-        action: 'analytics.anomaly',
-        handler: 'AnalyticsActionHandler',
-        paramMapping: {},
-        examples: ['show anomalies']
-    },
-    {
-        intent: 'apply_clustering',
-        phrases: ['apply clustering', 'run clustering', 'cluster tables', 'organize tables'],
-        action: 'analytics.cluster',
-        handler: 'AnalyticsActionHandler',
-        paramMapping: {},
-        examples: ['apply clustering']
-    },
-    {
-        intent: 'show_schema',
-        phrases: ['show schema', 'display schema', 'view database structure'],
-        action: 'ui.show_schema',
-        handler: 'UIActionHandler',
-        paramMapping: {},
-        examples: ['show schema']
-    },
-    {
-        intent: 'reset_view',
-        phrases: ['reset view', 'reset camera', 'go back', 'overview'],
-        action: 'graph.reset_view',
-        handler: 'GraphActionHandler',
-        paramMapping: {},
-        examples: ['reset view']
-    },
-    {
-        intent: 'drill_down',
-        phrases: ['drill down {table_name}', 'inspect table {table_name}', 'open detail for {table_name}'],
-        action: 'ui.drill_down',
-        handler: 'UIActionHandler',
-        paramMapping: { 'table_name': 'table_name' },
-        examples: ['drill down users']
+const sourcePath = path.join(__dirname, '../shared/command-definitions.ts');
+const targetPath = path.join(__dirname, '../backend/config/commands.json');
+
+// Step 1: Read the shared command-definitions.ts source file
+if (!fs.existsSync(sourcePath)) {
+    console.error(`❌ Source definitions file not found: ${sourcePath}`);
+    process.exit(1);
+}
+
+const fileContent = fs.readFileSync(sourcePath, 'utf8');
+
+// Step 2: Robustly extract the COMMAND_DEFINITIONS array literal block, ignoring comments/typings
+function extractArray(content) {
+    const startMatch = content.match(/export\s+const\s+COMMAND_DEFINITIONS\s*(?::\s*[\w[\]]+)?\s*=\s*\[/);
+    if (!startMatch) {
+        throw new Error("Could not find COMMAND_DEFINITIONS array start in command-definitions.ts");
     }
-];
+    const startIndex = content.indexOf('[', startMatch.index);
+    let bracketCount = 0;
+    let inString = null; // null or "'", '"', '`'
+    let inComment = null; // null or '//', '/*'
+    
+    for (let i = startIndex; i < content.length; i++) {
+        const char = content[i];
+        const nextChar = content[i + 1];
+        
+        // Handle comment boundaries
+        if (inComment === '//') {
+            if (char === '\n') inComment = null;
+            continue;
+        }
+        if (inComment === '/*') {
+            if (char === '*' && nextChar === '/') {
+                inComment = null;
+                i++; // skip /
+            }
+            continue;
+        }
+        
+        // Handle string boundaries
+        if (inString) {
+            if (char === '\\') {
+                i++; // skip escaped char
+                continue;
+            }
+            if (char === inString) {
+                inString = null;
+            }
+            continue;
+        }
+        
+        // Check for new string/comment starts
+        if (char === '/' && nextChar === '/') {
+            inComment = '//';
+            i++;
+            continue;
+        }
+        if (char === '/' && nextChar === '*') {
+            inComment = '/*';
+            i++;
+            continue;
+        }
+        if (char === "'" || char === '"' || char === '`') {
+            inString = char;
+            continue;
+        }
+        
+        // Count brackets
+        if (char === '[') {
+            bracketCount++;
+        } else if (char === ']') {
+            bracketCount--;
+            if (bracketCount === 0) {
+                // Return the exact substring representing the array literal
+                return content.substring(startIndex, i + 1);
+            }
+        }
+    }
+    throw new Error("Mismatched brackets: Could not find matching closing bracket for COMMAND_DEFINITIONS");
+}
 
+let COMMAND_DEFINITIONS;
+try {
+    const arrayStr = extractArray(fileContent);
+    COMMAND_DEFINITIONS = vm.runInNewContext(arrayStr);
+} catch (err) {
+    console.error(`❌ Failed to parse COMMAND_DEFINITIONS from TS file: ${err.message}`);
+    process.exit(1);
+}
+
+// Step 3: Map the definitions into standard JSON format as defined in the canonical schema
 function generateCommandsJSON() {
     return {
         version: "1.0.0",
@@ -112,8 +101,13 @@ function generateCommandsJSON() {
             phrases: def.phrases,
             intent: def.intent,
             action: def.action,
-            parameters: def.paramMapping,
-            examples: def.examples,
+            parameters: Object.fromEntries(
+                Object.entries(def.paramMapping || {}).map(([k, v]) => [
+                    k,
+                    { type: "string", required: false, description: `Mapped to ${v}` }
+                ])
+            ),
+            examples: def.examples || [],
             description: `Auto-generated for ${def.intent}`
         })),
         metadata: {
@@ -126,13 +120,12 @@ function generateCommandsJSON() {
 }
 
 const commandsJSON = generateCommandsJSON();
-const targetPath = path.join(__dirname, '../backend/config/commands.json');
 
-// Ensure directory exists
+// Step 4: Ensure target directory exists and write commands.json
 const dir = path.dirname(targetPath);
 if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
 }
 
 fs.writeFileSync(targetPath, JSON.stringify(commandsJSON, null, 4));
-console.log(`✅ Successfully generated ${targetPath}`);
+console.log(`✅ Successfully generated ${targetPath} from single source of truth (${sourcePath})`);

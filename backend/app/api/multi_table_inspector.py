@@ -96,7 +96,13 @@ async def get_multi_table_schema(
 
             # Get row count
             try:
-                safe_name = db_connector.quote_identifier(connection_id, tbl.name)
+                actual_schema_name = tbl.schema_name
+                if actual_schema_name:
+                    quoted_schema = db_connector.quote_identifier(connection_id, actual_schema_name)
+                    quoted_tbl = db_connector.quote_identifier(connection_id, tbl.name)
+                    safe_name = f"{quoted_schema}.{quoted_tbl}"
+                else:
+                    safe_name = db_connector.quote_identifier(connection_id, tbl.name)
                 rows = await db_connector.query(
                     connection_id,
                     f'SELECT COUNT(*) AS cnt FROM {safe_name};'
@@ -199,7 +205,13 @@ async def get_table_rows(
         if not display_col:
             display_col = pk_column
 
-        safe_table = db_connector.quote_identifier(connection_id, table_name)
+        actual_schema_name = tbl_schema.schema_name
+        if actual_schema_name:
+            quoted_schema = db_connector.quote_identifier(connection_id, actual_schema_name)
+            quoted_tbl = db_connector.quote_identifier(connection_id, table_name)
+            safe_table = f"{quoted_schema}.{quoted_tbl}"
+        else:
+            safe_table = db_connector.quote_identifier(connection_id, table_name)
         safe_pk = db_connector.quote_identifier(connection_id, pk_column)
         safe_disp = db_connector.quote_identifier(connection_id, display_col)
 
@@ -221,7 +233,14 @@ async def get_table_rows(
         if linked_names and fk_cols:
             # 1. First, calculate GLOBAL total weight for each linked table for percentage denominators
             for (lt_name, fk_col) in zip(linked_names, fk_cols):
-                safe_linked = db_connector.quote_identifier(connection_id, lt_name)
+                lt_schema = next((t for t in schema.tables if t.name == lt_name), None)
+                actual_lt_schema = lt_schema.schema_name if lt_schema else None
+                if actual_lt_schema:
+                    quoted_lt_schema = db_connector.quote_identifier(connection_id, actual_lt_schema)
+                    quoted_lt_tbl = db_connector.quote_identifier(connection_id, lt_name)
+                    safe_linked = f"{quoted_lt_schema}.{quoted_lt_tbl}"
+                else:
+                    safe_linked = db_connector.quote_identifier(connection_id, lt_name)
                 safe_fk = db_connector.quote_identifier(connection_id, fk_col)
                 
                 # Weight detection
@@ -251,7 +270,14 @@ async def get_table_rows(
             selects = []
             joins = []
             for i, (lt_name, fk_col) in enumerate(zip(linked_names, fk_cols)):
-                safe_linked = db_connector.quote_identifier(connection_id, lt_name)
+                lt_schema = next((t for t in schema.tables if t.name == lt_name), None)
+                actual_lt_schema = lt_schema.schema_name if lt_schema else None
+                if actual_lt_schema:
+                    quoted_lt_schema = db_connector.quote_identifier(connection_id, actual_lt_schema)
+                    quoted_lt_tbl = db_connector.quote_identifier(connection_id, lt_name)
+                    safe_linked = f"{quoted_lt_schema}.{quoted_lt_tbl}"
+                else:
+                    safe_linked = db_connector.quote_identifier(connection_id, lt_name)
                 safe_fk = db_connector.quote_identifier(connection_id, fk_col)
                 
                 # Re-detect weight field for this specific join
@@ -455,7 +481,13 @@ async def get_row_detail(
                 )
             pk_column = (pk_col_obj.name if pk_col_obj else (src_schema.columns[0].name if src_schema.columns else "id"))
 
-        safe_src_table = db_connector.quote_identifier(connection_id, table_name)
+        actual_schema_name = src_schema.schema_name
+        if actual_schema_name:
+            quoted_schema = db_connector.quote_identifier(connection_id, actual_schema_name)
+            quoted_tbl = db_connector.quote_identifier(connection_id, table_name)
+            safe_src_table = f"{quoted_schema}.{quoted_tbl}"
+        else:
+            safe_src_table = db_connector.quote_identifier(connection_id, table_name)
         safe_src_pk = db_connector.quote_identifier(connection_id, pk_column)
 
         # Prepare SQL placeholders for IN clause
@@ -557,7 +589,13 @@ async def get_row_detail(
                     ])
                 ]
 
-                safe_linked = db_connector.quote_identifier(connection_id, linked_name)
+                actual_linked_schema = linked_schema.schema_name if linked_schema else None
+                if actual_linked_schema:
+                    quoted_linked_schema = db_connector.quote_identifier(connection_id, actual_linked_schema)
+                    quoted_linked_tbl = db_connector.quote_identifier(connection_id, linked_name)
+                    safe_linked = f"{quoted_linked_schema}.{quoted_linked_tbl}"
+                else:
+                    safe_linked = db_connector.quote_identifier(connection_id, linked_name)
                 safe_fk = db_connector.quote_identifier(connection_id, fk_col)
                 safe_src_key = db_connector.quote_identifier(connection_id, src_key_col)
 
