@@ -1,0 +1,38 @@
+site_name: Living Data Intelligence Platform
+site_description: Documentation for Living Data Intelligence Backend
+site_author: Open Source Community
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+
+nav:
+  - Home: index.md
+  - Explainable AI: explainable-ai.md
+  - Responsible AI: responsible-ai.md
+  - ESG Impact: esg.md
+  - Roadmap: roadmap.md
+  - Community & API Usage: community.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html

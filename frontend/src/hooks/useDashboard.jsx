@@ -120,7 +120,7 @@ export const useDashboard = (graphRef) => {
 
   // ── URL navigation ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const rawPath = location.pathname.substring(1).replace(/\/$/, '');
+    const rawPath = location.pathname.substring(1).split('/')[0].replace(/\/$/, '');
     const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
     const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
     if (viewMode !== targetMode) setViewMode(targetMode);
@@ -137,7 +137,7 @@ export const useDashboard = (graphRef) => {
       graphRef.current?.setLens?.('ops');
     }
 
-    if (location.pathname !== `/${targetMode}`) {
+    if (!location.pathname.startsWith(`/${targetMode}`)) {
       if (location.pathname === '/' && targetMode === 'overview') return;
       navigate(`/${targetMode}`, { replace: true });
     }

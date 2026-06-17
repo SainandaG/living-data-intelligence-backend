@@ -244,9 +244,26 @@ class AgentService:
                 for other_col in other_cols:
                     other_lower = other_col.lower()
                     # Check for ID patterns
-                    if 'id' in col_lower and 'id' in other_lower:
-                        if col_lower.replace('_id', '') in other_lower or other_lower.replace('_id', '') in col_lower:
-                            common_patterns.add((col, other_col))
+                    if col_lower.endswith('id') and other_lower.endswith('id'):
+                        if col_lower == 'id' and other_lower == 'id':
+                            continue
+                        
+                        col_base = col_lower.replace('_id', '').strip('_')
+                        other_base = other_lower.replace('_id', '').strip('_')
+                        
+                        if col_base != '' and other_base != '':
+                            other_t_name = other_table['name'].lower()
+                            table_t_name = table_name.lower()
+                            
+                            # Match if column name base matches other table name (e.g. driver_id -> driver_profiles)
+                            if col_base == other_t_name or col_base == other_t_name.rstrip('s') or other_t_name.startswith(col_base):
+                                common_patterns.add((col, other_col))
+                            # Match if other column name base matches table name
+                            elif other_base == table_t_name or other_base == table_t_name.rstrip('s') or table_t_name.startswith(other_base):
+                                common_patterns.add((col, other_col))
+                            # Match if column bases match each other exactly (excluding generic id)
+                            elif col_base == other_base and col_base != 'id':
+                                common_patterns.add((col, other_col))
             
             if common_patterns:
                 suggestions.append({

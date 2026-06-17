@@ -77,6 +77,174 @@ import { createForceSimulation } from './ThreeGraph/PhysicsEngine.js';
 import { setupInteractionHandlers } from './ThreeGraph/InteractionHandler.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Hover FK Arc Overlay Component ─────────────────────────────────────────
+// Renders SVG arcs + dual-hemisphere hub spheres between the hovered table and
+// its FK-connected neighbours, mirroring the SpinExpand hover behaviour.
+// Positions are pre-projected to 2D screen space by _buildHoverFKOverlay().
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HoverFKArcOverlay({ overlay }) {
+    const { arcs, W, H } = overlay;
+    const [hubHoveredId, setHubHoveredId] = React.useState(null);
+
+    return (
+        <svg
+            style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 10,
+                overflow: 'visible',
+            }}
+            viewBox={`0 0 ${W} ${H}`}
+        >
+            <defs>
+                {arcs.map(arc => (
+                    <linearGradient
+                        key={`grad-${arc.id}`}
+                        id={`fk-grad-${arc.id}`}
+                        x1={arc.from.x} y1={arc.from.y}
+                        x2={arc.to.x}   y2={arc.to.y}
+                        gradientUnits="userSpaceOnUse"
+                    >
+                        <stop offset="0%"   stopColor={arc.fromColor} stopOpacity="0.85" />
+                        <stop offset="100%" stopColor={arc.toColor}   stopOpacity="0.85" />
+                    </linearGradient>
+                ))}
+            </defs>
+
+            {arcs.map(arc => {
+                const mx = (arc.from.x + arc.to.x) / 2;
+                const dy = arc.to.y - arc.from.y;
+                const dx = arc.to.x - arc.from.x;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Control point: perpendicular lift proportional to distance
+                const lift = dist * 0.28;
+                const perpX = -dy / dist * lift;
+                const perpY =  dx / dist * lift;
+                const cx = mx + perpX;
+                const cy = (arc.from.y + arc.to.y) / 2 + perpY;
+
+                // Hub (midpoint of the bezier at t=0.5)
+                const hubX = 0.25 * arc.from.x + 0.5 * cx + 0.25 * arc.to.x;
+                const hubY = 0.25 * arc.from.y + 0.5 * cy + 0.25 * arc.to.y;
+
+                const isHovered = hubHoveredId === arc.id;
+                const hubR = Math.max(10, Math.min(18, 8 + dist * 0.02));
+
+                const displayCount = arc.rowCount >= 1000
+                    ? `${(arc.rowCount / 1000).toFixed(1)}k`
+                    : arc.rowCount > 0 ? String(arc.rowCount) : null;
+
+                return (
+                    <g key={arc.id}>
+                        {/* Bezier arc with gradient */}
+                        <path
+                            d={`M ${arc.from.x} ${arc.from.y} Q ${cx} ${cy} ${arc.to.x} ${arc.to.y}`}
+                            stroke={`url(#fk-grad-${arc.id})`}
+                            strokeWidth={isHovered ? 2.5 : 1.5}
+                            fill="none"
+                            opacity={isHovered ? 1.0 : 0.7}
+                            strokeLinecap="round"
+                        />
+
+                        {/* Hub — rendered as overlaid semicircles in SVG */}
+                        <g transform={`translate(${hubX}, ${hubY})`}>
+                            {/* Left hemisphere (fromColor) */}
+                            <path
+                                d={`M 0 ${-hubR} A ${hubR} ${hubR} 0 0 0 0 ${hubR} Z`}
+                                fill={arc.fromColor}
+                                opacity={isHovered ? 1.0 : 0.85}
+                                style={{ filter: isHovered ? `drop-shadow(0 0 6px ${arc.fromColor})` : undefined }}
+                            />
+                            {/* Right hemisphere (toColor) */}
+                            <path
+                                d={`M 0 ${-hubR} A ${hubR} ${hubR} 0 0 1 0 ${hubR} Z`}
+                                fill={arc.toColor}
+                                opacity={isHovered ? 1.0 : 0.85}
+                                style={{ filter: isHovered ? `drop-shadow(0 0 6px ${arc.toColor})` : undefined }}
+                            />
+                            {/* Divider ring */}
+                            <line x1="0" y1={-hubR} x2="0" y2={hubR}
+                                stroke="white" strokeWidth={isHovered ? 2 : 1}
+                                opacity={isHovered ? 1 : 0.5} />
+                            {/* Outer ring */}
+                            <circle cx="0" cy="0" r={hubR}
+                                fill="none" stroke="white"
+                                strokeWidth={isHovered ? 2 : 0.8}
+                                opacity={isHovered ? 0.8 : 0.3} />
+
+                            {/* Row count badge */}
+                            {displayCount && (
+                                <g>
+                                    <rect
+                                        x={-20} y={hubR + 3}
+                                        width={40} height={16}
+                                        rx={8}
+                                        fill="rgba(0,0,0,0.85)"
+                                        stroke={arc.fromColor}
+                                        strokeWidth="0.8"
+                                        strokeOpacity="0.6"
+                                    />
+                                    <text
+                                        x="0" y={hubR + 15}
+                                        textAnchor="middle"
+                                        fontSize="10"
+                                        fontWeight="900"
+                                        fontFamily="'JetBrains Mono', monospace"
+                                        fill="white"
+                                    >
+                                        {displayCount}
+                                    </text>
+                                </g>
+                            )}
+
+                            {/* Invisible hit area */}
+                            <circle
+                                cx="0" cy="0" r={hubR + 8}
+                                fill="transparent"
+                                style={{ pointerEvents: 'all', cursor: 'default' }}
+                                onMouseEnter={() => setHubHoveredId(arc.id)}
+                                onMouseLeave={() => setHubHoveredId(null)}
+                            />
+                        </g>
+
+                        {/* Tooltip on hub hover */}
+                        {isHovered && (
+                            <g>
+                                <rect
+                                    x={hubX - 90} y={hubY - hubR - 34}
+                                    width={180} height={26}
+                                    rx={5}
+                                    fill="rgba(0,0,0,0.92)"
+                                    stroke={arc.toColor}
+                                    strokeWidth="1"
+                                    strokeOpacity="0.7"
+                                    style={{ filter: `drop-shadow(0 0 8px ${arc.fromColor}50) drop-shadow(0 0 8px ${arc.toColor}50)` }}
+                                />
+                                {/* Dot indicators */}
+                                <circle cx={hubX - 78} cy={hubY - hubR - 21} r="4" fill={arc.fromColor} />
+                                <text
+                                    x={hubX - 70} y={hubY - hubR - 17}
+                                    fontSize="10" fontWeight="700"
+                                    fontFamily="'JetBrains Mono', monospace"
+                                    fill="#fbbf24"
+                                    dominantBaseline="middle"
+                                >
+                                    {arc.fkLabel.length > 28 ? arc.fkLabel.slice(0, 26) + '…' : arc.fkLabel}
+                                </text>
+                                <circle cx={hubX + 78} cy={hubY - hubR - 21} r="4" fill={arc.toColor} />
+                            </g>
+                        )}
+                    </g>
+                );
+            })}
+        </svg>
+    );
+}
+
 const ThreeGraph = forwardRef(({
     data,
     tps = 0,
@@ -118,6 +286,7 @@ const ThreeGraph = forwardRef(({
     const edgesGloballyHiddenRef = useRef(false);
     const sceneRef = useRef(null);
     const hoverNodeRef = useRef(null);
+    const hoverConnectedIdsRef = useRef(new Set()); // IDs connected to currently hovered node
     const controlsRef = useRef(null);
     const tpsRef = useRef(tps);
     const selectedNodeRef = useRef(null);
@@ -267,6 +436,13 @@ const ThreeGraph = forwardRef(({
 
     const [clusterMetadata, setClusterMetadata] = useState(null);
     const [clusterMetadataLoading, setClusterMetadataLoading] = useState(false);
+
+    // ── Hover FK Arc Overlay ──────────────────────────────────────────────────
+    // Stores projected 2D screen positions for FK arcs when hovering a node.
+    const [hoverFKOverlay, setHoverFKOverlay] = useState(null);
+    // Ref so the animation loop / event handlers can call it without stale closure
+    const setHoverFKOverlayRef = useRef(setHoverFKOverlay);
+    useEffect(() => { setHoverFKOverlayRef.current = setHoverFKOverlay; }, []);
 
 
     const { update: updateGlow } = useGlowManager();
@@ -1266,6 +1442,121 @@ const ThreeGraph = forwardRef(({
         const raycaster = new THREE.Raycaster();
         raycaster.params.Line.threshold = 4.0; // [FIX] Increase threshold to make lines easier to hover
 
+        // ── Build hover FK arc overlay helper ────────────────────────────────
+        // Projects the hovered node and its FK-connected neighbours into 2D screen
+        // space and stores the result in React state for the SVG overlay to render.
+        // Defined before onMouseMove because it is called inside that handler.
+        const _buildHoverFKOverlay = (hoveredNode, cam, rend) => {
+            if (!hoveredNode?.mesh?.position) {
+                setHoverFKOverlayRef.current(null);
+                hoverConnectedIdsRef.current = new Set();
+                return;
+            }
+
+            const rect = rend.domElement.getBoundingClientRect();
+            const W = rect.width;
+            const H = rect.height;
+
+            const project3D = (pos3) => {
+                const v = pos3.clone().project(cam);
+                return {
+                    x: (v.x * 0.5 + 0.5) * W,
+                    y: (-v.y * 0.5 + 0.5) * H,
+                };
+            };
+
+            const hoveredPos2D = project3D(hoveredNode.mesh.position);
+
+            // Find FK connections via edgesRef (Three.js edges, same source as animate loop)
+            // NOTE: Do NOT use data.edges here — D3 mutates edge.source/target to node objects
+            // after simulation starts, making string-ID comparisons unreliable.
+            // edgesRef.current uses pre-normalized userData.sourceId / userData.targetId.
+            const connectedArcs = [];
+            const seenPairs = new Set();
+            const connectedIds = new Set(); // For node dimming in animate loop
+            const hovId = String(hoveredNode.id).toLowerCase();
+            connectedIds.add(hovId); // Always include self
+
+            const getNormalizedId = (val) => {
+                if (!val) return '';
+                if (typeof val === 'object') return String(val.id || '').toLowerCase();
+                return String(val).toLowerCase();
+            };
+
+            edgesRef.current.forEach(edge => {
+                const rawSrc = getNormalizedId(edge.userData.sourceId);
+                const rawTgt = getNormalizedId(edge.userData.targetId);
+                const isHovSrc = rawSrc === hovId;
+                const isHovTgt = rawTgt === hovId;
+                if (!isHovSrc && !isHovTgt) return;
+
+                const peerId = isHovSrc ? rawTgt : rawSrc;
+                connectedIds.add(peerId); // Track for dimming
+
+                const pairKey = [hovId, peerId].sort().join('|');
+                if (seenPairs.has(pairKey)) return;
+                seenPairs.add(pairKey);
+
+                const peerNode = nodesRef.current.find(n => String(n.id).toLowerCase() === peerId);
+                if (!peerNode?.mesh?.position) return;
+
+                const peerPos2D = project3D(peerNode.mesh.position);
+
+                // Colors — read from mesh material (most reliable), fallback to node data
+                const toHexStr = (val) => {
+                    if (!val && val !== 0) return null;
+                    if (typeof val === 'string' && (val.startsWith('#') || val.startsWith('rgb'))) return val;
+                    if (typeof val === 'number') return '#' + val.toString(16).padStart(6, '0');
+                    return null;
+                };
+                const getNodeColor = (nd) => {
+                    if (nd.mesh?.material?.color) return '#' + nd.mesh.material.color.getHexString();
+                    return toHexStr(nd.node_color) || toHexStr(nd.color) || '#60a5fa';
+                };
+                const hovColor  = getNodeColor(hoveredNode);
+                const peerColor = getNodeColor(peerNode);
+                const fromColor = isHovSrc ? hovColor : peerColor;
+                const toColor   = isHovSrc ? peerColor : hovColor;
+
+                const rowCount = peerNode.metadata?.rows || peerNode.row_count || 0;
+
+                // FK column label
+                let fkLabel = '';
+                const fks = (isHovSrc ? hoveredNode : peerNode).foreign_keys || [];
+                const matchFk = fks.find(fk => {
+                    const ref = (fk.referenced_table || '').toLowerCase();
+                    const refId = isHovSrc ? peerId : hovId;
+                    return ref === refId.toLowerCase() || ref === (isHovSrc ? peerNode.name : hoveredNode.name || '').toLowerCase();
+                });
+                if (matchFk) {
+                    const srcName = isHovSrc ? hoveredNode.name : peerNode.name;
+                    const tgtName = isHovSrc ? peerNode.name : hoveredNode.name;
+                    fkLabel = `${srcName}.${matchFk.column} → ${tgtName}.${matchFk.referenced_column || matchFk.column}`;
+                } else {
+                    fkLabel = `${isHovSrc ? hoveredNode.name : peerNode.name} → ${isHovSrc ? peerNode.name : hoveredNode.name}`;
+                }
+
+                connectedArcs.push({
+                    id: pairKey,
+                    from: isHovSrc ? hoveredPos2D : peerPos2D,
+                    to:   isHovSrc ? peerPos2D   : hoveredPos2D,
+                    fromColor, toColor,
+                    rowCount,
+                    fkLabel,
+                    peerName: peerNode.name || peerId,
+                });
+            });
+
+            // Publish connected IDs so the animate loop can dim other nodes
+            hoverConnectedIdsRef.current = connectedIds;
+
+            setHoverFKOverlayRef.current(
+                connectedArcs.length > 0
+                    ? { hoveredPos2D, arcs: connectedArcs, W, H }
+                    : null
+            );
+        };
+
         const onMouseMove = (e) => {
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1329,6 +1620,9 @@ const ThreeGraph = forwardRef(({
                         onEdgeHover(null); // Clear edge hover if we're hovering a node
                     }
 
+                    // ── FK ARC OVERLAY: project FK neighbours to 2D ──────────
+                    _buildHoverFKOverlay(foundNode, camera, renderer);
+
                     // SONIFICATION: Play metric sound on hover
                     const gravity = foundNode.importance_score || 1.0;
                     const glowIntense = foundNode.node_glow || 0.5;
@@ -1366,6 +1660,8 @@ const ThreeGraph = forwardRef(({
                 // No intersections at all
                 if (hoverNodeRef.current) {
                     hoverNodeRef.current = null; // Clear Ref
+                    hoverConnectedIdsRef.current = new Set(); // Clear connected IDs
+                    setHoverFKOverlayRef.current(null); // Clear FK arc overlay
 
                     // [NEW] Clear hover preview
                     if (onNodeHover) {
@@ -1620,8 +1916,10 @@ const ThreeGraph = forwardRef(({
         };
 
         // Loop - Just renders (Logic moved to D3 tick + Glow update)
+        let _hoverOverlayFrame = 0; // Throttle counter for hover overlay React state
         const animate = () => {
             animationRef.current = requestAnimationFrame(animate);
+            _hoverOverlayFrame++;
 
             // [FIX] Zombie Simulation check
             if (paused) return;
@@ -1760,6 +2058,74 @@ const ThreeGraph = forwardRef(({
                 });
             }
 
+            // ── 1b. HOVER SCENE EFFECT: dim unconnected nodes, brighten connected ones ──
+            // This mirrors the Spin & Expand behaviour where hovering creates a
+            // focused "constellation" showing only the FK neighbourhood.
+            const hoveredId = hoverNodeRef.current?.id ? String(hoverNodeRef.current.id).toLowerCase() : null;
+            const connectedIds = hoverConnectedIdsRef.current;
+            if (nodesRef.current) {
+                nodesRef.current.forEach(node => {
+                    if (!node.mesh) return;
+                    const normalizedNodeId = String(node.id).toLowerCase();
+                    const isHoveredNode = normalizedNodeId === hoveredId;
+                    const isConnected   = connectedIds.has(normalizedNodeId);
+                    const isIsolating   = hoveredId !== null;
+
+                    // Target scale: hovered node pops up, others stay normal
+                    const targetScale = isHoveredNode ? 1.35 : 1.0;
+                    node.mesh.scale.setScalar(
+                        THREE.MathUtils.lerp(node.mesh.scale.x, targetScale, 0.12)
+                    );
+
+                    // Traverse all child meshes (inner sphere + outer glass shell)
+                    node.mesh.traverse(child => {
+                        if (!child.isMesh || !child.material) return;
+                        child.material.transparent = true;
+
+                        // Cache base values on first encounter (before any hover modifies them)
+                        if (child.material._baseOpacity === undefined) {
+                            child.material._baseOpacity = child.material.opacity ?? 1.0;
+                            child.material._baseEmissive = child.material.emissiveIntensity ?? 0.15;
+                        }
+
+                        if (!isIsolating) {
+                            // No hover active: smoothly restore full opacity + base glow
+                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, child.material._baseOpacity, 0.1);
+                            if (child.material.emissiveIntensity !== undefined) {
+                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
+                                    child.material.emissiveIntensity, child.material._baseEmissive, 0.1
+                                );
+                            }
+                        } else if (isHoveredNode) {
+                            // Hovered node: fully opaque + strong glow
+                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 1.0, 0.15);
+                            if (child.material.emissiveIntensity !== undefined) {
+                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
+                                    child.material.emissiveIntensity, 2.5, 0.15
+                                );
+                            }
+                        } else if (isConnected) {
+                            // FK-connected: fully visible + mild glow
+                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 0.95, 0.12);
+                            if (child.material.emissiveIntensity !== undefined) {
+                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
+                                    child.material.emissiveIntensity, 1.2, 0.12
+                                );
+                            }
+                        } else {
+                            // Unconnected: dim/ghost to near-invisible
+                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 0.05, 0.1);
+                            if (child.material.emissiveIntensity !== undefined) {
+                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
+                                    child.material.emissiveIntensity, 0.0, 0.1
+                                );
+                            }
+                        }
+                        child.material.needsUpdate = true;
+                    });
+                });
+            }
+
             // 2. UPDATE EDGES (Opacity only, curve handled by D3 tick)
             edgesRef.current.forEach(edge => {
                 // Eye-button global hide takes absolute priority over all per-edge logic
@@ -1887,6 +2253,11 @@ const ThreeGraph = forwardRef(({
                 composerRef.current.render();
             } else {
                 renderer.render(scene, camera);
+            }
+
+            // ── Keep hover FK overlay in sync with camera (throttled to ~20 fps) ─
+            if (hoverNodeRef.current && _hoverOverlayFrame % 3 === 0) {
+                _buildHoverFKOverlay(hoverNodeRef.current, camera, renderer);
             }
         };
         animate();
@@ -3083,6 +3454,11 @@ const ThreeGraph = forwardRef(({
                 className={`absolute inset-0 z-0 transition-opacity duration-700 ${isSnapshotMode ? 'opacity-80' : 'opacity-100'}`}
                 style={{ willChange: 'transform' }}
             />
+
+            {/* ── Hover FK Arc Overlay ─────────────────────────────────────── */}
+            {hoverFKOverlay && (
+                <HoverFKArcOverlay overlay={hoverFKOverlay} />
+            )}
 
             {/* [BUSINESS LENS] Floating Impact Labels removed per user request */}
 

@@ -107,8 +107,14 @@ apiClient.interceptors.request.use(
     (config) => {
         activeRequests++;
 
+        // Centralized URL normalization to strip leading slashes
+        // so that Axios correctly prepends baseURL ('/api')
+        if (config.url && config.url.startsWith('/') && !config.url.startsWith('/api/') && !config.url.startsWith('http://') && !config.url.startsWith('https://')) {
+            config.url = config.url.substring(1);
+        }
+
         // Skip auth for /auth/* endpoints
-        const isAuthRoute = config.url && config.url.startsWith('/auth/');
+        const isAuthRoute = config.url && (config.url.startsWith('/auth/') || config.url.startsWith('auth/'));
 
         if (!isAuthRoute) {
             const token = localStorage.getItem('token'); // Preserved existing token pattern
