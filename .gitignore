@@ -75,3 +75,6 @@ backend/pip-audit-report.json
 
 # Claude Settings
 .claude/
+
+# MkDocs build directory
+site/
