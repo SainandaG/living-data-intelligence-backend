@@ -121,7 +121,7 @@ export const useDashboard = (graphRef) => {
   // ── URL navigation ────────────────────────────────────────────────────────────
   useEffect(() => {
     const rawPath = location.pathname.substring(1).split('/')[0].replace(/\/$/, '');
-    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent'];
+    const validModes = ['overview', 'drilldown', 'dataflow', 'analytics', 'vitals', 'schema', 'intelligence', 'lineage', 'globalLatent', 'latent', 'roadmap'];
     const targetMode = validModes.includes(rawPath) ? rawPath : 'overview';
     if (viewMode !== targetMode) setViewMode(targetMode);
 
@@ -525,6 +525,7 @@ export const useDashboard = (graphRef) => {
     toggleInsightPerspective, setFilterValue, activateWarRoom, deactivateWarRoom,
     setShowPKs, setShowFKs, setSingleNodeViewEnabled, setIsInspectorActive,
     setCurrentSnapshot, closeTimeMachine, incrementThreeGraphKey, setTimeValue,
+    setDrillDownTable, setBreadcrumbs,
     // Handlers
     handleNavigate, handleNodeDrillDown, handleBackToOverview, handleToggleLatent,
     handleToggleLens, handleToggleLayoutMode, handleNodeClick, handleColumnClick,

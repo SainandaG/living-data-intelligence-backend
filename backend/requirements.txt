@@ -62,3 +62,6 @@ redis>=5.0.1
 # MFA / Security
 pyotp>=2.9.0
 qrcode>=7.4.2
+
+# Firebase Authentication
+firebase-admin>=6.0.0

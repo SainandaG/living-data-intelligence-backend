@@ -8,4 +8,10 @@ timeout /t 2 /nobreak >nul
 
 echo Starting backend with UTF-8 encoding...
 set PYTHONIOENCODING=utf-8
-python main.py
+if exist ..\.venv\Scripts\python.exe (
+    echo Using virtual environment Python...
+    ..\.venv\Scripts\python main.py
+) else (
+    echo Using system Python...
+    python main.py
+)

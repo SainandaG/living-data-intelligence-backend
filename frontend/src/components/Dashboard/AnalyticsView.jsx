@@ -3,10 +3,12 @@ import { BarChart3, TrendingUp, Activity, Brain, Download, Zap, AlertTriangle, N
 import { motion, AnimatePresence } from 'framer-motion';
 import ThreeGraph from './ThreeGraph';
 import WorkOnDataModal from './WorkOnDataModal';
+import TimeSeries3DView from './TimeSeries3DView';
 
 export default function AnalyticsView({ connectionId, graphData, mlInsights, gravitySuggestions }) {
     const [showGraphModal, setShowGraphModal] = useState(false);
     const [showWorkOnData, setShowWorkOnData] = useState(false);
+    const [showTimeSeries, setShowTimeSeries] = useState(false);
     const [vizData, setVizData] = useState({ nodes: [], edges: [] });
 
     const tableData = graphData?.nodes || [];
@@ -169,6 +171,33 @@ export default function AnalyticsView({ connectionId, graphData, mlInsights, gra
                 )}
             </AnimatePresence>
 
+            {/* Time Series 3D Modal */}
+            <AnimatePresence>
+                {showTimeSeries && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[5000] bg-[#0a0e1a] flex flex-col"
+                    >
+                        <div className="fixed top-6 right-6 z-[9999]">
+                            <button
+                                onClick={() => setShowTimeSeries(false)}
+                                className="group flex items-center gap-2 px-6 py-3 bg-[var(--bg-elevated)] border border-red-500/50 hover:bg-red-500/20 rounded-full text-white shadow-2xl transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                            >
+                                <span className="font-bold text-red-400 group-hover:text-red-300">Close</span>
+                                <div className="p-1 bg-red-500/20 rounded-full">
+                                    <X size={20} className="text-red-400" />
+                                </div>
+                            </button>
+                        </div>
+                        <div className="w-full h-full relative cursor-move">
+                            <TimeSeries3DView connectionId={connectionId} />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <div className="max-w-7xl mx-auto p-8">
                 {/* Header */}
                 <motion.div
@@ -195,6 +224,13 @@ export default function AnalyticsView({ connectionId, graphData, mlInsights, gra
                             >
                                 <Network size={16} />
                                 Visualize Graph
+                            </button>
+                            <button
+                                onClick={() => setShowTimeSeries(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 border border-emerald-500/50 rounded-lg hover:from-cyan-500/40 hover:to-emerald-500/40 transition-all text-emerald-300 hover:text-white shadow-[0_0_15px_rgba(52,211,153,0.15)]"
+                            >
+                                <TrendingUp size={16} />
+                                Time Series 3D
                             </button>
                             <button
                                 onClick={() => setShowWorkOnData(true)}

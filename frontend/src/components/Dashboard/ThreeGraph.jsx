@@ -303,6 +303,7 @@ const ThreeGraph = forwardRef(({
     const multiSelectedNodesRef = useRef(multiSelectedNodes || []);
     const showMultiConnectionsRef = useRef(showMultiConnections);
     const fkConnectionLinesRef = useRef([]); // FK relationship lines drawn on node selection (latent mode)
+    const fkPkOverlayRef = useRef([]); // Premium FK/PK arcs, particles, labels (toggle-driven)
 
 
     const dummyObject = useMemo(() => new THREE.Object3D(), []);
@@ -443,6 +444,9 @@ const ThreeGraph = forwardRef(({
     // Ref so the animation loop / event handlers can call it without stale closure
     const setHoverFKOverlayRef = useRef(setHoverFKOverlay);
     useEffect(() => { setHoverFKOverlayRef.current = setHoverFKOverlay; }, []);
+
+    // ── XAI Explainability HUD ───────────────────────────────────────────────
+    const [xaiHoverNode, setXaiHoverNode] = useState(null);
 
 
     const { update: updateGlow } = useGlowManager();
@@ -1292,9 +1296,12 @@ const ThreeGraph = forwardRef(({
 
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(width, height),
-            0.4,  // strength
-            0.3,  // radius
-            0.5  // threshold
+            1.1,  // strength
+            0.55,  // radius
+            // Raised from 0.15: at that threshold, even resting-state edges (opacity ~0.15,
+            // saturated cyan) bloomed, washing the whole scene into a haze that hid node/edge
+            // structure. 0.45 keeps bright nodes glowing while dim edges stay dim.
+            0.45  // threshold
         );
         composer.addPass(bloomPass);
         composerRef.current = composer;
@@ -1557,6 +1564,176 @@ const ThreeGraph = forwardRef(({
             );
         };
 
+        // ── Build/clear 3D FK/PK arcs + particles + labels for hovered node ──
+        const _buildHoverFkPk3D = (hoveredNode) => {
+            const sc = sceneRef.current;
+            fkPkOverlayRef.current.forEach(obj => {
+                if (sc) sc.remove(obj);
+                disposeObject(obj);
+            });
+            fkPkOverlayRef.current = [];
+
+            if (!hoveredNode || !sc) return;
+
+            const nodeById = new Map();
+            nodesRef.current.forEach(n => {
+                nodeById.set(String(n.id).toLowerCase(), n);
+                if (n.name) nodeById.set(n.name.toLowerCase(), n);
+            });
+
+            // Resolve to the nodesRef entry (userData copy from raycaster may lack .mesh)
+            const resolvedNode = nodeById.get(String(hoveredNode.id).toLowerCase()) || hoveredNode;
+            const hovMesh = resolvedNode.mesh;
+            if (!hovMesh?.position) return;
+
+            const fks = resolvedNode.foreign_keys || hoveredNode.foreign_keys || [];
+            logger.debug(`[FK/PK Hover] ${resolvedNode.name}: ${fks.length} outgoing FKs, mesh=${!!hovMesh}`);
+
+            const drawn = new Set();
+            const fkConnectedIds = new Set();
+
+            const _addArc = (fromPos, toPos, colName, color) => {
+                const dist = fromPos.distanceTo(toPos);
+                if (dist < 1) return;
+                const mid = new THREE.Vector3().addVectors(fromPos, toPos).multiplyScalar(0.5);
+                mid.y += dist * 0.25;
+                const curve = new THREE.QuadraticBezierCurve3(fromPos.clone(), mid, toPos.clone());
+                const pts = curve.getPoints(48);
+
+                const innerLine = new THREE.Line(
+                    new THREE.BufferGeometry().setFromPoints(pts),
+                    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })
+                );
+                innerLine.userData = { isFkPkOverlay: true };
+                sc.add(innerLine);
+                fkPkOverlayRef.current.push(innerLine);
+
+                const outerLine = new THREE.Line(
+                    new THREE.BufferGeometry().setFromPoints(pts),
+                    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.2 })
+                );
+                outerLine.userData = { isFkPkOverlay: true };
+                sc.add(outerLine);
+                fkPkOverlayRef.current.push(outerLine);
+
+                if (colName) {
+                    const label = createTextSprite(colName, 14, color === 0xfbbf24 ? '#fbbf24' : '#60a5fa');
+                    label.position.copy(mid);
+                    label.position.y += 16;
+                    label.userData = { isFkPkOverlay: true };
+                    sc.add(label);
+                    fkPkOverlayRef.current.push(label);
+                }
+
+                for (let p = 0; p < 3; p++) {
+                    const particle = new THREE.Mesh(
+                        new THREE.SphereGeometry(4, 6, 6),
+                        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
+                    );
+                    particle.userData = {
+                        isFkPkOverlay: true, isFkPkParticle: true,
+                        curve, particleOffset: p / 3,
+                        particleSpeed: 0.18 + Math.random() * 0.08,
+                    };
+                    particle.position.copy(curve.getPoint(p / 3));
+                    sc.add(particle);
+                    fkPkOverlayRef.current.push(particle);
+                }
+
+                logger.debug(`[FK/PK Arc] ${colName || 'link'} drawn`);
+            };
+
+            // OUTGOING: this node's FKs point to other tables
+            fks.forEach(fk => {
+                const refTable = (fk.referenced_table || '').toLowerCase();
+                if (!refTable) return;
+                const peerNode = nodeById.get(refTable);
+                if (!peerNode?.mesh?.position) return;
+                const key = [resolvedNode.id, peerNode.id].sort().join('|');
+                if (drawn.has(key)) return;
+                drawn.add(key);
+                fkConnectedIds.add(String(peerNode.id).toLowerCase());
+                _addArc(hovMesh.position, peerNode.mesh.position, fk.column || 'FK', 0xfbbf24);
+            });
+
+            // INCOMING: other nodes whose FKs reference this table
+            const hovIdLower = (resolvedNode.id || '').toLowerCase();
+            const hovNameLower = (resolvedNode.name || '').toLowerCase();
+            nodesRef.current.forEach(n => {
+                if (n.id === resolvedNode.id) return;
+                (n.foreign_keys || []).forEach(fk => {
+                    const ref = (fk.referenced_table || '').toLowerCase();
+                    if (ref !== hovIdLower && ref !== hovNameLower) return;
+                    if (!n.mesh?.position) return;
+                    const key = [resolvedNode.id, n.id].sort().join('|');
+                    if (drawn.has(key)) return;
+                    drawn.add(key);
+                    fkConnectedIds.add(String(n.id).toLowerCase());
+                    _addArc(n.mesh.position, hovMesh.position, fk.column || 'FK', 0x60a5fa);
+                });
+            });
+
+            // Add bright highlight rings on every connected node
+            fkConnectedIds.forEach(peerId => {
+                const peer = nodeById.get(peerId);
+                if (!peer?.mesh?.position) return;
+                const r = (peer.size || 30) * 1.5;
+
+                // Bright outer ring
+                const ringGeo = new THREE.RingGeometry(r, r + 6, 48);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0xfbbf24, transparent: true, opacity: 0.9,
+                    side: THREE.DoubleSide, depthWrite: false,
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.position.copy(peer.mesh.position);
+                ring.lookAt(cameraRef.current?.position || new THREE.Vector3(0, 0, 1000));
+                ring.userData = { isFkPkOverlay: true, isFkPkRing: true, targetNode: peer };
+                sc.add(ring);
+                fkPkOverlayRef.current.push(ring);
+
+                // Second wider glow ring
+                const glowGeo = new THREE.RingGeometry(r + 4, r + 16, 48);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: 0xfbbf24, transparent: true, opacity: 0.25,
+                    side: THREE.DoubleSide, depthWrite: false,
+                });
+                const glow = new THREE.Mesh(glowGeo, glowMat);
+                glow.position.copy(peer.mesh.position);
+                glow.lookAt(cameraRef.current?.position || new THREE.Vector3(0, 0, 1000));
+                glow.userData = { isFkPkOverlay: true, isFkPkRing: true, targetNode: peer };
+                sc.add(glow);
+                fkPkOverlayRef.current.push(glow);
+
+                // "FK" or "PK" label right on the node
+                const badge = createTextSprite('FK', 18, '#fbbf24');
+                badge.position.copy(peer.mesh.position);
+                badge.position.y += r + 20;
+                badge.userData = { isFkPkOverlay: true };
+                sc.add(badge);
+                fkPkOverlayRef.current.push(badge);
+            });
+
+            // Also add a green ring on the hovered node itself
+            const hovR = (resolvedNode.size || 30) * 1.5;
+            const hovRingGeo = new THREE.RingGeometry(hovR, hovR + 8, 48);
+            const hovRingMat = new THREE.MeshBasicMaterial({
+                color: 0x00ff88, transparent: true, opacity: 0.95,
+                side: THREE.DoubleSide, depthWrite: false,
+            });
+            const hovRing = new THREE.Mesh(hovRingGeo, hovRingMat);
+            hovRing.position.copy(hovMesh.position);
+            hovRing.lookAt(cameraRef.current?.position || new THREE.Vector3(0, 0, 1000));
+            hovRing.userData = { isFkPkOverlay: true, isFkPkRing: true, targetNode: resolvedNode };
+            sc.add(hovRing);
+            fkPkOverlayRef.current.push(hovRing);
+
+            logger.debug(`[FK/PK Hover] ${resolvedNode.name}: ${fkConnectedIds.size} connected nodes highlighted`);
+
+            // Publish connected IDs so the animate loop dims unconnected nodes
+            hoverConnectedIdsRef.current = fkConnectedIds;
+        };
+
         const onMouseMove = (e) => {
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1620,6 +1797,12 @@ const ThreeGraph = forwardRef(({
                         onEdgeHover(null); // Clear edge hover if we're hovering a node
                     }
 
+                    // ── XAI: Update explainability HUD with hovered node ────
+                    setXaiHoverNode(foundNode);
+
+                    // ── FK/PK 3D arcs + particles on hover ──────────────────
+                    _buildHoverFkPk3D(foundNode);
+
                     // ── FK ARC OVERLAY: project FK neighbours to 2D ──────────
                     _buildHoverFKOverlay(foundNode, camera, renderer);
 
@@ -1662,6 +1845,8 @@ const ThreeGraph = forwardRef(({
                     hoverNodeRef.current = null; // Clear Ref
                     hoverConnectedIdsRef.current = new Set(); // Clear connected IDs
                     setHoverFKOverlayRef.current(null); // Clear FK arc overlay
+                    setXaiHoverNode(null); // Clear XAI HUD
+                    _buildHoverFkPk3D(null); // Clear FK/PK 3D overlay
 
                     // [NEW] Clear hover preview
                     if (onNodeHover) {
@@ -1726,13 +1911,7 @@ const ThreeGraph = forwardRef(({
                         }
                     });
 
-                    // ── FK SATELLITE INTERSECTION LINES ───────────────────────────────
-                    // When a node is selected, find all OTHER nodes that share the same
-                    // referenced_table in their foreign_keys. Draw a CatmullRom curved
-                    // line routed THROUGH the selected node's FK satellite ball for that
-                    // shared key — making the ball the visible junction/intersection point.
-
-                    // Clear any previous FK connection lines
+                    // ── FK CONNECTION LINES (direct node-to-node) ────────────────────
                     fkConnectionLinesRef.current.forEach(obj => {
                         scene.remove(obj);
                         if (obj.geometry) obj.geometry.dispose();
@@ -1740,16 +1919,13 @@ const ThreeGraph = forwardRef(({
                     });
                     fkConnectionLinesRef.current = [];
 
-                    // Build node lookup by id and lowercase name
                     const fkNodeById = new Map();
                     nodesRef.current.forEach(n => {
                         fkNodeById.set(n.id, n);
                         if (n.name) fkNodeById.set(n.name.toLowerCase(), n);
                     });
 
-                    // Build reverse map: referenced_table → [nodeData] for every node
-                    // so we can quickly find all nodes sharing the same FK target
-                    const fkTargetMap = new Map(); // referenced_table (lowercase) → Set of node ids
+                    const fkTargetMap = new Map();
                     nodesRef.current.forEach(n => {
                         (n.foreign_keys || []).forEach(fk => {
                             const ref = (fk.referenced_table || '').toLowerCase();
@@ -1759,119 +1935,49 @@ const ThreeGraph = forwardRef(({
                         });
                     });
 
-                    // For each FK on the selected node, find its satellite ball
-                    // (child of mesh) and draw curves to peer nodes sharing the same FK
                     const selMesh = toggledNode.mesh;
                     if (selMesh) {
-                        const drawnPairs = new Set(); // avoid duplicate lines
+                        const drawnPairs = new Set();
+
+                        const _drawFKCurve = (fromPos, toPos, color, sourceId, targetId, sharedFk) => {
+                            const mid = new THREE.Vector3().addVectors(fromPos, toPos).multiplyScalar(0.5);
+                            mid.y += fromPos.distanceTo(toPos) * 0.2;
+                            const curve = new THREE.QuadraticBezierCurve3(fromPos.clone(), mid, toPos.clone());
+                            const pts = curve.getPoints(48);
+                            const geo = new THREE.BufferGeometry().setFromPoints(pts);
+                            const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
+                            const fkLine = new THREE.Line(geo, mat);
+                            fkLine.userData = { type: 'fk_connection_line', sourceId, targetId, sharedFk };
+                            scene.add(fkLine);
+                            fkConnectionLinesRef.current.push(fkLine);
+                        };
+
                         (toggledNode.foreign_keys || []).forEach(fk => {
                             const ref = (fk.referenced_table || '').toLowerCase();
                             if (!ref) return;
-
-                            // Find the satellite FK ball child that represents this FK
-                            const fkBallChild = selMesh.children.find(
-                                c => c.userData.type === 'fk_ball' &&
-                                    (c.userData.fk?.referenced_table || '').toLowerCase() === ref
-                            );
-
-                            // Get the ball's world-space position as the curve waypoint
-                            const ballWorldPos = new THREE.Vector3();
-                            if (fkBallChild) {
-                                fkBallChild.getWorldPosition(ballWorldPos);
-                            } else {
-                                // Fallback: midpoint offset if ball not found
-                                ballWorldPos.copy(selMesh.position);
-                                ballWorldPos.y += (toggledNode.size || 30) * 5;
-                            }
-
-                            // All other nodes that also have a FK pointing to the same table
                             const peerIds = fkTargetMap.get(ref) || new Set();
                             peerIds.forEach(peerId => {
                                 if (peerId === toggledNode.id) return;
                                 const pairKey = [toggledNode.id, peerId].sort().join('|') + '|' + ref;
                                 if (drawnPairs.has(pairKey)) return;
                                 drawnPairs.add(pairKey);
-
                                 const peerNode = fkNodeById.get(peerId);
                                 if (!peerNode?.mesh?.position) return;
-
-                                // Curved line: selectedNode → FK ball (junction) → peer node
-                                const curve = new THREE.CatmullRomCurve3([
-                                    selMesh.position.clone(),
-                                    ballWorldPos.clone(),
-                                    peerNode.mesh.position.clone(),
-                                ]);
-                                const pts = curve.getPoints(60);
-                                const geo = new THREE.BufferGeometry().setFromPoints(pts);
-                                const mat = new THREE.LineBasicMaterial({
-                                    color: 0xfbbf24,
-                                    transparent: true,
-                                    opacity: 0.75,
-                                });
-                                const fkLine = new THREE.Line(geo, mat);
-                                fkLine.userData = {
-                                    type: 'fk_connection_line',
-                                    sourceId: toggledNode.id,
-                                    targetId: peerId,
-                                    sharedFk: ref,
-                                };
-                                scene.add(fkLine);
-                                fkConnectionLinesRef.current.push(fkLine);
+                                _drawFKCurve(selMesh.position, peerNode.mesh.position, 0xfbbf24, toggledNode.id, peerId, ref);
                             });
                         });
 
-                        // Also handle INCOMING: other nodes whose FK targets match this node's id/name
-                        // so selecting a referenced table also shows who points to it
                         const selIdLower = (toggledNode.id || '').toLowerCase();
                         const selNameLower = (toggledNode.name || '').toLowerCase();
                         const incomingPeers = fkTargetMap.get(selIdLower) || fkTargetMap.get(selNameLower) || new Set();
-
-                        // Group incoming peers by their FK ball for the selected table
-                        // Curve: peerNode → peer's FK ball for selId → selectedNode
                         incomingPeers.forEach(peerId => {
                             if (peerId === toggledNode.id) return;
                             const peerNode = fkNodeById.get(peerId);
                             if (!peerNode?.mesh) return;
-
                             const pairKey = [toggledNode.id, peerId].sort().join('|') + '|' + selIdLower;
                             if (drawnPairs.has(pairKey)) return;
                             drawnPairs.add(pairKey);
-
-                            // Find the FK ball on the peer that points to the selected node
-                            const peerBallChild = peerNode.mesh.children.find(
-                                c => c.userData.type === 'fk_ball' &&
-                                    (c.userData.fk?.referenced_table || '').toLowerCase() === selIdLower
-                            );
-                            const peerBallWorldPos = new THREE.Vector3();
-                            if (peerBallChild) {
-                                peerBallChild.getWorldPosition(peerBallWorldPos);
-                            } else {
-                                peerBallWorldPos.copy(peerNode.mesh.position);
-                                peerBallWorldPos.y += (peerNode.size || 30) * 5;
-                            }
-
-                            // Curve routes through the PEER's FK ball (the one that points here)
-                            const curve = new THREE.CatmullRomCurve3([
-                                selMesh.position.clone(),
-                                peerBallWorldPos.clone(),
-                                peerNode.mesh.position.clone(),
-                            ]);
-                            const pts = curve.getPoints(60);
-                            const geo = new THREE.BufferGeometry().setFromPoints(pts);
-                            const mat = new THREE.LineBasicMaterial({
-                                color: 0x60a5fa,  // Blue for incoming references
-                                transparent: true,
-                                opacity: 0.75,
-                            });
-                            const fkLine = new THREE.Line(geo, mat);
-                            fkLine.userData = {
-                                type: 'fk_connection_line',
-                                sourceId: peerId,
-                                targetId: toggledNode.id,
-                                sharedFk: selIdLower,
-                            };
-                            scene.add(fkLine);
-                            fkConnectionLinesRef.current.push(fkLine);
+                            _drawFKCurve(selMesh.position, peerNode.mesh.position, 0x60a5fa, peerId, toggledNode.id, selIdLower);
                         });
                     }
 
@@ -1951,10 +2057,7 @@ const ThreeGraph = forwardRef(({
             animatedObjectsRef.current.forEach(object => {
                 if (!object.parent) return; // Skip if removed
 
-                // GLOW PULSE
-                if (object.userData && object.userData.isGlow) {
-                    updateGlow(object, time, 'idle', object.userData.nodeGlow);
-                }
+                // GLOW PULSE - Handled in the unified hover/idle loop below to prevent conflicts
 
                 // SECURITY SHIELD PULSE (Data-Driven Animation)
                 if (object.userData && object.userData.isShield) {
@@ -2038,6 +2141,7 @@ const ThreeGraph = forwardRef(({
                         node.y = THREE.MathUtils.lerp(node.y || 0, node.targetY, SNAP_LERP_SPEED);
                         node.z = THREE.MathUtils.lerp(node.z || 0, node.targetZ, SNAP_LERP_SPEED);
                         if (node.mesh) node.mesh.position.set(node.x, node.y, node.z);
+                        if (node._raiHull) node._raiHull.position.set(node.x, node.y, node.z);
                         if (Math.abs((node.x || 0) - node.targetX) < 0.1) node._needsTransition = false;
                     }
 
@@ -2058,27 +2162,80 @@ const ThreeGraph = forwardRef(({
                 });
             }
 
+            // ── Proximity-based label reveal ───────────────────────────────────
+            // A Fibonacci-sphere layout packs 100+ nodes close together, so zooming
+            // into a cluster can put dozens of nodes near the camera at once. Instead
+            // of a fixed reveal radius (which still overlaps into a text wall), cap
+            // it to the nearest handful so zoomed-in views stay readable.
+            const MAX_PROXIMITY_LABELS = 12;
+            const PROXIMITY_LABEL_DISTANCE = 550;
+            let proximityLabelIds = new Set();
+            if (cameraRef.current && nodesRef.current) {
+                proximityLabelIds = new Set(
+                    nodesRef.current
+                        .filter(n => n.mesh)
+                        .map(n => ({ id: String(n.id).toLowerCase(), dist: cameraRef.current.position.distanceTo(n.mesh.position) }))
+                        .filter(n => n.dist < PROXIMITY_LABEL_DISTANCE)
+                        .sort((a, b) => a.dist - b.dist)
+                        .slice(0, MAX_PROXIMITY_LABELS)
+                        .map(n => n.id)
+                );
+            }
+
             // ── 1b. HOVER SCENE EFFECT: dim unconnected nodes, brighten connected ones ──
             // This mirrors the Spin & Expand behaviour where hovering creates a
             // focused "constellation" showing only the FK neighbourhood.
             const hoveredId = hoverNodeRef.current?.id ? String(hoverNodeRef.current.id).toLowerCase() : null;
             const connectedIds = hoverConnectedIdsRef.current;
+            const isIsolating = hoveredId !== null;
+            // Hub tables (e.g. "payment_transactions") can have 50-100+ connections.
+            // Revealing every connected label on hover recreates the text-soup this
+            // was meant to fix, so cap it: past this many neighbors, only the
+            // hovered node itself gets a label; big always-visible nodes still show.
+            const MAX_LABELS_ON_HOVER = 18;
+            const isMegaHubHover = connectedIds.size > MAX_LABELS_ON_HOVER;
+
             if (nodesRef.current) {
                 nodesRef.current.forEach(node => {
                     if (!node.mesh) return;
                     const normalizedNodeId = String(node.id).toLowerCase();
                     const isHoveredNode = normalizedNodeId === hoveredId;
                     const isConnected   = connectedIds.has(normalizedNodeId);
-                    const isIsolating   = hoveredId !== null;
+                    const isNearCamera  = proximityLabelIds.has(normalizedNodeId);
 
-                    // Target scale: hovered node pops up, others stay normal
-                    const targetScale = isHoveredNode ? 1.35 : 1.0;
+                    // Target scale: hovered pops, connected slightly bigger, rest normal
+                    const targetScale = isHoveredNode ? 1.45 : isConnected ? 1.18 : 1.0;
                     node.mesh.scale.setScalar(
                         THREE.MathUtils.lerp(node.mesh.scale.x, targetScale, 0.12)
                     );
 
-                    // Traverse all child meshes (inner sphere + outer glass shell)
+                    // Organic breathing pulse for emissive (individualized by phase offset)
+                    const nodeGlow = node.node_glow || 0.2;
+                    let phaseOffset = 0;
+                    if (node.id) {
+                        const idStr = String(node.id);
+                        for (let charIdx = 0; charIdx < idStr.length; charIdx++) {
+                            phaseOffset += idStr.charCodeAt(charIdx);
+                        }
+                    }
+                    const breathingPulse = Math.sin(time * 2.0 + phaseOffset * 0.1) * 0.08 * nodeGlow;
+
+                    // Traverse all child meshes (inner sphere + outer glass shell + spec + halo)
                     node.mesh.traverse(child => {
+                        // Handle labels (Sprites)
+                        if (child.isSprite) {
+                            // Keep normal labels visible, plus force hovered/connected labels to be visible
+                            child.visible = !child.userData.alwaysHiddenLabel || isNearCamera || isHoveredNode || (isConnected && !isMegaHubHover);
+                            
+                            const targetSpriteOpacity = 1.0;
+                            
+                            if (child.material) {
+                                child.material.transparent = true;
+                                child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, targetSpriteOpacity, 0.15);
+                            }
+                            return;
+                        }
+
                         if (!child.isMesh || !child.material) return;
                         child.material.transparent = true;
 
@@ -2088,38 +2245,76 @@ const ThreeGraph = forwardRef(({
                             child.material._baseEmissive = child.material.emissiveIntensity ?? 0.15;
                         }
 
-                        if (!isIsolating) {
-                            // No hover active: smoothly restore full opacity + base glow
-                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, child.material._baseOpacity, 0.1);
-                            if (child.material.emissiveIntensity !== undefined) {
-                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
-                                    child.material.emissiveIntensity, child.material._baseEmissive, 0.1
-                                );
+                        // Determine target opacity and emissive intensity based on child type (Core, Shell, Spec, Halo)
+                        let targetOpacity = child.material._baseOpacity;
+                        let targetEmissive = child.material._baseEmissive;
+
+                        if (child.userData.isOuterShell) {
+                            // OUTER GLASS SHELL
+                            if (isHoveredNode) {
+                                // Transparent, colorful, glowing at edge (kept low to prevent white blowout)
+                                targetOpacity = Math.min(1.0, child.material._baseOpacity * 1.25);
+                                targetEmissive = child.material._baseEmissive * 0.45;
+                            } else if (isConnected) {
+                                targetOpacity = Math.min(1.0, child.material._baseOpacity * 1.15);
+                                targetEmissive = child.material._baseEmissive * 0.35;
+                            } else {
+                                // Normal resting state & unconnected state: full visibility
+                                targetOpacity = child.material._baseOpacity;
+                                targetEmissive = child.material._baseEmissive + breathingPulse;
                             }
-                        } else if (isHoveredNode) {
-                            // Hovered node: fully opaque + strong glow
-                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 1.0, 0.15);
-                            if (child.material.emissiveIntensity !== undefined) {
-                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
-                                    child.material.emissiveIntensity, 2.5, 0.15
-                                );
+                        } else if (child.userData.isNodeHalo) {
+                            // SOFT OUTER GLOW HALO
+                            if (isHoveredNode) {
+                                // Swells and brightens to a beautiful soft aura
+                                targetOpacity = 0.45;
+                                targetEmissive = 0.0;
+                                // Expand the halo scale slightly for extra impact
+                                child.scale.setScalar(THREE.MathUtils.lerp(child.scale.x, 1.6, 0.12));
+                            } else if (isConnected) {
+                                targetOpacity = 0.25;
+                                targetEmissive = 0.0;
+                                child.scale.setScalar(THREE.MathUtils.lerp(child.scale.x, 1.45, 0.12));
+                            } else {
+                                // Normal resting state & unconnected state: full base visibility
+                                targetOpacity = child.material._baseOpacity;
+                                targetEmissive = 0.0;
+                                child.scale.setScalar(THREE.MathUtils.lerp(child.scale.x, 1.0, 0.12));
                             }
-                        } else if (isConnected) {
-                            // FK-connected: fully visible + mild glow
-                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 0.95, 0.12);
-                            if (child.material.emissiveIntensity !== undefined) {
-                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
-                                    child.material.emissiveIntensity, 1.2, 0.12
-                                );
+                        } else if (child.userData.isSpec) {
+                            // SPECULAR HIGHLIGHT DOT
+                            if (isHoveredNode) {
+                                targetOpacity = 0.9;
+                            } else if (isConnected) {
+                                targetOpacity = 0.7;
+                            } else {
+                                // Normal resting state & unconnected state: full base visibility
+                                targetOpacity = 0.6;
                             }
                         } else {
-                            // Unconnected: dim/ghost to near-invisible
-                            child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, 0.05, 0.1);
-                            if (child.material.emissiveIntensity !== undefined) {
-                                child.material.emissiveIntensity = THREE.MathUtils.lerp(
-                                    child.material.emissiveIntensity, 0.0, 0.1
-                                );
+                            // INNER CORE (or fallback default mesh)
+                            if (isHoveredNode) {
+                                // Bright, color-saturated core, kept below pure white blowout
+                                targetOpacity = 1.0;
+                                targetEmissive = child.material._baseEmissive * 0.9; // Capped to look vibrant and not blow out
+                            } else if (isConnected) {
+                                targetOpacity = 0.95;
+                                targetEmissive = child.material._baseEmissive * 0.7;
+                            } else {
+                                // Normal resting state & unconnected state: full visibility
+                                targetOpacity = child.material._baseOpacity;
+                                targetEmissive = child.material._baseEmissive + breathingPulse;
                             }
+                        }
+
+                        // Lerp to targets
+                        child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, targetOpacity, 0.12);
+                        if (child.material.emissiveIntensity !== undefined) {
+                            child.material.emissiveIntensity = THREE.MathUtils.lerp(
+                                child.material.emissiveIntensity,
+                                targetEmissive,
+                                0.12
+                            );
                         }
                         child.material.needsUpdate = true;
                     });
@@ -2135,7 +2330,10 @@ const ThreeGraph = forwardRef(({
                 }
                 const hoverId = hoverNodeRef.current ? hoverNodeRef.current.id : null;
                 const lineage = lineageRef.current;
-                let targetOpacity = 0.15; // Base visibility
+                // Base visibility: kept very low because hub-style schemas can have 50-100+ edges
+                // converging on one heavily-referenced table; each layer of opacity stacks visually
+                // and at 0.08 still washed the whole scene into a solid teal mass.
+                let targetOpacity = 0.045;
 
                 // [FIX] Use Refs to avoid stale closure issues in animate loop
                 const sNodes = multiSelectedNodesRef.current;
@@ -2186,7 +2384,7 @@ const ThreeGraph = forwardRef(({
                             targetOpacity = 0.8;
                             edge.userData.isActive = true;
                         } else {
-                            targetOpacity = 0.05;
+                            targetOpacity = 0.06;
                             edge.userData.isActive = false;
                         }
                     } else if (lineage.origin) {
@@ -2198,7 +2396,7 @@ const ThreeGraph = forwardRef(({
                             targetOpacity = 0.9;
                             edge.userData.isActive = true;
                         } else {
-                            targetOpacity = 0.05;
+                            targetOpacity = 0.06;
                             edge.userData.isActive = false;
                         }
                     }
@@ -2253,6 +2451,27 @@ const ThreeGraph = forwardRef(({
                 composerRef.current.render();
             } else {
                 renderer.render(scene, camera);
+            }
+
+            // ── Animate FK/PK overlay particles + rings ─────────────────────
+            if (fkPkOverlayRef.current.length > 0) {
+                const t = performance.now() * 0.001;
+                fkPkOverlayRef.current.forEach(obj => {
+                    if (obj.userData?.isFkPkParticle) {
+                        const progress = (t * obj.userData.particleSpeed + obj.userData.particleOffset) % 1;
+                        const pt = obj.userData.curve.getPoint(progress);
+                        obj.position.copy(pt);
+                        obj.material.opacity = 0.7 + Math.sin(t * 6 + obj.userData.particleOffset * 10) * 0.3;
+                    }
+                    if (obj.userData?.isFkPkRing && obj.userData.targetNode?.mesh) {
+                        obj.position.copy(obj.userData.targetNode.mesh.position);
+                        if (camera) obj.lookAt(camera.position);
+                        const pulse = 0.7 + Math.sin(t * 3) * 0.3;
+                        if (obj.material) obj.material.opacity = obj.material._baseRingOpacity !== undefined
+                            ? obj.material._baseRingOpacity * pulse
+                            : pulse;
+                    }
+                });
             }
 
             // ── Keep hover FK overlay in sync with camera (throttled to ~20 fps) ─
@@ -2627,6 +2846,10 @@ const ThreeGraph = forwardRef(({
         // 1. Nodes
         if (nodesRef.current) {
             nodesRef.current.forEach(n => {
+                if (n._raiHull) {
+                    scene.remove(n._raiHull);
+                    disposeObject(n._raiHull);
+                }
                 if (n.mesh) {
                     previousPositions.set(n.id, n.mesh.position.clone());
                     scene.remove(n.mesh);
@@ -2671,6 +2894,17 @@ const ThreeGraph = forwardRef(({
             fkConnectionLinesRef.current = [];
         }
 
+        // 4b. FK/PK Overlay (cleared on scene rebuild)
+        if (fkPkOverlayRef.current) {
+            fkPkOverlayRef.current.forEach(obj => {
+                if (obj) {
+                    scene.remove(obj);
+                    disposeObject(obj);
+                }
+            });
+            fkPkOverlayRef.current = [];
+        }
+
         // 5. Latent World Artifacts (Manifold & Axes)
         if (manifoldRef.current) {
             scene.remove(manifoldRef.current);
@@ -2708,7 +2942,9 @@ const ThreeGraph = forwardRef(({
 
             const layoutNodes = layoutMode === 'latent'
                 ? applyLatentSpaceLayout([...enrichedNodes], currentLens) // Ensure spread to avoid mutations
-                : applyGalaxyLayout(enrichedNodes, 800);
+                // Radius scales with sqrt(node count) so spacing between nodes stays
+                // roughly constant instead of collapsing into an overlapping blob as tables grow.
+                : applyGalaxyLayout(enrichedNodes, Math.max(800, 120 * Math.sqrt(enrichedNodes.length)));
 
             // [FIX] Sync computed semantic labels (latent_category) back to App state for the UI Panel filter counts
             if (onNodesEnriched) {
@@ -2912,105 +3148,34 @@ const ThreeGraph = forwardRef(({
                         // Find the label sprite among children for D3 tick position updates (if any)
                         nodeData.labelSprite = mesh.children.find(c => c.type === 'Sprite');
 
-                        // ── PK & FK SATELLITE BALLS (Latent & Galaxy Modes) ─────────────────
-                        // Added as children of the node mesh so they automatically
-                        // follow the parent during the lerp transition animation.
-                        if (layoutMode === 'latent' || layoutMode === 'galaxy') {
-                            const pks = (nodeData.columns || []).filter(c => c.is_pk);
-                            const fks = nodeData.foreign_keys || [];
-
-                            if (pks.length > 0 || fks.length > 0) {
-                                const nodeRadius = nodeData.size || 30;
-
-                                // Common Geometries (Smaller for Galaxy Mode)
-                                const ballR = layoutMode === 'galaxy' ? Math.max(nodeRadius * 0.35, 8) : Math.max(nodeRadius * 0.65, 20);
-                                const sphereGeo = new THREE.SphereGeometry(ballR, 8, 8);
-
-                                // 1. Primary Keys (Vibrant Green)
-                                if (showPKs) {
-                                    pks.forEach((pk, i) => {
-                                        const orbitR = layoutMode === 'galaxy' ? nodeRadius * 2.8 : nodeRadius * 4.2; // Tighter orbit for galaxy
-                                        const angle = (i / Math.max(pks.length, 1)) * Math.PI * 2;
-                                        const lx = Math.cos(angle) * orbitR;
-                                        const lz = Math.sin(angle) * orbitR;
-
-                                        const pkMat = new THREE.MeshStandardMaterial({
-                                            color: 0x00ff88,
-                                            emissive: 0x00ff88,
-                                            emissiveIntensity: 2.5,
-                                            transparent: true,
-                                            opacity: 1.0,
-                                            metalness: 0.3,
-                                            roughness: 0.1,
-                                        });
-
-                                        const ball = new THREE.Mesh(sphereGeo, pkMat);
-                                        ball.position.set(lx, 0, lz);
-                                        ball.userData = { type: 'pk_ball', pk, parentId: nodeData.id, parentName: nodeData.name };
-                                        mesh.add(ball);
-
-                                        // ADD LABEL
-                                        const labelFontSize = layoutMode === 'galaxy' ? 14 : 22;
-                                        const label = createTextSprite(pk.name || 'PK', labelFontSize, '#00ff88');
-                                        label.position.set(0, ballR + (layoutMode === 'galaxy' ? 6 : 12), 0);
-                                        ball.add(label);
-
-                                        // Connector
-                                        const lineMat = new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.4 });
-                                        const lineGeo = new THREE.BufferGeometry().setFromPoints([
-                                            new THREE.Vector3(0, 0, 0),
-                                            new THREE.Vector3(lx, 0, lz),
-                                        ]);
-                                        mesh.add(new THREE.Line(lineGeo, lineMat));
-                                    });
-                                }
-
-                                // 2. Foreign Keys (Amber Yellow) - Outer Orbit
-                                if (showFKs) {
-                                    fks.slice(0, 8).forEach((fk, i) => {
-                                        const orbitR = layoutMode === 'galaxy' ? nodeRadius * 4.5 : nodeRadius * 6.2; // Tighter orbit for galaxy
-                                        const angle = (i / Math.min(fks.length, 8)) * Math.PI * 2 + (Math.PI / 4); // Offset from PKs
-                                        const lx = Math.cos(angle) * orbitR;
-                                        const lz = Math.sin(angle) * orbitR;
-
-                                        const fkMat = new THREE.MeshStandardMaterial({
-                                            color: 0xfbbf24,
-                                            emissive: 0xfbbf24,
-                                            emissiveIntensity: 2.0,
-                                            transparent: true,
-                                            opacity: 1.0,
-                                            metalness: 0.3,
-                                            roughness: 0.1,
-                                        });
-
-                                        const ball = new THREE.Mesh(sphereGeo, fkMat);
-                                        ball.position.set(lx, 0, lz);
-                                        ball.userData = { type: 'fk_ball', fk, parentId: nodeData.id, parentName: nodeData.name };
-                                        mesh.add(ball);
-
-                                        // ADD LABEL
-                                        const labelFontSize = layoutMode === 'galaxy' ? 12 : 20;
-                                        const nameToDisplay = fk.column || fk.name || 'FK';
-                                        const label = createTextSprite(nameToDisplay, labelFontSize, '#fbbf24');
-                                        label.position.set(0, ballR + (layoutMode === 'galaxy' ? 5 : 10), 0);
-                                        ball.add(label);
-
-                                        // Connector
-                                        const lineMat = new THREE.LineBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.4 });
-                                        const lineGeo = new THREE.BufferGeometry().setFromPoints([
-                                            new THREE.Vector3(0, 0, 0),
-                                            new THREE.Vector3(lx, 0, lz),
-                                        ]);
-                                        mesh.add(new THREE.Line(lineGeo, lineMat));
-                                    });
-                                }
-
-                                logger.debug(`[Satellite Balls] ${nodeData.name}: ${pks.length} PK, ${fks.length} FK`);
-                            }
-                        }
-                        // ─────────────────────────────────────────────────────────────────
+                        // PK/FK satellite balls removed — too cluttered at scale
 
                         scene.add(mesh);
+
+                        // ── RAI: Volumetric hull around PII / identity nodes ──
+                        const entityLower = (nodeData.entity || '').toLowerCase();
+                        const nameLower = (nodeData.name || '').toLowerCase();
+                        const isPII = entityLower === 'pii' ||
+                            ['user', 'customer', 'person', 'employee', 'patient', 'identity', 'account', 'profile', 'member'].some(kw => nameLower.includes(kw));
+                        if (isPII) {
+                            const hullGeo = new THREE.BoxGeometry(
+                                (nodeData.size || 30) * 1.8,
+                                (nodeData.size || 30) * 1.8,
+                                (nodeData.size || 30) * 1.8
+                            );
+                            const hullMat = new THREE.MeshBasicMaterial({
+                                color: 0xff4444,
+                                wireframe: true,
+                                transparent: true,
+                                opacity: 0.25,
+                            });
+                            const hull = new THREE.Mesh(hullGeo, hullMat);
+                            hull.position.copy(mesh.position);
+                            hull.userData = { isRAIHull: true, parentNodeId: nodeData.id };
+                            scene.add(hull);
+                            nodeData._raiHull = hull;
+                        }
+
                         nodesRef.current.push(nodeData);
                         nodeMap.set(nodeData.id, nodeData);
                         createdCount++;
@@ -3149,7 +3314,10 @@ const ThreeGraph = forwardRef(({
                 }
 
                 if (layoutMode === 'galaxy' && cameraRef.current) {
-                    const targetPos = new THREE.Vector3(0, 200, 1000);
+                    // Pull back proportionally to the sphere radius (see applyGalaxyLayout call above)
+                    // so large table counts don't start the camera clipped inside the node cloud.
+                    const galaxyRadius = Math.max(800, 120 * Math.sqrt(layoutNodes.length));
+                    const targetPos = new THREE.Vector3(0, galaxyRadius * 0.25, galaxyRadius * 1.25);
                     const lookAt = new THREE.Vector3(0, 0, 0);
                     cameraFocus(targetPos, lookAt, 1.5);
                 }
@@ -3460,7 +3628,45 @@ const ThreeGraph = forwardRef(({
                 <HoverFKArcOverlay overlay={hoverFKOverlay} />
             )}
 
-            {/* [BUSINESS LENS] Floating Impact Labels removed per user request */}
+            {/* ── XAI Explainability HUD Card ─────────────────────────────── */}
+            {xaiHoverNode && xaiHoverNode.name !== 'Neural Core' && (
+                <div
+                    className="absolute top-4 right-4 z-30 pointer-events-none"
+                    style={{
+                        width: 280,
+                        background: 'rgba(0,0,0,0.88)',
+                        border: '1px solid rgba(96,165,250,0.35)',
+                        borderRadius: 10,
+                        padding: '12px 14px',
+                        fontFamily: "'JetBrains Mono', monospace",
+                        backdropFilter: 'blur(12px)',
+                    }}
+                >
+                    <div style={{ fontSize: 11, color: '#60a5fa', fontWeight: 700, marginBottom: 6, letterSpacing: '0.06em' }}>
+                        XAI JUSTIFICATION
+                    </div>
+                    <div style={{ fontSize: 12, color: '#e2e8f0', marginBottom: 8, fontWeight: 600 }}>
+                        {xaiHoverNode.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.6 }}>
+                        <div>PageRank Gravity: <span style={{ color: '#fbbf24' }}>{Number(xaiHoverNode.importance_score || 0).toFixed(2)}</span></div>
+                        <div>Modularity Cluster: <span style={{ color: '#22d3ee' }}>{xaiHoverNode.cluster || 'unclustered'}</span></div>
+                        <div>Vitality: <span style={{ color: (xaiHoverNode.vitality || 0) < 40 ? '#ef4444' : '#4ade80' }}>{Number(xaiHoverNode.vitality || 0).toFixed(0)}%</span></div>
+                        <div>Entropy: <span style={{ color: '#c084fc' }}>{Number(xaiHoverNode.entropy || 0).toFixed(3)}</span></div>
+                        {xaiHoverNode.carbon_footprint != null && (
+                            <div>Carbon: <span style={{ color: '#34d399' }}>{xaiHoverNode.carbon_footprint} gCO₂e</span></div>
+                        )}
+                        {xaiHoverNode.governance_score != null && (
+                            <div>Governance: <span style={{ color: xaiHoverNode.governance_score >= 60 ? '#4ade80' : '#fbbf24' }}>{xaiHoverNode.governance_score}/100</span></div>
+                        )}
+                        <div style={{ marginTop: 6, color: '#64748b', fontSize: 9, fontStyle: 'italic' }}>
+                            {xaiHoverNode.is_anomalous
+                                ? 'Anomaly detected — low vitality or risk entity flagged.'
+                                : `Positioned by ${xaiHoverNode.in_degree || 0} inbound + ${xaiHoverNode.out_degree || 0} outbound dependencies.`}
+                        </div>
+                    </div>
+                </div>
+            )}
 
         </div>
     );

@@ -10,6 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+
+# Environment files
+.env
+.env.*
 *.local
 
 # Editor directories and files
@@ -28,6 +32,3 @@ lint_*.txt
 lint_*.log
 lint_full.log
 npm_install_log.txt
-
-# General log files
-*.log

@@ -509,17 +509,18 @@ function MultiTableInspector({ selectedTableNames, connectionId, allTables, onCl
                                                 key={uid}
                                                 onClick={() => setActiveTargetTableName(uid)}
                                                 style={{
-                                                    background: activeTargetTableName === uid ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
-                                                    border: `1px solid ${activeTargetTableName === uid ? '#3b82f6' : 'rgba(255,255,255,0.08)'}`,
+                                                    background: lt.compliance_violation ? 'rgba(239,68,68,0.10)' : activeTargetTableName === uid ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
+                                                    border: `1px solid ${lt.compliance_violation ? '#ef444450' : activeTargetTableName === uid ? '#3b82f6' : 'rgba(255,255,255,0.08)'}`,
                                                     borderRadius: 4, padding: '6px 8px', textAlign: 'left',
                                                     cursor: 'pointer', transition: 'all 0.2s',
                                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                                                 }}
                                             >
-                                                <span style={{ fontSize: 10, fontWeight: 700, color: activeTargetTableName === uid ? '#fff' : '#94a3b8' }}>
-                                                    {lt.table} {lt.fk_column ? `(${lt.fk_column})` : ''}
+                                                <span style={{ fontSize: 10, fontWeight: 700, color: lt.compliance_violation ? '#fca5a5' : activeTargetTableName === uid ? '#fff' : '#94a3b8' }}>
+                                                    {lt.compliance_violation ? '⚠ ' : ''}{lt.table} {lt.fk_column ? `(${lt.fk_column})` : ''}
                                                 </span>
-                                                {activeTargetTableName === uid && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 8px #3b82f6' }} />}
+                                                {lt.compliance_violation && <span style={{ fontSize: 7, color: '#ef4444', fontWeight: 800 }}>PII</span>}
+                                                {!lt.compliance_violation && activeTargetTableName === uid && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 8px #3b82f6' }} />}
                                             </button>
                                         );
                                     })}
@@ -545,6 +546,91 @@ function MultiTableInspector({ selectedTableNames, connectionId, allTables, onCl
                         </div>
                     </div>
                 </>
+            )}
+
+            {/* ── XAI Join Explanation + ESG Cost + RAI Violation Panel (Level 1) ── */}
+            {level === 1 && schemaData?.connections?.length > 0 && (
+                <div style={{
+                    position: 'absolute', bottom: 16, left: 16, zIndex: 100,
+                    background: 'rgba(0,0,0,0.90)', border: '1px solid #1e293b',
+                    borderRadius: 10, padding: '12px 16px', minWidth: 280, maxWidth: 360,
+                    backdropFilter: 'blur(12px)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                }}>
+                    {/* XAI Join Explanation */}
+                    <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.18em', color: '#60a5fa', textTransform: 'uppercase', marginBottom: 8 }}>
+                        XAI · Join Conditions
+                    </div>
+                    <div style={{ maxHeight: 120, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#1e293b transparent' }}>
+                        {schemaData.connections.map((conn, i) => (
+                            <div key={i} style={{
+                                marginBottom: 6, padding: '4px 8px',
+                                background: conn.compliance_violation ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.03)',
+                                border: conn.compliance_violation ? '1px solid #ef444450' : '1px solid transparent',
+                                borderRadius: 5, fontFamily: "'JetBrains Mono', monospace",
+                            }}>
+                                <div style={{ fontSize: 9, color: '#e2e8f0', fontWeight: 600 }}>
+                                    <span style={{ color: '#60a5fa' }}>{conn.from_table}</span>
+                                    <span style={{ color: '#475569' }}>.{conn.from_column}</span>
+                                    <span style={{ color: '#fbbf24', margin: '0 4px' }}>→</span>
+                                    <span style={{ color: '#22d3ee' }}>{conn.to_table}</span>
+                                    <span style={{ color: '#475569' }}>.{conn.to_column}</span>
+                                </div>
+                                <div style={{ fontSize: 8, color: '#64748b', marginTop: 2 }}>
+                                    INNER JOIN {conn.from_table} ON {conn.from_table}.{conn.from_column} = {conn.to_table}.{conn.to_column}
+                                </div>
+                                {conn.compliance_violation && (
+                                    <div style={{ fontSize: 7, color: '#fca5a5', fontWeight: 800, marginTop: 2, letterSpacing: '0.1em' }}>
+                                        RAI VIOLATION — Public ↔ PII data path
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* ESG Join Cost Estimator */}
+                    <div style={{ borderTop: '1px solid #1e293b', marginTop: 8, paddingTop: 8 }}>
+                        <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.18em', color: '#34d399', textTransform: 'uppercase', marginBottom: 4 }}>
+                            ESG · Estimated Join Cost
+                        </div>
+                        {(() => {
+                            const totalRows = schemaData.tables.reduce((s, t) => s + (t.row_count || 0), 0);
+                            const joins = schemaData.connections.length;
+                            const cpuMs = totalRows * joins * 0.005;
+                            const energyWh = cpuMs / 3600000 * 250;
+                            const co2 = energyWh * 0.4;
+                            return (
+                                <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.6 }}>
+                                    <div>Tables: <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{schemaData.tables.length}</span>
+                                        <span style={{ color: '#475569', margin: '0 4px' }}>·</span>
+                                        Joins: <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{joins}</span>
+                                        <span style={{ color: '#475569', margin: '0 4px' }}>·</span>
+                                        Total rows: <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{totalRows.toLocaleString()}</span>
+                                    </div>
+                                    <div>Est. energy: <span style={{ color: '#4ade80', fontWeight: 700 }}>{energyWh.toFixed(4)} Wh</span>
+                                        <span style={{ color: '#475569', margin: '0 4px' }}>·</span>
+                                        Carbon: <span style={{ color: '#34d399', fontWeight: 700 }}>{co2.toFixed(4)} gCO₂e</span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+                    </div>
+
+                    {/* RAI: Global compliance status */}
+                    {schemaData.connections.some(c => c.compliance_violation) && (
+                        <div style={{
+                            marginTop: 8, background: 'rgba(239,68,68,0.12)',
+                            border: '1px solid #ef444450', borderRadius: 6, padding: '6px 10px',
+                        }}>
+                            <div style={{ fontSize: 8, fontWeight: 800, color: '#fca5a5', letterSpacing: '0.12em' }}>
+                                RAI COMPLIANCE WARNING
+                            </div>
+                            <div style={{ fontSize: 8, color: '#fca5a5', lineHeight: 1.5, marginTop: 2 }}>
+                                One or more join paths connect public/external tables to PII datasets. Query execution may violate data governance policies.
+                            </div>
+                        </div>
+                    )}
+                </div>
             )}
 
             {/* ── LOADING / ERROR states ── */}
@@ -833,20 +919,41 @@ function MultiTableInspector({ selectedTableNames, connectionId, allTables, onCl
                                     DEEP SELECTION ⚡
                                 </button>
                             </div>
+                            {/* RAI: Compliance violation banner */}
+                            {schemaData?.connections?.some(c => c.compliance_violation) && (
+                                <div style={{
+                                    background: 'rgba(239,68,68,0.12)', border: '1px solid #ef444450',
+                                    borderRadius: 6, padding: '5px 8px', marginBottom: 8,
+                                }}>
+                                    <div style={{ fontSize: 7, fontWeight: 800, color: '#fca5a5', letterSpacing: '0.1em' }}>
+                                        RAI · QUERY BLOCKED
+                                    </div>
+                                    <div style={{ fontSize: 8, color: '#fca5a5', lineHeight: 1.4, marginTop: 2 }}>
+                                        Join path crosses public → PII boundary. Resolve compliance violation before executing.
+                                    </div>
+                                </div>
+                            )}
                             {multiSelectedRows.length > 0 ? (
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button
                                         onClick={() => {
+                                            if (schemaData?.connections?.some(c => c.compliance_violation)) return;
                                             fetchDetail(multiSelectedRows, 'manual');
                                         }}
+                                        disabled={schemaData?.connections?.some(c => c.compliance_violation)}
                                         style={{
-                                            flex: 1, background: '#fbbf24', border: 'none',
-                                            borderRadius: 6, padding: '8px', color: '#000',
-                                            fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                                            letterSpacing: 1, boxShadow: '0 0 15px rgba(251, 191, 36, 0.4)',
+                                            flex: 1,
+                                            background: schemaData?.connections?.some(c => c.compliance_violation) ? '#374151' : '#fbbf24',
+                                            border: 'none',
+                                            borderRadius: 6, padding: '8px',
+                                            color: schemaData?.connections?.some(c => c.compliance_violation) ? '#6b7280' : '#000',
+                                            fontSize: 10, fontWeight: 800,
+                                            cursor: schemaData?.connections?.some(c => c.compliance_violation) ? 'not-allowed' : 'pointer',
+                                            letterSpacing: 1,
+                                            boxShadow: schemaData?.connections?.some(c => c.compliance_violation) ? 'none' : '0 0 15px rgba(251, 191, 36, 0.4)',
                                         }}
                                     >
-                                        INSPECT {multiSelectedRows.length} SELECTED
+                                        {schemaData?.connections?.some(c => c.compliance_violation) ? 'BLOCKED — COMPLIANCE' : `INSPECT ${multiSelectedRows.length} SELECTED`}
                                     </button>
                                     <button
                                         onClick={() => setIsSaveModalOpen(true)}

@@ -25,6 +25,7 @@ export default function NavigationBar({
         { id: 'schema', label: 'Schema', icon: null },
         { id: 'intelligence', label: 'Insights', icon: null },
         { id: 'globalLatent', label: 'Latent Space', icon: null },
+        { id: 'roadmap', label: 'Roadmap', icon: null },
     ];
 
     return (

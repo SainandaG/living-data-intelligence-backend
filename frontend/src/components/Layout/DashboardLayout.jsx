@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import apiClient from "../../utils/apiClient";
-import { ChevronRight, ChevronLeft, Search } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
-import { LeftSidebar, RightSidebar } from "./Sidebars";
+import { Search } from "lucide-react";
+import { LeftSidebar } from "./Sidebars";
 import { cn } from "../../utils/cn";
 import { logger } from '../../utils/logger';
-
-/* ---------------- ANIMATION VARIANTS ---------------- */
-
-const sidebarVariants = {
-    initial: { x: 320, opacity: 0 },
-    animate: { x: 0, opacity: 1 },
-    exit: { x: 320, opacity: 0 }
-};
 
 /* ---------------- CUSTOM HOOKS ---------------- */
 
@@ -126,7 +117,6 @@ const DashboardLayout = ({
     isInspectorActive = false
 }) => {
 
-    const [isRightOpen, setIsRightOpen] = useState(true);
 
     const { sysVitals, sysStatus } = useSystemVitals();
     const time = useClock();
@@ -221,44 +211,7 @@ const DashboardLayout = ({
 
                 </main>
 
-                {/* RIGHT SIDEBAR */}
-
-                <AnimatePresence>
-
-                    {isRightOpen && (
-                        <motion.aside
-                            variants={sidebarVariants}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            transition={{ duration: 0.25 }}
-                            className="flex flex-col gap-6 shrink-0 w-[320px]"
-                        >
-                            <RightSidebar {...sidebarProps} />
-                        </motion.aside>
-                    )}
-
-                </AnimatePresence>
-
-                {/* TOGGLE */}
-
-                <button
-                    aria-label="Toggle sidebar"
-                    aria-expanded={isRightOpen}
-                    onClick={() => setIsRightOpen(!isRightOpen)}
-                    className={cn(
-                        "absolute top-1/2 -translate-y-1/2 z-50 p-2 rounded-l-xl",
-                        "bg-[var(--bg-dark)] border-y border-l border-white/10",
-                        "text-slate-400 hover:text-[var(--primary)] transition-all",
-                        isRightOpen ? "right-[21.5rem]" : "right-6"
-                    )}
-                >
-                    {isRightOpen ? (
-                        <ChevronRight size={16} />
-                    ) : (
-                        <ChevronLeft size={16} />
-                    )}
-                </button>
+                {/* Right sidebar removed */}
 
             </div>
 

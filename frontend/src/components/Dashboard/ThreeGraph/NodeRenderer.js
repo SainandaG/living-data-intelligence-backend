@@ -60,8 +60,30 @@ function applyGalaxyLayout(nodes, radius = 600) {
 
     return nodes;
 }
+// ─── Color Palette for visual distinctness (matching SpinExpand) ───
+const TABLE_COLORS = [
+    0x2563eb, // Blue
+    0x16a34a, // Green
+    0xd97706, // Orange
+    0x9333ea, // Purple
+    0xdc2626, // Red
+    0x0891b2, // Cyan
+    0xc026d3, // Magenta
+    0xea580c, // Dark Orange
+    0x059669, // Emerald
+    0x4f46e5, // Indigo
+];
 
-
+function getStableColor(nodeId) {
+    if (!nodeId) return 0x2563eb;
+    let hash = 0;
+    const str = String(nodeId);
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % TABLE_COLORS.length;
+    return TABLE_COLORS[index];
+}
 
 function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', clusteringMethod = 'heuristic', animatedObjectsList = []) {
     // Legacy Pastel Palette
@@ -181,8 +203,10 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
                 ? new THREE.Color(nodeData.color).getHex()
                 : nodeData.color;
         }
-        else if (tt === 'fact') color = colorMap.fact;
-        else color = colorMap.dimension;
+        else {
+            // Assign visually distinct colors using same coloring implement as SpinExpand
+            color = getStableColor(nodeData.id || nodeData.name);
+        }
     }
 
     // FINAL SAFETY FALLBACK
@@ -219,142 +243,158 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
     // SYNC: Update node data so D3 collision knows the actual visual size
     nodeData.size = size;
 
-    // 1. Inner Core Sphere (The Light Source)
-    // OPTIMIZATION: Reduced segments from 32,32 to 16,16
-    const geometry = new THREE.SphereGeometry(size * 0.5, 16, 16);
-    // Latent Mode: Colors must scream to be seen, but not clip to white
     const nodeColor = new THREE.Color(color);
+    // Premium-feel harmonization: backend cluster colors are an arbitrary rainbow
+    // (lime green next to hot pink next to yellow), which reads busy/cheap once
+    // 100+ nodes are on screen. Clamp saturation/lightness into a cohesive band
+    // while keeping hue, so clusters stay distinguishable but the palette reads
+    // as one deliberate scheme. Security/Energy lenses keep bold status colors.
+    if (currentLens !== 'security' && currentLens !== 'energy' && !isCore) {
+        const hsl = { h: 0, s: 0, l: 0 };
+        nodeColor.getHSL(hsl);
+        nodeColor.setHSL(hsl.h, Math.min(hsl.s, 0.55), THREE.MathUtils.clamp(hsl.l, 0.42, 0.62));
+    }
+    const isLatent = layoutMode === 'latent';
 
-    // FIX: Use Standard Material to support Emissive (for glow/pulse/time-travel)
-    const material = new THREE.MeshStandardMaterial({
+    // ── 1. Inner core — bright emissive orb ──────────────────────────────
+    const coreGeo = new THREE.SphereGeometry(size * 0.45, 24, 24);
+    const coreMat = new THREE.MeshStandardMaterial({
         color: nodeColor,
-        roughness: 0.4,
-        metalness: 0.1,
-        emissive: layoutMode === 'latent' ? nodeColor : 0x000000,
-        emissiveIntensity: layoutMode === 'latent' ? 0.3 : 0.0
+        roughness: 0.12,
+        metalness: 0.0,
+        emissive: nodeColor,
+        emissiveIntensity: isLatent ? 1.5 : 1.3,
     });
-    const sphere = new THREE.Mesh(geometry, material);
+    const sphere = new THREE.Mesh(coreGeo, coreMat);
 
-    // CRITICAL FIX: Attach Node Data for Raycaster
-    sphere.userData = { ...nodeData, isNode: true };
-
-    // Store original color for Time Travel reset
-    sphere.userData.originalColor = nodeColor.getHex();
-
-    // 2. Outer Glass Shell (The Lens)
-    const shellGeo = new THREE.SphereGeometry(size, 16, 16);
+    // ── 2. Outer glass shell — vibrant with visible color ────────────────
+    const shellGeo = new THREE.SphereGeometry(size, 24, 24);
     const shellMat = new THREE.MeshPhysicalMaterial({
-        color: color,
+        color: nodeColor,
         transparent: true,
-        opacity: layoutMode === 'latent' ? 0.9 : 0.45,
-        roughness: layoutMode === 'latent' ? 0.1 : 0.05,
-        metalness: 0.1,
-        transmission: layoutMode === 'latent' ? 0.0 : 0.95,
-        thickness: 4.0,
-        emissive: color,
-        emissiveIntensity: layoutMode === 'latent' ? 0.4 : 0.15,
-        clearcoat: 1.0
+        opacity: isLatent ? 0.9 : 0.65,
+        roughness: 0.1,
+        metalness: 0.05,
+        transmission: isLatent ? 0.0 : 0.35,
+        thickness: 3.0,
+        emissive: nodeColor,
+        emissiveIntensity: isLatent ? 1.0 : 0.9,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.05,
     });
 
-    // --- EXECUTIVE LENS: Premium Crystal Material ---
+    // ── 3. Specular highlight dot — gives a "wet marble" look ────────────
+    const specGeo = new THREE.SphereGeometry(size * 0.18, 10, 10);
+    const specMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false,
+    });
+    const spec = new THREE.Mesh(specGeo, specMat);
+    spec.position.set(size * 0.25, size * 0.3, size * 0.55);
+
+    // ── 4. Soft outer glow halo ──────────────────────────────────────────
+    // Shrunk from 1.4x/0.12 opacity: with 100+ nodes packed on the galaxy
+    // sphere, overlapping halos merged into a single colored haze that hid
+    // node edges entirely. Tighter, dimmer halo keeps the glow per-node.
+    const haloGeo = new THREE.SphereGeometry(size * 1.15, 16, 16);
+    const haloMat = new THREE.MeshBasicMaterial({
+        color: nodeColor, transparent: true, opacity: 0.08, depthWrite: false,
+        side: THREE.BackSide,
+    });
+    const halo = new THREE.Mesh(haloGeo, haloMat);
+
+    // ── Lens overrides ───────────────────────────────────────────────────
     if (currentLens === 'executive') {
-        const imp = Math.min(1, Math.max(0.1, importance)); // Clamp
-        shellMat.opacity = 0.05 + (imp * 0.2);
-        shellMat.transmission = 1.0; // Pure refraction
-        shellMat.thickness = 10.0;   // High refraction index
+        const imp = Math.min(1, Math.max(0.1, importance));
+        shellMat.opacity = 0.08 + (imp * 0.2);
+        shellMat.transmission = 0.95;
+        shellMat.thickness = 8.0;
         shellMat.roughness = 0.02;
-        shellMat.metalness = 0.0;
-        shellMat.clearcoat = 1.0;
-        shellMat.ior = 2.4; // Diamond-like refraction
-        shellMat.emissiveIntensity = 0.8; // Radiant glow
+        shellMat.ior = 2.2;
+        shellMat.emissiveIntensity = 0.7;
+        haloMat.opacity = 0.1;
     }
 
-    // --- SECURITY LENS: Bold Color Visibility ---
     if (currentLens === 'security') {
-        // Reduce glow so colors are visible, not washed out
-        shellMat.emissiveIntensity = 0.4;
-        // More opaque to show color
-        shellMat.opacity = 0.8;
-        // Less transparent
-        shellMat.transmission = 0.2;
-        // Slightly rougher for better color visibility
-        shellMat.roughness = 0.3;
+        shellMat.emissiveIntensity = 0.45;
+        shellMat.opacity = 0.75;
+        shellMat.transmission = 0.15;
+        shellMat.roughness = 0.25;
+        coreMat.emissiveIntensity = 0.6;
     }
 
-    // --- ENERGY LENS: Electric Glow ---
     if (currentLens === 'energy') {
         const name = (nodeData.name || "").toLowerCase();
         const table = (nodeData.id || "").toLowerCase();
         const isAsset = table.includes('batteries') || table.includes('stations') || table.includes('iot') ||
             name.includes('battery') || name.includes('station') || name.includes('device');
-
         if (isAsset) {
-            shellMat.emissiveIntensity = 0.8; // Dynamic Boost
-            shellMat.opacity = 0.95;
+            shellMat.emissiveIntensity = 0.8;
+            shellMat.opacity = 0.9;
             shellMat.transmission = 0.05;
+            coreMat.emissiveIntensity = 0.8;
+            haloMat.opacity = 0.12;
         } else {
-            shellMat.opacity = 0.15; // Slightly more visible than before (Ghosted but present)
-            shellMat.transmission = 0.85;
-            shellMat.emissiveIntensity = 0.2;
+            shellMat.opacity = 0.12;
+            shellMat.transmission = 0.8;
+            shellMat.emissiveIntensity = 0.15;
+            haloMat.opacity = 0.02;
         }
     }
 
-    const shell = new THREE.Mesh(shellGeo, shellMat);
-    sphere.add(shell);
-
-    // --- SECURITY LENS: Pulsing Forcefield ---
+    // ── Security forcefield for unhealthy nodes ──────────────────────────
     if (currentLens === 'security') {
         const health = nodeData.vitality || 100;
         if (health < 60) {
-            const shieldGeo = new THREE.IcosahedronGeometry(size * 1.4, 0); // Low poly is fine for shield (0 detail)
-            // Formula: Pulse speed = (100 - health) / 10
             const pulseSpeed = (100 - health) / 10;
-            // Formula: Color = lerp(Red, Yellow, vitality/100)
             const shieldColor = new THREE.Color(0xff0000).lerp(new THREE.Color(0xffff00), health / 100);
-
+            const shieldGeo = new THREE.IcosahedronGeometry(size * 1.4, 0);
             const shieldMat = new THREE.MeshStandardMaterial({
-                color: shieldColor,
-                wireframe: true,
-                transparent: true,
-                emissive: shieldColor,
-                emissiveIntensity: 0.5,
-                roughness: 0.1,
-                metalness: 0.1,
-                opacity: 0.6,
-                blending: THREE.AdditiveBlending
+                color: shieldColor, wireframe: true, transparent: true,
+                emissive: shieldColor, emissiveIntensity: 0.5,
+                roughness: 0.1, metalness: 0.1, opacity: 0.6,
+                blending: THREE.AdditiveBlending,
             });
-
             const shield = new THREE.Mesh(shieldGeo, shieldMat);
-            shield.userData = {
-                isShield: true,
-                pulseSpeed: Math.max(0.5, pulseSpeed), // Min speed
-                originalScale: 1.4
-            };
+            shield.userData = { isShield: true, pulseSpeed: Math.max(0.5, pulseSpeed), originalScale: 1.4 };
             sphere.add(shield);
-
-            // OPTIMIZATION: Register for animation
             if (animatedObjectsList) animatedObjectsList.push(shield);
         }
     }
 
-    // [FIX] Store nodeData in userData for Raycasting consistency
+    // ── Assemble ─────────────────────────────────────────────────────────
+    const shell = new THREE.Mesh(shellGeo, shellMat);
+    shell.userData = { isOuterShell: true };
+    sphere.add(shell);
+    spec.userData = { isSpec: true };
+    sphere.add(spec);
+    halo.userData = { isNodeHalo: true };
+    sphere.add(halo);
+
     sphere.userData = {
         ...nodeData,
         isNode: true,
+        isInnerCore: true,
         nodeGlow: nodeData.node_glow || 0.2,
-        isGlow: true
+        isGlow: true,
+        originalColor: nodeColor.getHex(),
     };
 
-    // OPTIMIZATION: Register for Glow Animation
     if (animatedObjectsList) animatedObjectsList.push(sphere);
 
-    // Label (Clean)
+    // ── Label — white with shadow for readability ────────────────────────
+    // With 50-100+ tables, showing every label at once is unreadable text soup.
+    // Only the biggest/most important nodes get a label by default; hovering
+    // reveals the rest (see the hover-dim loop in ThreeGraph.jsx, which treats
+    // sprites the same way it treats mesh opacity for hovered/connected nodes).
+    // Raised from 22: most real schemas have enough mid-importance tables to
+    // clear a size-22 bar, so 30+ labels rendered at once turned the overview
+    // into text soup. 32 keeps only the handful of standout hubs labeled.
+    const LABEL_VISIBLE_SIZE = 32;
     const labelText = nodeData.name || nodeData.id;
-    // VISUAL FIX: Doubled font size for readability
-    // COLOR FIX: Use node color instead of white for labels consistently for "Premium" feel
-    const labelColor = '#' + new THREE.Color(color).getHexString();
-    const label = createTextSprite(labelText, 80, labelColor);
-    label.position.set(0, size + 60, 0);
+    const label = createTextSprite(labelText, 80, '#ffffff');
+    label.position.set(0, size + 50, 0);
+    label.userData.alwaysHiddenLabel = size < LABEL_VISIBLE_SIZE;
+    label.visible = size >= LABEL_VISIBLE_SIZE;
     sphere.add(label);
 
     return sphere;
@@ -364,20 +404,24 @@ function createNodeMesh(nodeData, currentLens = 'ops', layoutMode = 'galaxy', cl
 function createTextSprite(message, fontsize, color) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    ctx.font = "bold " + fontsize + "px Arial";
+    const font = `bold ${fontsize}px 'Inter', 'Segoe UI', system-ui, sans-serif`;
+    ctx.font = font;
     const metrics = ctx.measureText(message);
     const textWidth = metrics.width;
-    canvas.width = textWidth + 20;
-    canvas.height = fontsize + 20;
-    ctx.font = "bold " + fontsize + "px Arial";
-    ctx.fillStyle = color;
+    const pad = fontsize * 0.4;
+    canvas.width = Math.ceil(textWidth + pad * 2);
+    canvas.height = Math.ceil(fontsize * 1.4 + pad * 2);
+    ctx.font = font;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'black';
-    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = fontsize * 0.15;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = color;
     ctx.fillText(message, canvas.width / 2, canvas.height / 2);
     const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+    texture.minFilter = THREE.LinearFilter;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
     const sprite = new THREE.Sprite(material);
     sprite.scale.set(canvas.width / 10 * 4, canvas.height / 10 * 4, 1);
     return sprite;

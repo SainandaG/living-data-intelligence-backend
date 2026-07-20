@@ -44,8 +44,12 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment
+# Environment & Secrets
 .env
+.env.*
+*.env
+firebase-key.json
+*-key.json
 .flaskenv
 
 # IDEs
@@ -74,7 +78,9 @@ backend/bandit-report.json
 backend/pip-audit-report.json
 
 # Claude Settings
+.claude
 .claude/
+*.claude*
 
 # MkDocs build directory
 site/

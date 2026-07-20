@@ -118,20 +118,40 @@ async def get_multi_table_schema(
                 "fk_links": fk_links,   # links to OTHER selected tables only
             })
 
-        # Build connection map between selected tables
+        # Build connection map between selected tables with compliance checking
+        PII_KEYWORDS = {"user", "customer", "person", "employee", "patient", "identity", "account", "profile", "member"}
+        PUBLIC_KEYWORDS = {"public", "external", "open", "shared", "export", "api", "feed"}
+
+        def _is_pii_table(name: str) -> bool:
+            nl = name.lower()
+            return any(kw in nl for kw in PII_KEYWORDS)
+
+        def _is_public_table(name: str) -> bool:
+            nl = name.lower()
+            return any(kw in nl for kw in PUBLIC_KEYWORDS)
+
         connections = []
         for tbl in result_tables:
             for link in tbl["fk_links"]:
-                connections.append({
-                    "from_table": tbl["name"],
+                from_name = tbl["name"]
+                to_name = link["referenced_table"]
+                from_public = _is_public_table(from_name)
+                to_public = _is_public_table(to_name)
+                from_pii = _is_pii_table(from_name)
+                to_pii = _is_pii_table(to_name)
+                violation = (from_public and to_pii) or (to_public and from_pii)
+                conn = {
+                    "from_table": from_name,
                     "from_column": link["column"],
-                    "to_table": link["referenced_table"],
+                    "to_table": to_name,
                     "to_column": link["referenced_column"],
-                })
+                    "compliance_violation": violation,
+                }
+                connections.append(conn)
 
         result = {
             "tables": result_tables,
-            "connections": connections,   # FKPK relationships between selected tables
+            "connections": connections,
         }
         _cache_set(cache_key, result)
         return result
@@ -689,6 +709,17 @@ async def get_row_detail(
                         "label": f" {nc}",
                     })
 
+                # Data-leakage compliance check
+                PII_KW = {"user", "customer", "person", "employee", "patient", "identity", "account", "profile", "member"}
+                PUBLIC_KW = {"public", "external", "open", "shared", "export", "api", "feed"}
+                src_lower = table_name.lower()
+                lnk_lower = linked_name.lower()
+                src_pii = any(kw in src_lower for kw in PII_KW)
+                lnk_pii = any(kw in lnk_lower for kw in PII_KW)
+                src_pub = any(kw in src_lower for kw in PUBLIC_KW)
+                lnk_pub = any(kw in lnk_lower for kw in PUBLIC_KW)
+                compliance_violation = (src_pub and lnk_pii) or (lnk_pub and src_pii)
+
                 return {
                     "uid": f"{linked_name}::{fk_col}",
                     "table": linked_name,
@@ -696,6 +727,7 @@ async def get_row_detail(
                     "row_count": total_selection_rows,
                     "metric_nodes": metric_nodes,
                     "pk_distribution": pk_distribution,
+                    "compliance_violation": compliance_violation,
                 }
             except Exception as e:
                 logger.warning(f"Analysis failed for {linked_name}: {e}", exc_info=True)

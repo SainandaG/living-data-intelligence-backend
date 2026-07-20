@@ -585,17 +585,59 @@ function DirectFKLine({ from, to, fromColor, toColor, label, fkColumn, hubSize =
 
     const displayName = fkColumn && fkColumn !== 'RELATION' && fkColumn !== 'FK' ? fkColumn : label;
 
+    const lineageLabel = fkColumn && fkColumn !== 'RELATION' && fkColumn !== 'FK'
+        ? `${fkColumn} → ${label}`
+        : null;
+
+    // Compute a point at ~25% along the curve for the persistent lineage label
+    const lineageLabelPos = useMemo(() => {
+        const vFrom = new THREE.Vector3(...from);
+        const vTo = new THREE.Vector3(...to);
+        const mid = new THREE.Vector3().addVectors(vFrom, vTo).multiplyScalar(0.5);
+        mid.y += vFrom.distanceTo(vTo) * 0.18;
+        const curve = new THREE.QuadraticBezierCurve3(vFrom, mid, vTo);
+        const pt = curve.getPoint(0.25);
+        return [pt.x, pt.y + 0.4, pt.z];
+    }, [from[0], from[1], from[2], to[0], to[1], to[2]]);
+
     return (
         <group>
             {/* Gradient arc */}
             <line>
                 <bufferGeometry onUpdate={(self) => self.setFromPoints(segA)} />
-                <lineBasicMaterial color={fromColor} transparent opacity={hubHovered ? 1.0 : 0.65} />
+                <lineDashedMaterial
+                    color={fromColor}
+                    transparent opacity={hubHovered ? 1.0 : 0.65}
+                    dashSize={1000} gapSize={0}
+                />
             </line>
             <line>
                 <bufferGeometry onUpdate={(self) => self.setFromPoints(segB)} />
-                <lineBasicMaterial color={toColor} transparent opacity={hubHovered ? 1.0 : 0.65} />
+                <lineDashedMaterial
+                    color={toColor}
+                    transparent opacity={hubHovered ? 1.0 : 0.65}
+                    dashSize={1000} gapSize={0}
+                />
             </line>
+
+            {/* XAI: Persistent lineage label showing join field names */}
+            {lineageLabel && (
+                <Html position={lineageLabelPos} center distanceFactor={55} style={{ pointerEvents: 'none' }}>
+                    <div style={{
+                        background: 'rgba(0,0,0,0.75)',
+                        color: '#94a3b8',
+                        fontSize: '8px',
+                        fontWeight: 600,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        whiteSpace: 'nowrap',
+                        border: '1px solid rgba(148,163,184,0.2)',
+                    }}>
+                        {lineageLabel}
+                    </div>
+                </Html>
+            )}
 
             {/* FK Hub Node */}
             <group position={midPos} ref={hubRef}>
@@ -671,16 +713,58 @@ function DirectFKLine({ from, to, fromColor, toColor, label, fkColumn, hubSize =
                     </div>
                 </Html>
             )}
+
+            {/* ESG: Heat particles along arc for high-frequency links */}
+            {rowCount > 500 && <HeatParticles from={from} to={to} intensity={Math.min(rowCount / 5000, 1.0)} />}
         </group>
     );
 }
+
+function HeatParticles({ from, to, intensity = 0.5 }) {
+    const particleCount = Math.max(3, Math.floor(intensity * 8));
+    const refs = useRef([]);
+
+    const curve = useMemo(() => {
+        const vFrom = new THREE.Vector3(...from);
+        const vTo = new THREE.Vector3(...to);
+        const mid = new THREE.Vector3().addVectors(vFrom, vTo).multiplyScalar(0.5);
+        mid.y += vFrom.distanceTo(vTo) * 0.18;
+        return new THREE.QuadraticBezierCurve3(vFrom, mid, vTo);
+    }, [from[0], from[1], from[2], to[0], to[1], to[2]]);
+
+    useFrame((state) => {
+        const t = state.clock.elapsedTime;
+        refs.current.forEach((ref, i) => {
+            if (!ref) return;
+            const progress = ((t * 0.4 + i / particleCount) % 1);
+            const pt = curve.getPoint(progress);
+            ref.position.set(pt.x, pt.y, pt.z);
+            const pulse = 0.06 + Math.sin(t * 4 + i) * 0.02;
+            ref.scale.setScalar(pulse);
+        });
+    });
+
+    return (
+        <group>
+            {Array.from({ length: particleCount }).map((_, i) => (
+                <mesh key={i} ref={el => { refs.current[i] = el; }}>
+                    <sphereGeometry args={[1, 6, 6]} />
+                    <meshBasicMaterial color="#ef4444" transparent opacity={0.6 + intensity * 0.3} />
+                </mesh>
+            ))}
+        </group>
+    );
+}
+
 const MemoDirectFKLine = React.memo(DirectFKLine);
 
 // ─── Hover FK Connections ────────────────────────────────────────────────────
 function HoverFKConnections({ bridges, hoveredTableId, tables, targetPositions = {} }) {
     const tableInfoMap = useMemo(() => {
         const m = new Map();
-        (tables || []).forEach(t => m.set(t.id, { scale: t.scale || 1.0, count: t.rowCount ?? t.count ?? 0 }));
+        (tables || []).forEach(t => {
+            m.set(t.id, { scale: t.scale || 1.0, count: t.rowCount ?? t.count ?? 0 });
+        });
         return m;
     }, [tables]);
 
@@ -1325,6 +1409,14 @@ function FKDistNode({ node: n }) {
                         color: '#ffffff',
                         textShadow: '0 0 6px rgba(0,0,0,0.8)',
                     }}>{n.pctLabel}</div>
+                    {/* RAI: Skew warning for dominant FK nodes */}
+                    {n.pct > 40 && (
+                        <div style={{
+                            fontSize: 7, fontWeight: 800, color: '#fca5a5', marginTop: 2,
+                            background: 'rgba(239,68,68,0.2)', padding: '1px 4px', borderRadius: 3,
+                            textShadow: 'none',
+                        }}>BIAS RISK</div>
+                    )}
                     {hovered && (
                         <div style={{ marginTop: 3 }}>
                             <div style={{ fontSize: 8, fontWeight: 700, color: '#ffffff', textShadow: '0 0 8px rgba(0,0,0,0.8)' }}>{n.pkLabel}</div>
@@ -2224,6 +2316,79 @@ function SingleNodeInspector({ node, tables, connectionId, onClose, showPKs = tr
                                 <span style={{ fontSize: 8, color: '#94a3b8', fontWeight: 700 }}>Outer ring — FK rows (size = %)</span>
                             </div>
                         </div>
+
+                        {/* XAI Skew Explainer + RAI Skew Alerts + ESG Efficiency */}
+                        {(() => {
+                            const dist = pkDistData.pk_distribution || [];
+                            const vals = dist.map(e => {
+                                let total = 0;
+                                Object.values(e.ref_counts || {}).forEach(c => { total += c; });
+                                return total;
+                            });
+                            const totalRefs = vals.reduce((a, b) => a + b, 0);
+                            const sorted = [...vals].sort((a, b) => b - a);
+                            const top3Sum = sorted.slice(0, 3).reduce((a, b) => a + b, 0);
+                            const top3Pct = totalRefs > 0 ? Math.round(top3Sum / totalRefs * 100) : 0;
+                            const mean = vals.length > 0 ? totalRefs / vals.length : 0;
+                            const variance = vals.length > 0 ? vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length : 0;
+                            const skewCoeff = mean > 0 ? Math.sqrt(variance) / mean : 0;
+                            const isSkewed = skewCoeff > 1.5;
+                            const nValues = pkDistData.pk_values?.length || 0;
+                            const nRefs = (pkDistData.referencing_tables || []).length;
+                            const estimatedQueryMs = nValues * nRefs * 2;
+
+                            return (
+                                <div style={{
+                                    position: 'absolute', bottom: 88, left: 16, marginBottom: -160, zIndex: 100,
+                                    pointerEvents: 'none', width: 250,
+                                    background: 'rgba(0,0,0,0.85)', border: '1px solid #1e293b',
+                                    borderRadius: 10, padding: '10px 14px', backdropFilter: 'blur(10px)',
+                                }}>
+                                    {/* XAI Skew Explainer */}
+                                    <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.18em', color: '#60a5fa', textTransform: 'uppercase', marginBottom: 6 }}>
+                                        XAI · Distribution Analysis
+                                    </div>
+                                    <div style={{ fontSize: 9, color: '#e2e8f0', marginBottom: 4, lineHeight: 1.5 }}>
+                                        Top 3 keys hold <span style={{ color: '#fbbf24', fontWeight: 800 }}>{top3Pct}%</span> of references.
+                                    </div>
+                                    <div style={{ fontSize: 9, color: '#94a3b8', marginBottom: 8, lineHeight: 1.5 }}>
+                                        Skewness coefficient: <span style={{ color: isSkewed ? '#ef4444' : '#4ade80', fontWeight: 700 }}>{skewCoeff.toFixed(2)}</span>
+                                        {isSkewed && <span style={{ color: '#ef4444', fontSize: 8, marginLeft: 4 }}>HIGH</span>}
+                                    </div>
+
+                                    {/* RAI Skew Alert */}
+                                    {isSkewed && (
+                                        <div style={{
+                                            background: 'rgba(239,68,68,0.12)', border: '1px solid #ef444450',
+                                            borderRadius: 6, padding: '5px 10px', marginBottom: 8,
+                                        }}>
+                                            <div style={{ fontSize: 8, fontWeight: 800, color: '#fca5a5', letterSpacing: '0.12em' }}>
+                                                RAI SKEW WARNING
+                                            </div>
+                                            <div style={{ fontSize: 8, color: '#fca5a5', lineHeight: 1.5, marginTop: 2 }}>
+                                                Dataset is highly biased — a few keys dominate. Model training on this distribution may produce unfair outcomes.
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ESG Efficiency Index */}
+                                    <div style={{ borderTop: '1px solid #1e293b', paddingTop: 6 }}>
+                                        <div style={{ fontSize: 7, fontWeight: 800, letterSpacing: '0.18em', color: '#34d399', textTransform: 'uppercase', marginBottom: 4 }}>
+                                            ESG · Query Efficiency
+                                        </div>
+                                        <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.5 }}>
+                                            Parallel branches: <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{nRefs}</span>
+                                            <span style={{ color: '#475569', margin: '0 4px' }}>·</span>
+                                            PK samples: <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{nValues}</span>
+                                        </div>
+                                        <div style={{ fontSize: 9, color: '#94a3b8', lineHeight: 1.5 }}>
+                                            Est. runtime: <span style={{ color: estimatedQueryMs < 50 ? '#4ade80' : '#fbbf24', fontWeight: 700 }}>{estimatedQueryMs}ms</span>
+                                            <span style={{ color: '#475569', fontSize: 8, marginLeft: 4 }}>(asyncio.gather)</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </>
                 );
             })()}

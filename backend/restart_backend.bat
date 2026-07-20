@@ -10,6 +10,11 @@ if %errorlevel% equ 0 (
 echo Waiting 2 seconds...
 timeout /t 2 /nobreak >nul
 
-echo Starting backend server...
-cd /d "%~dp0"
-python main.py
+if exist ..\.venv\Scripts\python.exe (
+    echo Using virtual environment Python...
+    ..\.venv\Scripts\python main.py
+) else (
+    echo Using system Python...
+    python main.py
+)
+

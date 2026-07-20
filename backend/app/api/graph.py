@@ -408,7 +408,18 @@ async def get_node_frequency(connection_id: str, table_name: str, _user: dict = 
                 "fill_rate": fill_rate,
             })
 
-        return {"table": table_name, "total_rows": total_rows, "fk_stats": fk_stats}
+        # ESG: Estimate energy cost of the frequency computation
+        _CPU_MS_PER_ROW = 0.005
+        _SERVER_TDP_W = 250
+        cpu_time_ms = total_rows * len(fk_columns) * _CPU_MS_PER_ROW
+        energy_cost_wh = round(cpu_time_ms / 3_600_000 * _SERVER_TDP_W, 6)
+
+        return {
+            "table": table_name,
+            "total_rows": total_rows,
+            "fk_stats": fk_stats,
+            "energy_cost_wh": energy_cost_wh,
+        }
 
     except HTTPException:
         raise

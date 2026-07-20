@@ -16,6 +16,7 @@ import AnalyticsView from './components/Dashboard/AnalyticsView';
 import SchemaView from './components/Dashboard/SchemaView';
 import ChatInterface from './components/Dashboard/ChatInterface';
 const PerspectiveLineageView = lazy(() => import('./components/Dashboard/PerspectiveLineageView'));
+const ProjectRoadmap = lazy(() => import('./components/Dashboard/ProjectRoadmap'));
 import SystemVitalsDashboard from './components/Dashboard/SystemVitalsDashboard';
 import IntelligenceHub from './components/Intelligence/IntelligenceHub';
 import { LatentWorld, LatentSpaceUIOverlay } from './components/Dashboard/LatentSpaceLogic.jsx';
@@ -338,6 +339,14 @@ const MainDashboard = () => {
                       connectionId={d.connectionId} pinnedNodes={d.pinnedNodes} setPinnedNodes={d.setPinnedNodes}
                       pinnedCols={d.pinnedCols} setPinnedCols={d.setPinnedCols} columnAliases={d.columnAliases} setColumnAliases={d.setColumnAliases}
                     />
+                  </ErrorBoundary>
+                } />
+
+                <Route path="/roadmap" element={
+                  <ErrorBoundary fallback={(_, reset) => <PanelError name="Roadmap" reset={reset} />}>
+                    <Suspense fallback={<div className="flex-center w-full h-full"><div className="animate-spin h-8 w-8 text-cyan-500" /></div>}>
+                      <ProjectRoadmap />
+                    </Suspense>
                   </ErrorBoundary>
                 } />
 

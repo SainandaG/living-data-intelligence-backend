@@ -63,6 +63,7 @@ def register_all_routes(app, registry, expected_routers: list):
     registry.register_optional("app.api.admin", prefix="/api", tags=["admin"], dependencies=auth_dep)
     registry.register_optional("app.api.audit_api", prefix="/api", tags=["audit-logs"], dependencies=auth_dep)
     registry.register_optional("app.api.mfa_api", prefix="/api/mfa", tags=["mfa"])
+    registry.register_optional("app.api.time_series", prefix="/api", tags=["time-series"], dependencies=auth_dep)
 
     # ── File Upload (CSV / Excel as database) ────────────────────────────────
     registry.register_optional("app.api.file_upload", prefix="/api/files", tags=["file-upload"], dependencies=auth_dep)

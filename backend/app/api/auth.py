@@ -88,6 +88,119 @@ async def _revoke_token(token: str) -> None:
 
 router = APIRouter(tags=["authentication"])
 
+# --- Firebase Admin SDK (lazy init) ---
+_firebase_app = None
+
+def _get_firebase_app():
+    global _firebase_app
+    if _firebase_app is not None:
+        return _firebase_app
+    cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
+    if not cred_path:
+        return None
+    try:
+        import firebase_admin
+        from firebase_admin import credentials
+        cred = credentials.Certificate(cred_path)
+        _firebase_app = firebase_admin.initialize_app(cred)
+        logger.info("Firebase Admin SDK initialized")
+        return _firebase_app
+    except Exception as e:
+        logger.warning("Firebase Admin init failed: %s", e)
+        return None
+
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str
+
+
+@router.post("/google")
+@limiter.limit("10/minute")
+async def google_login(request: Request, body: GoogleLoginRequest):
+    """Authenticate via Firebase Google Sign-In.
+
+    Frontend sends the Firebase ID token after signInWithPopup.
+    Backend verifies it, upserts the user, and returns the same JWT
+    structure as /login so the rest of the app works unchanged.
+    """
+    app = _get_firebase_app()
+    if not app:
+        raise HTTPException(status_code=501, detail="Firebase not configured on server")
+
+    from firebase_admin import auth as fb_auth
+    try:
+        decoded = fb_auth.verify_id_token(body.id_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    email = decoded.get("email")
+    full_name = decoded.get("name", email.split("@")[0] if email else "User")
+    if not email:
+        raise HTTPException(status_code=400, detail="Google account has no email")
+
+    # Upsert user in platform DB
+    role = "viewer"
+    tenant_id = "default"
+    db_host = os.getenv("DB_HOST")
+    if db_host:
+        ssl_ctx = None
+        if "neon.tech" in db_host:
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = True
+            ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+        try:
+            conn = await asyncpg.connect(
+                host=db_host,
+                port=int(os.getenv("DB_PORT", "5432")),
+                user=os.getenv("DB_USER", "postgres"),
+                password=os.getenv("DB_PASSWORD", ""),
+                database=os.getenv("DB_NAME", "wezu_backend"),
+                ssl=ssl_ctx, timeout=10,
+            )
+            try:
+                row = await conn.fetchrow(
+                    "SELECT role, tenant_id, is_active FROM users WHERE email = $1", email
+                )
+                if row:
+                    if not row["is_active"]:
+                        raise HTTPException(status_code=403, detail="Account is deactivated")
+                    role = row["role"]
+                    tenant_id = row["tenant_id"] or "default"
+                else:
+                    await conn.execute(
+                        """INSERT INTO users (
+                            full_name, email, hashed_password, role, tenant_id,
+                            is_active, is_superuser, kyc_status, consent_captured,
+                            two_factor_enabled, biometric_login_enabled, status,
+                            two_factor_pending, is_email_verified, is_deleted,
+                            created_at, updated_at
+                        ) VALUES ($1,$2,$3,$4,$5,TRUE,FALSE,'pending',FALSE,FALSE,FALSE,'active',FALSE,TRUE,FALSE,NOW(),NOW())""",
+                        full_name, email, "GOOGLE_OAUTH_NO_PASSWORD", "viewer", "default",
+                    )
+            finally:
+                await conn.close()
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Google auth DB upsert failed: %s", e)
+
+    token_data = {"sub": email, "role": role, "tenant_id": tenant_id}
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
+
+    await audit_logger.log(AuditEvent(
+        event_type=AuditEventType.LOGIN_SUCCESS,
+        user_id=email, role=role,
+        metadata={"provider": "google", "tenant_id": tenant_id},
+    ))
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": {"email": email, "role": role, "permissions": {}},
+    }
+
 
 def _get_valid_users() -> Dict[str, str]:
     """

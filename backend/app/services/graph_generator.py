@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 class GraphGenerator:
     """Generate 3D graph from database schema with advanced visualization"""
-    
+
+    # ESG constants for carbon footprint estimation
+    SERVER_TDP_WATTS = 250        # Typical server TDP in watts
+    CARBON_FACTOR_GCO2_PER_WH = 0.4  # gCO2e per watt-hour (global avg grid)
+    CPU_MS_PER_ROW = 0.005        # Estimated CPU ms per row scanned
+
     # Entity-specific color palette (BRIGHT, vibrant colors for dark background)
     ENTITY_COLORS = {
         'fact': '#fbbf24',       # Bright Gold/Amber
@@ -44,6 +49,34 @@ class GraphGenerator:
     
     # Backward compatibility
     CLUSTER_COLORS = HEURISTIC_COLORS
+
+    def _calculate_carbon_footprint(self, row_count: int) -> float:
+        """Estimate gCO2e for scanning this table based on row count as a CPU-time proxy."""
+        cpu_time_ms = row_count * self.CPU_MS_PER_ROW
+        cpu_time_h = cpu_time_ms / 3_600_000
+        energy_wh = cpu_time_h * self.SERVER_TDP_WATTS
+        return round(energy_wh * self.CARBON_FACTOR_GCO2_PER_WH, 4)
+
+    @staticmethod
+    def _calculate_governance_score(table: dict) -> int:
+        """Score 0-100 based on structural governance indicators (PKs, FKs, column docs)."""
+        score = 0
+        columns = table.get('columns', [])
+        has_pk = any(c.get('is_pk') for c in columns)
+        has_fk = len(table.get('foreign_keys', [])) > 0
+        has_comment = bool(table.get('comment') or table.get('description'))
+        col_count = len(columns)
+
+        if has_pk:
+            score += 40
+        if has_fk:
+            score += 20
+        if has_comment:
+            score += 20
+        named_cols = sum(1 for c in columns if len(c.get('name', '')) > 2)
+        if col_count > 0:
+            score += int((named_cols / col_count) * 20)
+        return min(score, 100)
 
     def _calculate_statistical_position(self, table: dict, neural_gravity: float) -> tuple:
         """
@@ -472,16 +505,21 @@ class GraphGenerator:
         color = self.ENTITY_COLORS.get(t_type, self.ENTITY_COLORS.get('other', '#94a3b8'))
         if b_entity == 'fraud': color = self.ENTITY_COLORS.get('fraud', '#ef4444')
         
+        carbon = self._calculate_carbon_footprint(row_count)
+        governance = self._calculate_governance_score(table)
+
         return {
             'id': t_name,
             'name': t_name,
             'table_type': t_type,
             'entity': b_entity,
             'schema_name': table.get('schema_name', 'public'),
-            'size': min(size, 80), # Limit max size
+            'size': min(size, 80),
             'color': color,
             'row_count': row_count,
-            'record_count': row_count, # Redundancy factor
+            'record_count': row_count,
+            'carbon_footprint': carbon,
+            'governance_score': governance,
             'decision_provenance': table.get('decision_provenance'),
             'property_mapping': table.get('property_mapping'),
             'x': x, 'y': y, 'z': z,
@@ -489,6 +527,8 @@ class GraphGenerator:
             'foreign_keys': table.get('foreign_keys', []),
             'customMetrics': {
                 'Complexity': f"{len(table.get('columns', []))} cols",
+                'Carbon': f"{carbon} gCO₂e",
+                'Governance': f"{governance}/100",
                 'Provenance': 'AI Verified' if table.get('decision_provenance') else 'Heuristic'
             }
         }
